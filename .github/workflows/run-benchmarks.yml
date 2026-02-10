@@ -3,13 +3,17 @@ name: Run Benchmarks
 on:
   workflow_dispatch:
     inputs:
-      family:
-        description: "Instance family to test"
+      provider:
+        description: "Cloud provider"
         type: choice
         options:
-          - all
-          - c3
-          - n2
+          - gcp
+          - aws
+          - azure
+        default: gcp
+      family:
+        description: "Instance family (provider-dependent, or 'all')"
+        type: string
         default: all
       filter:
         description: "Instance filter regex (optional)"
@@ -46,13 +50,47 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      # GCP auth (only when provider is gcp)
       - name: Authenticate to GCP
+        if: inputs.provider == 'gcp' || inputs.provider == ''
         uses: google-github-actions/auth@v2
         with:
           credentials_json: ${{ secrets.GCP_SA_KEY }}
 
       - name: Setup gcloud
+        if: inputs.provider == 'gcp' || inputs.provider == ''
         uses: google-github-actions/setup-gcloud@v2
+
+      # AWS auth (only when provider is aws)
+      - name: Configure AWS credentials
+        if: inputs.provider == 'aws'
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: ${{ secrets.AWS_REGION || 'us-east-1' }}
+
+      - name: Setup AWS SSH key
+        if: inputs.provider == 'aws'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AWS_SSH_PRIVATE_KEY }}" > ~/.ssh/tailbench.pem
+          chmod 600 ~/.ssh/tailbench.pem
+
+      # Azure auth (only when provider is azure)
+      - name: Azure login
+        if: inputs.provider == 'azure'
+        uses: azure/login@v2
+        with:
+          creds: ${{ secrets.AZURE_CREDENTIALS }}
+
+      - name: Setup Azure SSH key
+        if: inputs.provider == 'azure'
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.AZURE_SSH_PRIVATE_KEY }}" > ~/.ssh/tailbench
+          echo "${{ secrets.AZURE_SSH_PUBLIC_KEY }}" > ~/.ssh/tailbench.pub
+          chmod 600 ~/.ssh/tailbench
 
       - name: Install dependencies
         run: |
@@ -85,13 +123,21 @@ jobs:
 
       - name: Run benchmarks
         env:
+          CLOUD_PROVIDER: ${{ inputs.provider || 'gcp' }}
           TS_OAUTH_CLIENT_ID: ${{ steps.auth.outputs.oauth_client_id || secrets.TS_OAUTH_CLIENT_ID }}
           TS_OAUTH_CLIENT_SECRET: ${{ steps.auth.outputs.oauth_client_secret || secrets.TS_OAUTH_CLIENT_SECRET }}
           TS_TAG: ${{ secrets.TS_TAG || 'tag:bench' }}
           GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
           GCP_ZONE: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+          AWS_REGION: ${{ secrets.AWS_REGION || 'us-east-1' }}
+          AWS_KEY_NAME: ${{ secrets.AWS_KEY_NAME || 'tailbench' }}
+          AWS_SSH_KEY_PATH: ~/.ssh/tailbench.pem
+          AZURE_LOCATION: ${{ secrets.AZURE_LOCATION || 'eastus' }}
+          AZURE_RESOURCE_GROUP: ${{ secrets.AZURE_RESOURCE_GROUP || 'tailbench-rg' }}
+          AZURE_SSH_KEY_PATH: ~/.ssh/tailbench
+          AZURE_SSH_PUB_KEY_PATH: ~/.ssh/tailbench.pub
         run: |
-          ARGS="--family ${{ inputs.family || 'all' }}"
+          ARGS="--provider ${{ inputs.provider || 'gcp' }} --family ${{ inputs.family || 'all' }}"
           if [[ -n "${{ inputs.filter }}" ]]; then
             ARGS="$ARGS --filter '${{ inputs.filter }}'"
           fi
@@ -104,7 +150,7 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add gcp/*/results/*.json website/data.generated.js
+          git add {gcp,aws,azure}/*/results/*.json website/data.generated.js 2>/dev/null || true
           if git diff --staged --quiet; then
             echo "No new results to commit"
           else

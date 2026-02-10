@@ -5,16 +5,13 @@ TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
 source "$TAILBENCH_ROOT/lib/tailscale.sh"
 source "$TAILBENCH_ROOT/lib/tailnet.sh"
-source "$TAILBENCH_ROOT/lib/cleanup.sh"
-source "$TAILBENCH_ROOT/config/defaults.sh"
-source "$TAILBENCH_ROOT/config/regions.sh"
-source "$TAILBENCH_ROOT/config/instances.sh"
 
 FILTER=""
 DRY_RUN=false
 FAMILY="all"
 CREATE_TAILNET=false
 TAILNET_PREFIX="${TAILNET_PREFIX:-tailbench}"
+export CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 
 # Org-level token for tailnet creation (separate from per-tailnet token)
 ORG_ACCESS_TOKEN=""
@@ -23,14 +20,20 @@ usage() {
   cat >&2 <<EOF
 Usage: $(basename "$0") [OPTIONS]
 
-Run Tailscale performance benchmarks across GCP instance types.
+Run Tailscale performance benchmarks across cloud instance types.
 
 Options:
-  --filter <regex>       Only test instance types matching regex
-  --family <c3|n2|all>   Select instance family (default: all)
-  --create-tailnet       Create an ephemeral API-only tailnet for the run
-  --dry-run              Preview what would run without executing
-  -h, --help             Show this help
+  --provider <gcp|aws|azure>  Cloud provider (default: gcp)
+  --filter <regex>             Only test instance types matching regex
+  --family <name|all>          Select instance family (default: all)
+  --create-tailnet             Create an ephemeral API-only tailnet for the run
+  --dry-run                    Preview what would run without executing
+  -h, --help                   Show this help
+
+Provider families:
+  gcp:   c3, n2
+  aws:   c6i, m6i, c7g, m7g
+  azure: dv5, fv2, ev5
 
 Required environment variables:
   TS_OAUTH_CLIENT_ID     Tailscale OAuth client ID
@@ -48,6 +51,7 @@ EOF
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
+    --provider)        export CLOUD_PROVIDER="$2"; shift 2 ;;
     --filter)          FILTER="$2"; shift 2 ;;
     --family)          FAMILY="$2"; shift 2 ;;
     --create-tailnet)  CREATE_TAILNET=true; shift ;;
@@ -57,26 +61,20 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Source provider after parsing --provider flag
+source "$TAILBENCH_ROOT/lib/provider.sh"
+source "$TAILBENCH_ROOT/lib/cleanup.sh"
+
 # Validate prereqs
-require_cmd gcloud jq curl
-
-if ! gcloud auth print-access-token &>/dev/null; then
-  log_error "gcloud not authenticated. Run: gcloud auth login"
-  exit 1
-fi
-
-if [[ -z "${TS_OAUTH_CLIENT_ID:-}" || -z "${TS_OAUTH_CLIENT_SECRET:-}" ]]; then
-  log_error "TS_OAUTH_CLIENT_ID and TS_OAUTH_CLIENT_SECRET must be set"
-  exit 1
-fi
+require_cmd jq curl $(cloud_required_cmds)
 
 # Build instance list
-case "$FAMILY" in
-  c3)  instances=("${GCP_C3_INSTANCES[@]}") ;;
-  n2)  instances=("${GCP_N2_INSTANCES[@]}") ;;
-  all) instances=("${ALL_INSTANCES[@]}") ;;
-  *)   log_error "Unknown family: $FAMILY (use c3, n2, or all)"; exit 1 ;;
-esac
+instance_list=$(get_instance_list "$FAMILY") || {
+  valid_families=$(get_provider_families)
+  log_error "Unknown family '$FAMILY' for $CLOUD_PROVIDER (valid: $valid_families, or all)"
+  exit 1
+}
+read -ra instances <<< "$instance_list"
 
 if [[ -n "$FILTER" ]]; then
   filtered=()
@@ -94,6 +92,7 @@ if (( total == 0 )); then
   exit 1
 fi
 
+log_info "Provider: $CLOUD_PROVIDER | Region: $CLOUD_REGION | Zone: $CLOUD_ZONE"
 log_info "Will test $total instance type(s): ${instances[*]}"
 
 # Dry-run: just show the plan
@@ -107,10 +106,13 @@ if $DRY_RUN; then
   for i in "${!instances[@]}"; do
     n=$(( i + 1 ))
     inst="${instances[$i]}"
-    echo "[$n/$total] $inst"
+    family=$(get_instance_family "$inst")
+    vcpus=$(get_instance_vcpus "$inst")
+    echo "[$n/$total] $inst (family=$family, vcpus=$vcpus)"
     echo "  provision-pair.sh $inst"
     echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> <s_ts> <c_ts>"
     echo "  teardown-pair.sh <server> <client>"
+    echo "  -> $CLOUD_PROVIDER/$family/results/$inst.json"
   done
   echo ""
   echo "generate-results.sh"
@@ -121,7 +123,15 @@ if $DRY_RUN; then
   exit 0
 fi
 
-# Setup GCP cleanup trap
+# Validate credentials (not needed for dry-run)
+cloud_check_auth
+
+if [[ -z "${TS_OAUTH_CLIENT_ID:-}" || -z "${TS_OAUTH_CLIENT_SECRET:-}" ]]; then
+  log_error "TS_OAUTH_CLIENT_ID and TS_OAUTH_CLIENT_SECRET must be set"
+  exit 1
+fi
+
+# Setup cleanup trap
 setup_cleanup_trap
 
 # Tailnet lifecycle
@@ -166,7 +176,7 @@ fi
 ts_get_oauth_token
 ts_create_authkey
 export TS_ACCESS_TOKEN TS_AUTHKEY TS_AUTHKEY_CREATED TS_TAG
-export GCP_PROJECT GCP_ZONE GCP_REGION
+export CLOUD_PROVIDER CLOUD_REGION CLOUD_ZONE
 
 # Track results for summary table
 declare -a result_lines=()
@@ -209,10 +219,10 @@ for i in "${!instances[@]}"; do
 
   if [[ -z "$step_failed" ]]; then
     log_info "[$n/$total] $inst completed successfully"
-    (( successes++ ))
+    successes=$(( successes + 1 ))
 
     family=$(get_instance_family "$inst")
-    result_file="$TAILBENCH_ROOT/gcp/$family/results/$inst.json"
+    result_file="$TAILBENCH_ROOT/$CLOUD_PROVIDER/$family/results/$inst.json"
     if [[ -f "$result_file" ]]; then
       baseline=$(jq -r '.baseline_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$result_file")
       tailscale=$(jq -r '.tailscale_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$result_file")
@@ -221,7 +231,7 @@ for i in "${!instances[@]}"; do
     fi
   else
     log_error "[$n/$total] $inst FAILED at $step_failed"
-    (( failures++ ))
+    failures=$(( failures + 1 ))
     result_lines+=("$(printf '%-20s FAILED (%s)' "$inst" "$step_failed")")
   fi
 
@@ -234,7 +244,7 @@ log_info "Generating aggregated results..."
 
 # Print summary
 echo ""
-echo "=== Tailbench Results ==="
+echo "=== Tailbench Results ($CLOUD_PROVIDER) ==="
 printf '%-20s %-17s %-18s %s\n' "Instance Type" "Baseline (Gbps)" "Tailscale (Gbps)" "Overhead"
 printf '%-20s %-17s %-18s %s\n' "-------------" "---------------" "----------------" "--------"
 for line in "${result_lines[@]}"; do
@@ -242,6 +252,6 @@ for line in "${result_lines[@]}"; do
 done
 echo "=== $successes/$total tests completed successfully ==="
 
-if (( failures > 0 )); then
+if [[ $failures -gt 0 ]]; then
   exit 1
 fi

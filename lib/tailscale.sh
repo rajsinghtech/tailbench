@@ -53,18 +53,14 @@ ts_create_authkey() {
 }
 
 ts_get_ip() {
-  local instance="$1" zone="$2"
-  gcloud compute ssh "$instance" --zone="$zone" --project="$GCP_PROJECT" \
-    --ssh-flag="-o StrictHostKeyChecking=no" --quiet \
-    --command="tailscale ip -4" 2>/dev/null
+  local instance="$1"
+  cloud_ssh "$instance" "tailscale ip -4" 2>/dev/null
 }
 
 ts_wait_for_peer() {
-  local instance="$1" zone="$2" peer_ip="$3"
+  local instance="$1" peer_ip="$2"
   log_info "Waiting for $instance to reach peer $peer_ip via Tailscale"
-  retry 30 2 gcloud compute ssh "$instance" --zone="$zone" --project="$GCP_PROJECT" \
-    --ssh-flag="-o StrictHostKeyChecking=no" --quiet \
-    --command="tailscale ping -c 1 $peer_ip" 2>/dev/null
+  retry 30 2 cloud_ssh "$instance" "tailscale ping -c 1 $peer_ip" 2>/dev/null
 }
 
 ts_remove_device() {
@@ -84,9 +80,7 @@ ts_maybe_refresh_key() {
 }
 
 ts_up() {
-  local instance="$1" zone="$2" hostname="$3"
+  local instance="$1" hostname="$2"
   log_info "Bringing up Tailscale on $instance as $hostname"
-  gcloud compute ssh "$instance" --zone="$zone" --project="$GCP_PROJECT" \
-    --ssh-flag="-o StrictHostKeyChecking=no" --quiet \
-    --command="sudo tailscale up --authkey=$TS_AUTHKEY --hostname=$hostname"
+  cloud_ssh "$instance" "sudo tailscale up --authkey=$TS_AUTHKEY --hostname=$hostname"
 }

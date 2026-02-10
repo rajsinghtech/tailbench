@@ -2,12 +2,9 @@
 set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$TAILBENCH_ROOT/config/regions.sh"
 
 gcp_create_instance() {
-  local name="$1" machine_type="$2"
-  shift 2
-  local extra_args=("$@")
+  local name="$1" machine_type="$2" startup_script="$3"
 
   log_info "Creating instance $name ($machine_type) in $GCP_ZONE"
   gcloud compute instances create "$name" \
@@ -21,7 +18,7 @@ gcp_create_instance() {
     --scopes=cloud-platform \
     --boot-disk-size=50GB \
     --boot-disk-type=pd-ssd \
-    "${extra_args[@]}" \
+    --metadata-from-file=startup-script="$startup_script" \
     --quiet
 }
 
@@ -68,4 +65,25 @@ gcp_instance_exists() {
     --project="$GCP_PROJECT" \
     --zone="$GCP_ZONE" \
     &>/dev/null
+}
+
+gcp_check_auth() {
+  if ! gcloud auth print-access-token &>/dev/null; then
+    log_error "gcloud not authenticated. Run: gcloud auth login"
+    return 1
+  fi
+}
+
+gcp_required_cmds() {
+  echo "gcloud"
+}
+
+gcp_get_instance_family() {
+  local instance_type="$1"
+  echo "${instance_type%%-*}"
+}
+
+gcp_get_instance_vcpus() {
+  local instance_type="$1"
+  echo "${instance_type##*-}"
 }

@@ -2,7 +2,6 @@
 set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$TAILBENCH_ROOT/lib/gcp.sh"
 
 TAILBENCH_CLEANUP_FILE="${TAILBENCH_CLEANUP_FILE:-/tmp/tailbench-cleanup-$$}"
 
@@ -13,7 +12,7 @@ cleanup_handler() {
   log_info "Running cleanup..."
   while IFS= read -r instance; do
     [[ -z "$instance" ]] && continue
-    gcp_delete_instance "$instance"
+    cloud_delete_instance "$instance"
   done < "$TAILBENCH_CLEANUP_FILE"
   rm -f "$TAILBENCH_CLEANUP_FILE"
   log_info "Cleanup complete"

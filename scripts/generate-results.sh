@@ -9,9 +9,12 @@ tmp="$(mktemp)"
 trap 'rm -f "$tmp"' EXIT
 
 results=()
-while IFS= read -r -d '' file; do
-  results+=("$file")
-done < <(find "$TAILBENCH_ROOT/gcp" -path '*/results/*.json' -print0 2>/dev/null | sort -z)
+for provider_dir in "$TAILBENCH_ROOT"/{gcp,aws,azure}; do
+  [[ -d "$provider_dir" ]] || continue
+  while IFS= read -r -d '' file; do
+    results+=("$file")
+  done < <(find "$provider_dir" -path '*/results/*.json' -print0 2>/dev/null | sort -z)
+done
 
 count=0
 echo '[' > "$tmp"
@@ -22,11 +25,11 @@ for file in "${results[@]}"; do
     log_warn "skipping malformed JSON: $rel"
     continue
   }
-  if (( count > 0 )); then
+  if [[ $count -gt 0 ]]; then
     echo ',' >> "$tmp"
   fi
   echo "$entry" >> "$tmp"
-  (( count++ ))
+  count=$(( count + 1 ))
 done
 
 echo ']' >> "$tmp"

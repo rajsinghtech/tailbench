@@ -3,11 +3,10 @@ set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
-source "$TAILBENCH_ROOT/lib/gcp.sh"
+source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/tailscale.sh"
 source "$TAILBENCH_ROOT/lib/iperf.sh"
 source "$TAILBENCH_ROOT/lib/mtr.sh"
-source "$TAILBENCH_ROOT/config/instances.sh"
 
 usage() {
   echo "Usage: $0 <instance_type> <server_name> <client_name> <server_lan_ip> <client_lan_ip> <server_ts_ip> <client_ts_ip>" >&2
@@ -24,36 +23,36 @@ client_lan_ip="$5"
 server_ts_ip="$6"
 client_ts_ip="$7"
 
-require_cmd jq gcloud awk
+require_cmd jq awk $(cloud_required_cmds)
 
 log_info "Starting benchmark for $instance_type"
 log_info "Server: $server_name ($server_lan_ip / $server_ts_ip)"
 log_info "Client: $client_name ($client_lan_ip / $client_ts_ip)"
 
 # Start iperf server
-iperf_start_server "$server_name" "$GCP_ZONE"
+iperf_start_server "$server_name"
 sleep 2
 
 # Baseline TCP test (LAN)
 log_info "Running baseline TCP test"
-baseline_runs=$(iperf_run_test "$client_name" "$GCP_ZONE" "$server_lan_ip" \
+baseline_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
   "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
 
 # Tailscale TCP test
 log_info "Running Tailscale TCP test"
-tailscale_runs=$(iperf_run_test "$client_name" "$GCP_ZONE" "$server_ts_ip" \
+tailscale_runs=$(iperf_run_test "$client_name" "$server_ts_ip" \
   "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
 
 # Baseline MTR
 log_info "Running baseline MTR"
-baseline_mtr=$(mtr_run_and_parse "$client_name" "$GCP_ZONE" "$server_lan_ip" "$MTR_CYCLES")
+baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES")
 
 # Tailscale MTR
 log_info "Running Tailscale MTR"
-tailscale_mtr=$(mtr_run_and_parse "$client_name" "$GCP_ZONE" "$server_ts_ip" "$MTR_CYCLES")
+tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES")
 
 # Stop iperf server
-iperf_stop_server "$server_name" "$GCP_ZONE"
+iperf_stop_server "$server_name"
 
 # Compute summaries
 compute_summary() {
@@ -98,20 +97,22 @@ retransmits_overhead=$(jq -n --argjson b "$baseline_retransmits_avg" --argjson t
   'if $b == 0 then 0 else (($t - $b) / (if $b == 0 then 1 else $b end) * 100) end')
 
 # Tailscale version
-ts_version=$(gcp_ssh "$server_name" "tailscale version | head -1" | tr -d '[:space:]')
+ts_version=$(cloud_ssh "$server_name" "tailscale version | head -1" | tr -d '[:space:]')
 log_info "Tailscale version: $ts_version"
 
-# Instance family
+# Instance family + vcpus
 family=$(get_instance_family "$instance_type")
+vcpus=$(get_instance_vcpus "$instance_type")
 today=$(date +%Y-%m-%d)
 
 # Assemble result JSON
 result=$(jq -n \
-  --arg provider "gcp" \
+  --arg provider "$CLOUD_PROVIDER" \
   --arg family "$family" \
   --arg type "$instance_type" \
-  --arg region "$GCP_REGION" \
-  --arg zone "$GCP_ZONE" \
+  --argjson vcpus "$vcpus" \
+  --arg region "$CLOUD_REGION" \
+  --arg zone "$CLOUD_ZONE" \
   --arg date "$today" \
   --arg ts_version "$ts_version" \
   --argjson duration "$IPERF_DURATION" \
@@ -130,6 +131,7 @@ result=$(jq -n \
     cloud_provider: $provider,
     instance_family: $family,
     instance_type: $type,
+    vcpus: $vcpus,
     region: $region,
     zone: $zone,
     date: $date,
@@ -148,12 +150,12 @@ result=$(jq -n \
   }')
 
 # Write output
-outdir="$TAILBENCH_ROOT/gcp/$family/results"
+outdir="$TAILBENCH_ROOT/$CLOUD_PROVIDER/$family/results"
 mkdir -p "$outdir"
 outfile="$outdir/$instance_type.json"
 echo "$result" | jq '.' > "$outfile"
 
-log_info "Results written to gcp/$family/results/$instance_type.json"
+log_info "Results written to $CLOUD_PROVIDER/$family/results/$instance_type.json"
 log_info "Baseline: $(echo "$baseline_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
 log_info "Tailscale: $(echo "$tailscale_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
 log_info "Bandwidth overhead: $(printf '%.1f' "$(echo "$bandwidth_overhead" | tr -d '\n')")%"

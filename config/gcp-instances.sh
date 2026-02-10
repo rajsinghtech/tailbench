@@ -19,15 +19,4 @@ GCP_N2_INSTANCES=(
   n2-standard-64
 )
 
-ALL_INSTANCES=("${GCP_C3_INSTANCES[@]}" "${GCP_N2_INSTANCES[@]}")
-
-get_instance_family() {
-  local instance_type="$1"
-  echo "${instance_type%%-*}"
-}
-
-get_instance_vcpus() {
-  local instance_type="$1"
-  local size="${instance_type##*-}"
-  echo "$size"
-}
+GCP_ALL_INSTANCES=("${GCP_C3_INSTANCES[@]}" "${GCP_N2_INSTANCES[@]}")

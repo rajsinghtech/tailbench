@@ -25,13 +25,11 @@ retry() {
 }
 
 wait_for_ssh() {
-  local instance="$1" zone="$2"
+  local instance="$1"
   local attempt=0
   log_info "Waiting for SSH on $instance..."
   while (( attempt < SSH_RETRIES )); do
-    if gcloud compute ssh "$instance" --zone="$zone" --project="$GCP_PROJECT" \
-         --command="true" --ssh-flag="-o StrictHostKeyChecking=no" \
-         --ssh-flag="-o ConnectTimeout=5" --quiet 2>/dev/null; then
+    if cloud_ssh "$instance" "true" 2>/dev/null; then
       log_info "SSH ready on $instance"
       return 0
     fi
@@ -58,13 +56,11 @@ wait_for_port() {
 }
 
 wait_for_ready() {
-  local instance="$1" zone="$2"
+  local instance="$1"
   local deadline=$(( $(date +%s) + READY_TIMEOUT ))
   log_info "Waiting for $instance to be ready..."
   while (( $(date +%s) < deadline )); do
-    if gcloud compute ssh "$instance" --zone="$zone" --project="$GCP_PROJECT" \
-         --ssh-flag="-o StrictHostKeyChecking=no" --quiet \
-         --command="test -f /tmp/tailbench-ready" 2>/dev/null; then
+    if cloud_ssh "$instance" "test -f /tmp/tailbench-ready" 2>/dev/null; then
       log_info "$instance is ready"
       return 0
     fi

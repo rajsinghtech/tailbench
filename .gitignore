@@ -1,5 +1,7 @@
 # Results (generated)
 gcp/*/results/*.json
+aws/*/results/*.json
+azure/*/results/*.json
 
 # Generated website data
 website/data.generated.js
