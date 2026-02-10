@@ -1,0 +1,117 @@
+name: Run Benchmarks
+
+on:
+  workflow_dispatch:
+    inputs:
+      family:
+        description: "Instance family to test"
+        type: choice
+        options:
+          - all
+          - c3
+          - n2
+        default: all
+      filter:
+        description: "Instance filter regex (optional)"
+        required: false
+        default: ""
+      create_tailnet:
+        description: "Create ephemeral tailnet for the run"
+        type: boolean
+        default: true
+      audience:
+        description: "Audience for OIDC token (if using OIDC auth)"
+        required: false
+        default: ""
+      client_id:
+        description: "Client ID for OIDC exchange (if using OIDC auth)"
+        required: false
+        default: ""
+  schedule:
+    - cron: "0 6 * * 1"  # Weekly Monday 6am UTC
+
+permissions:
+  id-token: write
+  contents: write
+  pages: write
+
+concurrency:
+  group: benchmarks
+  cancel-in-progress: false
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Authenticate to GCP
+        uses: google-github-actions/auth@v2
+        with:
+          credentials_json: ${{ secrets.GCP_SA_KEY }}
+
+      - name: Setup gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Install dependencies
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq jq curl
+
+      - name: Determine auth method and get access token
+        id: auth
+        run: |
+          if [[ -n "${{ inputs.audience }}" && -n "${{ inputs.client_id }}" ]]; then
+            echo "Using OIDC authentication"
+            JWT=$(curl -sH "Authorization: Bearer $ACTIONS_ID_TOKEN_REQUEST_TOKEN" \
+              "${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=${{ inputs.audience }}" | jq -r '.value')
+            echo "::add-mask::$JWT"
+            # Exchange OIDC token
+            RESPONSE=$(curl -s -X POST https://api.tailscale.com/api/v2/oauth/token-exchange \
+              -H "Content-Type: application/x-www-form-urlencoded" \
+              -d "client_id=${{ inputs.client_id }}" \
+              -d "subject_token=$JWT" \
+              -d "subject_token_type=urn:ietf:params:oauth:token-type:id-token" \
+              -d "grant_type=urn:ietf:params:oauth:grant-type:token-exchange")
+            echo "oauth_client_id=${{ inputs.client_id }}" >> $GITHUB_OUTPUT
+            echo "using_oidc=true" >> $GITHUB_OUTPUT
+          else
+            echo "Using OAuth client credentials"
+            echo "oauth_client_id=${{ secrets.TS_OAUTH_CLIENT_ID }}" >> $GITHUB_OUTPUT
+            echo "oauth_client_secret=${{ secrets.TS_OAUTH_CLIENT_SECRET }}" >> $GITHUB_OUTPUT
+            echo "using_oidc=false" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run benchmarks
+        env:
+          TS_OAUTH_CLIENT_ID: ${{ steps.auth.outputs.oauth_client_id || secrets.TS_OAUTH_CLIENT_ID }}
+          TS_OAUTH_CLIENT_SECRET: ${{ steps.auth.outputs.oauth_client_secret || secrets.TS_OAUTH_CLIENT_SECRET }}
+          TS_TAG: ${{ secrets.TS_TAG || 'tag:bench' }}
+          GCP_PROJECT: ${{ secrets.GCP_PROJECT }}
+          GCP_ZONE: ${{ secrets.GCP_ZONE || 'us-central1-a' }}
+        run: |
+          ARGS="--family ${{ inputs.family || 'all' }}"
+          if [[ -n "${{ inputs.filter }}" ]]; then
+            ARGS="$ARGS --filter '${{ inputs.filter }}'"
+          fi
+          if [[ "${{ inputs.create_tailnet }}" == "true" ]]; then
+            ARGS="$ARGS --create-tailnet"
+          fi
+          eval "./scripts/orchestrate.sh $ARGS"
+
+      - name: Commit results
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add gcp/*/results/*.json website/data.generated.js
+          if git diff --staged --quiet; then
+            echo "No new results to commit"
+          else
+            git commit -m "Update benchmark results $(date +%Y-%m-%d)"
+            git push
+          fi
+
+  deploy:
+    needs: benchmark
+    uses: ./.github/workflows/deploy-pages.yml
