@@ -46,6 +46,8 @@ gcp_ssh() {
     --project="$GCP_PROJECT" \
     --zone="$GCP_ZONE" \
     --ssh-flag="-o StrictHostKeyChecking=no" \
+    --ssh-flag="-o ConnectTimeout=10" \
+    --ssh-flag="-o LogLevel=ERROR" \
     --quiet \
     --command="$*"
 }

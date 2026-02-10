@@ -188,8 +188,10 @@ for i in "${!instances[@]}"; do
   inst="${instances[$i]}"
   log_info "=== [$n/$total] Testing $inst ==="
 
-  SERVER_NAME="${INSTANCE_PREFIX}-${inst}-server"
-  CLIENT_NAME="${INSTANCE_PREFIX}-${inst}-client"
+  safe_inst="${inst//_/-}"
+  safe_inst="${safe_inst,,}"
+  SERVER_NAME="${INSTANCE_PREFIX}-${safe_inst}-server"
+  CLIENT_NAME="${INSTANCE_PREFIX}-${safe_inst}-client"
   SERVER_LAN_IP="" CLIENT_LAN_IP="" SERVER_TS_IP="" CLIENT_TS_IP=""
   step_failed=""
 

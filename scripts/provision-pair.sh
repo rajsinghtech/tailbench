@@ -9,8 +9,12 @@ source "$TAILBENCH_ROOT/lib/cleanup.sh"
 
 instance_type="${1:?Usage: provision-pair.sh <instance_type>}"
 
-server_name="${INSTANCE_PREFIX}-${instance_type}-server"
-client_name="${INSTANCE_PREFIX}-${instance_type}-client"
+# Sanitize for DNS-safe VM and Tailscale hostnames (Azure types have underscores)
+safe_name="${instance_type//_/-}"
+safe_name="${safe_name,,}"
+
+server_name="${INSTANCE_PREFIX}-${safe_name}-server"
+client_name="${INSTANCE_PREFIX}-${safe_name}-client"
 
 cleanup_register "$server_name"
 cleanup_register "$client_name"
@@ -27,8 +31,8 @@ wait_for_ssh "$client_name"
 wait_for_ready "$server_name"
 wait_for_ready "$client_name"
 
-ts_up "$server_name" "${INSTANCE_PREFIX}-${instance_type}-server"
-ts_up "$client_name" "${INSTANCE_PREFIX}-${instance_type}-client"
+ts_up "$server_name" "$server_name"
+ts_up "$client_name" "$client_name"
 
 server_lan_ip=$(cloud_get_internal_ip "$server_name")
 client_lan_ip=$(cloud_get_internal_ip "$client_name")

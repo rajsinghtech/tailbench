@@ -82,5 +82,5 @@ ts_maybe_refresh_key() {
 ts_up() {
   local instance="$1" hostname="$2"
   log_info "Bringing up Tailscale on $instance as $hostname"
-  cloud_ssh "$instance" "sudo tailscale up --authkey=$TS_AUTHKEY --hostname=$hostname"
+  retry 3 5 cloud_ssh "$instance" "sudo tailscale up --authkey=$TS_AUTHKEY --hostname=$hostname" >&2
 }
