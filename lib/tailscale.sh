@@ -2,28 +2,12 @@
 set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-source "$TAILBENCH_ROOT/config/defaults.sh"
 
 TS_ACCESS_TOKEN="${TS_ACCESS_TOKEN:-}"
 TS_AUTHKEY="${TS_AUTHKEY:-}"
 TS_AUTHKEY_CREATED="${TS_AUTHKEY_CREATED:-0}"
 TS_TAG="${TS_TAG:-tag:bench}"
 TS_API="https://api.tailscale.com/api/v2"
-
-ts_get_oauth_token() {
-  local response
-  response=$(curl -s -X POST "$TS_API/oauth/token" \
-    -d "grant_type=client_credentials" \
-    -d "client_id=${TS_OAUTH_CLIENT_ID}" \
-    -d "client_secret=${TS_OAUTH_CLIENT_SECRET}")
-
-  TS_ACCESS_TOKEN=$(echo "$response" | jq -r '.access_token')
-  if [[ -z "$TS_ACCESS_TOKEN" || "$TS_ACCESS_TOKEN" == "null" ]]; then
-    log_error "Failed to obtain OAuth token: $response"
-    return 1
-  fi
-  log_info "OAuth token acquired"
-}
 
 ts_create_authkey() {
   local response
@@ -63,11 +47,26 @@ ts_wait_for_peer() {
   retry 30 2 cloud_ssh "$instance" "tailscale ping -c 1 $peer_ip" 2>/dev/null
 }
 
-ts_remove_device() {
-  local device_id="$1"
-  curl -s -X DELETE "$TS_API/device/$device_id" \
-    -H "Authorization: Bearer $TS_ACCESS_TOKEN"
-  log_info "Removed device $device_id"
+ts_wait_for_direct() {
+  local instance="$1" peer_ip="$2"
+  local max_attempts=15
+  local attempt=1
+  log_info "Waiting for direct connection from $instance to $peer_ip"
+  while (( attempt <= max_attempts )); do
+    local output
+    output=$(cloud_ssh "$instance" "tailscale ping -c 1 $peer_ip 2>&1") || true
+    if echo "$output" | grep -q "via direct"; then
+      log_info "Direct connection confirmed: $instance -> $peer_ip"
+      echo "direct"
+      return 0
+    fi
+    log_warn "Attempt $attempt/$max_attempts: connection still relayed"
+    attempt=$(( attempt + 1 ))
+    sleep 2
+  done
+  log_warn "Could not establish direct connection after $max_attempts attempts (using DERP relay)"
+  echo "relayed"
+  return 0
 }
 
 ts_maybe_refresh_key() {

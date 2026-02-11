@@ -4,9 +4,7 @@ set -euo pipefail
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
 
-TS_API="https://api.tailscale.com/api/v2"
-
-# Tailnet creation API state
+# Tailnet creation API state (TS_API defined in lib/tailscale.sh)
 TAILNET_NAME=""
 TAILNET_DNS_NAME=""
 TAILNET_OAUTH_CLIENT_ID=""

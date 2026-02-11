@@ -29,6 +29,12 @@ log_info "Starting benchmark for $instance_type"
 log_info "Server: $server_name ($server_lan_ip / $server_ts_ip)"
 log_info "Client: $client_name ($client_lan_ip / $client_ts_ip)"
 
+# Verify direct Tailscale connection before benchmarking
+connection_type=$(ts_wait_for_direct "$client_name" "$server_ts_ip")
+if [[ "$connection_type" == "relayed" ]]; then
+  log_warn "Benchmarking over DERP relay — results will not reflect direct path performance"
+fi
+
 # Start iperf server
 iperf_start_server "$server_name"
 sleep 2
@@ -54,36 +60,8 @@ tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES")
 # Stop iperf server
 iperf_stop_server "$server_name"
 
-# Compute summaries
-compute_summary() {
-  local runs="$1"
-  local bw_values
-  bw_values=$(echo "$runs" | jq -r '.[].bandwidth_mbps')
-
-  local avg min max stddev avg_retransmits
-  avg=$(echo "$runs" | jq '[.[].bandwidth_mbps] | add / length')
-  min=$(echo "$runs" | jq '[.[].bandwidth_mbps] | min')
-  max=$(echo "$runs" | jq '[.[].bandwidth_mbps] | max')
-  stddev=$(echo "$bw_values" | compute_stddev)
-  avg_retransmits=$(echo "$runs" | jq '[.[].retransmits] | add / length')
-
-  jq -n \
-    --argjson avg "$avg" \
-    --argjson min "$min" \
-    --argjson max "$max" \
-    --argjson stddev "$stddev" \
-    --argjson avg_retransmits "$avg_retransmits" \
-    '{
-      bandwidth_mbps_avg: $avg,
-      bandwidth_mbps_min: $min,
-      bandwidth_mbps_max: $max,
-      bandwidth_mbps_stddev: $stddev,
-      retransmits_avg: $avg_retransmits
-    }'
-}
-
-baseline_summary=$(compute_summary "$baseline_runs")
-tailscale_summary=$(compute_summary "$tailscale_runs")
+baseline_summary=$(iperf_compute_summary "$baseline_runs")
+tailscale_summary=$(iperf_compute_summary "$tailscale_runs")
 
 # Overhead
 baseline_bw_avg=$(echo "$baseline_summary" | jq '.bandwidth_mbps_avg')
@@ -94,11 +72,14 @@ tailscale_retransmits_avg=$(echo "$tailscale_summary" | jq '.retransmits_avg')
 bandwidth_overhead=$(jq -n --argjson b "$baseline_bw_avg" --argjson t "$tailscale_bw_avg" \
   'if $b == 0 then 0 else (($b - $t) / $b * 100) end')
 retransmits_overhead=$(jq -n --argjson b "$baseline_retransmits_avg" --argjson t "$tailscale_retransmits_avg" \
-  'if $b == 0 then 0 else (($t - $b) / (if $b == 0 then 1 else $b end) * 100) end')
+  'if $b == 0 then 0 else (($t - $b) / $b * 100) end')
 
-# Tailscale version
+# Tailscale version + kernel version
 ts_version=$(cloud_ssh "$server_name" "tailscale version | head -1" | tr -d '[:space:]')
+kernel_version=$(cloud_ssh "$server_name" "uname -r" | tr -d '[:space:]')
 log_info "Tailscale version: $ts_version"
+log_info "Kernel version: $kernel_version"
+log_info "Connection type: $connection_type"
 
 # Instance family + vcpus
 family=$(get_instance_family "$instance_type")
@@ -115,6 +96,8 @@ result=$(jq -n \
   --arg zone "$CLOUD_ZONE" \
   --arg date "$today" \
   --arg ts_version "$ts_version" \
+  --arg kernel_version "$kernel_version" \
+  --arg connection_type "$connection_type" \
   --argjson duration "$IPERF_DURATION" \
   --argjson parallel "$IPERF_PARALLEL" \
   --argjson iterations "$IPERF_ITERATIONS" \
@@ -136,6 +119,8 @@ result=$(jq -n \
     zone: $zone,
     date: $date,
     tailscale_version: $ts_version,
+    kernel_version: $kernel_version,
+    connection_type: $connection_type,
     test_config: {
       iperf_duration_sec: $duration,
       iperf_parallel_streams: $parallel,

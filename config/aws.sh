@@ -8,6 +8,7 @@ AWS_AZ="${AWS_AZ:-us-east-1a}"
 AWS_VPC_ID="${AWS_VPC_ID:-}"
 AWS_SUBNET_ID="${AWS_SUBNET_ID:-}"
 AWS_SG_ID="${AWS_SG_ID:-}"
+AWS_PLACEMENT_GROUP="${AWS_PLACEMENT_GROUP:-}"
 
 # SSH key pair
 AWS_KEY_NAME="${AWS_KEY_NAME:-raj_macbook}"

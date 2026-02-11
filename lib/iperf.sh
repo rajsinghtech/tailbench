@@ -21,26 +21,6 @@ iperf_run_client() {
   cloud_ssh "$instance" "iperf3 -c $target_ip -t $duration -P $parallel -J"
 }
 
-iperf_parse_bandwidth() {
-  local json="$1"
-  echo "$json" | jq '.end.sum_sent.bits_per_second / 1000000'
-}
-
-iperf_parse_retransmits() {
-  local json="$1"
-  echo "$json" | jq '.end.sum_sent.retransmits'
-}
-
-iperf_parse_bytes() {
-  local json="$1"
-  echo "$json" | jq '.end.sum_sent.bytes'
-}
-
-iperf_parse_duration() {
-  local json="$1"
-  echo "$json" | jq '.end.sum_sent.seconds'
-}
-
 iperf_run_test() {
   local instance="$1" target_ip="$2" duration="$3" parallel="$4" iterations="$5"
   local results="[]"
@@ -63,4 +43,31 @@ iperf_run_test() {
   done
 
   echo "$results"
+}
+
+iperf_compute_summary() {
+  local runs="$1"
+  local bw_values
+  bw_values=$(echo "$runs" | jq -r '.[].bandwidth_mbps')
+
+  local avg min max stddev avg_retransmits
+  avg=$(echo "$runs" | jq '[.[].bandwidth_mbps] | add / length')
+  min=$(echo "$runs" | jq '[.[].bandwidth_mbps] | min')
+  max=$(echo "$runs" | jq '[.[].bandwidth_mbps] | max')
+  stddev=$(echo "$bw_values" | compute_stddev)
+  avg_retransmits=$(echo "$runs" | jq '[.[].retransmits] | add / length')
+
+  jq -n \
+    --argjson avg "$avg" \
+    --argjson min "$min" \
+    --argjson max "$max" \
+    --argjson stddev "$stddev" \
+    --argjson avg_retransmits "$avg_retransmits" \
+    '{
+      bandwidth_mbps_avg: $avg,
+      bandwidth_mbps_min: $min,
+      bandwidth_mbps_max: $max,
+      bandwidth_mbps_stddev: $stddev,
+      retransmits_avg: $avg_retransmits
+    }'
 }
