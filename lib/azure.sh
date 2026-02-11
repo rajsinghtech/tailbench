@@ -7,6 +7,7 @@ _AZURE_NETWORKING_AUTO_CREATED="${_AZURE_NETWORKING_AUTO_CREATED:-false}"
 
 # IP cache — avoids repeated az queries
 declare -gA _AZURE_PUBLIC_IP_CACHE=() 2>/dev/null || true
+declare -gA _AZURE_VCPU_CACHE=() 2>/dev/null || true
 
 _azure_resolve_public_ip() {
   local name="$1"
@@ -79,22 +80,29 @@ azure_create_instance() {
 azure_delete_instance() {
   local name="$1"
   log_info "Deleting Azure VM $name and associated resources"
-  az vm delete \
+  local output
+  if ! output=$(az vm delete \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$name" \
     --yes \
     --force-deletion true \
-    --output none 2>/dev/null || true
+    --output none 2>&1); then
+    log_warn "Failed to delete VM $name: $output"
+  fi
 
   # Clean up associated resources
-  for res_type in nic public-ip disk; do
-    local res_name="${name}"
-    case "$res_type" in
-      nic)       res_name="${name}VMNic"; az network nic delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>/dev/null || true ;;
-      public-ip) res_name="${name}PublicIP"; az network public-ip delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>/dev/null || true ;;
-      disk)      az disk delete --resource-group "$AZURE_RESOURCE_GROUP" --name "${name}_OsDisk_1" --yes --output none 2>/dev/null || true ;;
-    esac
-  done
+  local res_name
+  res_name="${name}VMNic"
+  if ! output=$(az network nic delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>&1); then
+    log_warn "Failed to delete NIC $res_name: $output"
+  fi
+  res_name="${name}PublicIP"
+  if ! output=$(az network public-ip delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>&1); then
+    log_warn "Failed to delete public IP $res_name: $output"
+  fi
+  if ! output=$(az disk delete --resource-group "$AZURE_RESOURCE_GROUP" --name "${name}_OsDisk_1" --yes --output none 2>&1); then
+    log_warn "Failed to delete disk ${name}_OsDisk_1: $output"
+  fi
 }
 
 azure_get_internal_ip() {
@@ -143,6 +151,58 @@ azure_check_auth() {
 
 azure_required_cmds() {
   echo "az ssh scp"
+}
+
+azure_get_instance_family() {
+  local instance_type="$1"
+  local name="${instance_type#Standard_}"
+  local letter="${name%%[0-9]*}"
+  letter="${letter%s}"
+  local suffix="${name##*_}"
+  echo "${letter}${suffix}"
+}
+
+azure_get_instance_vcpus() {
+  local instance_type="$1"
+  if [[ -n "${_AZURE_VCPU_CACHE[$instance_type]:-}" ]]; then
+    echo "${_AZURE_VCPU_CACHE[$instance_type]}"
+    return
+  fi
+  local name="${instance_type#Standard_}"
+  local num
+  num=$(echo "$name" | grep -oE '[0-9]+' | head -1)
+  echo "${num:-0}"
+}
+
+_azure_family_to_sku_family() {
+  local family="${1,,}"
+  case "$family" in
+    dv5)  echo "standardDv5Family" ;;
+    fv2)  echo "standardFSv2Family" ;;
+    ev5)  echo "standardEv5Family" ;;
+    *)    return 1 ;;
+  esac
+}
+
+azure_list_families() {
+  echo "dv5 fv2 ev5"
+}
+
+azure_list_instances() {
+  local family="$1"
+  local sku_family
+  sku_family=$(_azure_family_to_sku_family "$family") || return 1
+  local json
+  json=$(az vm list-skus \
+    --location "$AZURE_LOCATION" \
+    --resource-type virtualMachines \
+    --query "[?family=='${sku_family}' && restrictions[0]==null].{name:name,vcpus:capabilities[?name=='vCPUs'].value|[0]}" \
+    --output json)
+  while IFS=$'\t' read -r name vcpus; do
+    [[ -z "$name" ]] && continue
+    _AZURE_VCPU_CACHE[$name]="$vcpus"
+    echo "$name"
+  done < <(echo "$json" | jq -r 'sort_by(.vcpus | tonumber) | .[] | "\(.name)\t\(.vcpus)"')
 }
 
 azure_setup_networking() {
@@ -212,16 +272,21 @@ azure_teardown_networking() {
   fi
 
   log_info "Tearing down auto-created Azure networking..."
+  local output
 
-  az network nsg delete \
+  if ! output=$(az network nsg delete \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$AZURE_NSG" \
-    --output none 2>/dev/null || true
+    --output none 2>&1); then
+    log_warn "Failed to delete NSG $AZURE_NSG: $output"
+  fi
 
-  az network vnet delete \
+  if ! output=$(az network vnet delete \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$AZURE_VNET" \
-    --output none 2>/dev/null || true
+    --output none 2>&1); then
+    log_warn "Failed to delete VNet $AZURE_VNET: $output"
+  fi
 
   log_info "Azure networking teardown complete"
 }

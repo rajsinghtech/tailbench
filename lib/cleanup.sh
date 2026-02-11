@@ -12,7 +12,7 @@ cleanup_handler() {
   log_info "Running cleanup..."
   while IFS= read -r instance; do
     [[ -z "$instance" ]] && continue
-    cloud_delete_instance "$instance"
+    cloud_delete_instance "$instance" || true
   done < "$TAILBENCH_CLEANUP_FILE"
   rm -f "$TAILBENCH_CLEANUP_FILE"
   log_info "Cleanup complete"

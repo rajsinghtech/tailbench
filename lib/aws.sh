@@ -6,6 +6,7 @@ TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # IP cache — avoids repeated describe-instances calls
 declare -gA _AWS_PUBLIC_IP_CACHE=() 2>/dev/null || true
 declare -gA _AWS_INSTANCE_ID_CACHE=() 2>/dev/null || true
+declare -gA _AWS_VCPU_CACHE=() 2>/dev/null || true
 
 _AWS_NETWORKING_AUTO_CREATED="${_AWS_NETWORKING_AUTO_CREATED:-false}"
 
@@ -170,43 +171,59 @@ aws_teardown_networking() {
       --instance-ids $instance_ids 2>/dev/null || true
   fi
 
+  local output
+
   # Security group
-  aws ec2 delete-security-group \
+  if ! output=$(aws ec2 delete-security-group \
     --region "$AWS_REGION" \
-    --group-id "$AWS_SG_ID" 2>/dev/null || true
+    --group-id "$AWS_SG_ID" 2>&1); then
+    log_warn "Failed to delete security group $AWS_SG_ID: $output"
+  fi
 
   # Route table
   if [[ -n "${_AWS_RTB_ASSOC_ID:-}" ]]; then
-    aws ec2 disassociate-route-table \
+    if ! output=$(aws ec2 disassociate-route-table \
       --region "$AWS_REGION" \
-      --association-id "$_AWS_RTB_ASSOC_ID" 2>/dev/null || true
+      --association-id "$_AWS_RTB_ASSOC_ID" 2>&1); then
+      log_warn "Failed to disassociate route table $_AWS_RTB_ASSOC_ID: $output"
+    fi
   fi
   if [[ -n "${_AWS_RTB_ID:-}" ]]; then
-    aws ec2 delete-route-table \
+    if ! output=$(aws ec2 delete-route-table \
       --region "$AWS_REGION" \
-      --route-table-id "$_AWS_RTB_ID" 2>/dev/null || true
+      --route-table-id "$_AWS_RTB_ID" 2>&1); then
+      log_warn "Failed to delete route table $_AWS_RTB_ID: $output"
+    fi
   fi
 
   # Internet gateway
   if [[ -n "${_AWS_IGW_ID:-}" ]]; then
-    aws ec2 detach-internet-gateway \
+    if ! output=$(aws ec2 detach-internet-gateway \
       --region "$AWS_REGION" \
       --internet-gateway-id "$_AWS_IGW_ID" \
-      --vpc-id "$AWS_VPC_ID" 2>/dev/null || true
-    aws ec2 delete-internet-gateway \
+      --vpc-id "$AWS_VPC_ID" 2>&1); then
+      log_warn "Failed to detach internet gateway $_AWS_IGW_ID: $output"
+    fi
+    if ! output=$(aws ec2 delete-internet-gateway \
       --region "$AWS_REGION" \
-      --internet-gateway-id "$_AWS_IGW_ID" 2>/dev/null || true
+      --internet-gateway-id "$_AWS_IGW_ID" 2>&1); then
+      log_warn "Failed to delete internet gateway $_AWS_IGW_ID: $output"
+    fi
   fi
 
   # Subnet
-  aws ec2 delete-subnet \
+  if ! output=$(aws ec2 delete-subnet \
     --region "$AWS_REGION" \
-    --subnet-id "$AWS_SUBNET_ID" 2>/dev/null || true
+    --subnet-id "$AWS_SUBNET_ID" 2>&1); then
+    log_warn "Failed to delete subnet $AWS_SUBNET_ID: $output"
+  fi
 
   # VPC
-  aws ec2 delete-vpc \
+  if ! output=$(aws ec2 delete-vpc \
     --region "$AWS_REGION" \
-    --vpc-id "$AWS_VPC_ID" 2>/dev/null || true
+    --vpc-id "$AWS_VPC_ID" 2>&1); then
+    log_warn "Failed to delete VPC $AWS_VPC_ID: $output"
+  fi
 
   log_info "AWS networking teardown complete"
 }
@@ -304,10 +321,13 @@ aws_delete_instance() {
     return 0
   }
   log_info "Terminating AWS instance $name ($instance_id)"
-  aws ec2 terminate-instances \
+  local output
+  if ! output=$(aws ec2 terminate-instances \
     --region "$AWS_REGION" \
     --instance-ids "$instance_id" \
-    --output text >/dev/null 2>&1 || true
+    --output text 2>&1); then
+    log_warn "Failed to terminate instance $name ($instance_id): $output"
+  fi
 }
 
 aws_get_internal_ip() {
@@ -352,4 +372,44 @@ aws_check_auth() {
 
 aws_required_cmds() {
   echo "aws ssh scp"
+}
+
+aws_get_instance_family() {
+  local instance_type="$1"
+  echo "${instance_type%%.*}"
+}
+
+aws_get_instance_vcpus() {
+  local instance_type="$1"
+  if [[ -n "${_AWS_VCPU_CACHE[$instance_type]:-}" ]]; then
+    echo "${_AWS_VCPU_CACHE[$instance_type]}"
+    return
+  fi
+  local vcpus
+  vcpus=$(aws ec2 describe-instance-types \
+    --region "$AWS_REGION" \
+    --instance-types "$instance_type" \
+    --query "InstanceTypes[0].VCpuInfo.DefaultVCpus" \
+    --output text)
+  _AWS_VCPU_CACHE[$instance_type]="$vcpus"
+  echo "$vcpus"
+}
+
+aws_list_families() {
+  echo "c6i m6i c7g m7g"
+}
+
+aws_list_instances() {
+  local family="$1"
+  local json
+  json=$(aws ec2 describe-instance-types \
+    --region "$AWS_REGION" \
+    --filters "Name=instance-type,Values=${family}.*" \
+    --query "sort_by(InstanceTypes,&VCpuInfo.DefaultVCpus)[].[InstanceType,VCpuInfo.DefaultVCpus]" \
+    --output json)
+  while IFS=$'\t' read -r name vcpus; do
+    [[ -z "$name" ]] && continue
+    _AWS_VCPU_CACHE[$name]="$vcpus"
+    echo "$name"
+  done < <(echo "$json" | jq -r '.[] | "\(.[0])\t\(.[1])"')
 }

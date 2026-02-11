@@ -25,10 +25,13 @@ gcp_create_instance() {
 gcp_delete_instance() {
   local name="$1"
   log_info "Deleting instance $name"
-  gcloud compute instances delete "$name" \
+  local output
+  if ! output=$(gcloud compute instances delete "$name" \
     --project="$GCP_PROJECT" \
     --zone="$GCP_ZONE" \
-    --quiet 2>/dev/null || true
+    --quiet 2>&1); then
+    log_warn "Failed to delete instance $name: $output"
+  fi
 }
 
 gcp_get_internal_ip() {
@@ -97,4 +100,16 @@ gcp_get_instance_family() {
 gcp_get_instance_vcpus() {
   local instance_type="$1"
   echo "${instance_type##*-}"
+}
+
+gcp_list_families() {
+  echo "c3 n2"
+}
+
+gcp_list_instances() {
+  local family="$1"
+  gcloud compute machine-types list \
+    --project="$GCP_PROJECT" \
+    --filter="zone:$GCP_ZONE AND name ~ '^${family}-standard-[0-9]+$'" \
+    --format="value(name)" | sort -t- -k3 -n
 }
