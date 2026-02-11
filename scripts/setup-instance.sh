@@ -7,6 +7,11 @@ export NEEDRESTART_MODE=a
 apt-get update -qq
 apt-get install -y -qq iperf3 mtr-tiny jq curl > /dev/null 2>&1
 
+# Disable the iperf3 systemd service that ships with the package -
+# we manage the server process ourselves and it causes port conflicts.
+systemctl stop iperf3 2>/dev/null || true
+systemctl disable iperf3 2>/dev/null || true
+
 curl -fsSL https://tailscale.com/install.sh | sh
 
 # Enable UDP GRO forwarding for improved Tailscale throughput (requires kernel 6.2+)

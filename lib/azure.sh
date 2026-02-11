@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
+# Azure CLI (Python) needs UTF-8 encoding when stdout is not a terminal
+export PYTHONIOENCODING=utf-8
+
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
 _AZURE_NETWORKING_AUTO_CREATED="${_AZURE_NETWORKING_AUTO_CREATED:-false}"
@@ -153,9 +156,14 @@ azure_ssh() {
   local name="$1"
   shift
   local ip
-  ip=$(_azure_resolve_public_ip "$name")
+  ip=$(_azure_resolve_public_ip "$name") || true
+  if [[ -z "$ip" ]]; then
+    echo "ERROR: Cannot resolve public IP for VM $name" >&2
+    return 1
+  fi
   ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
-    -o ConnectTimeout=10 -o LogLevel=ERROR \
+    -o ConnectTimeout=10 -o ServerAliveInterval=15 -o ServerAliveCountMax=4 \
+    -o IdentitiesOnly=yes -o LogLevel=ERROR \
     -i "$AZURE_SSH_KEY_PATH" \
     "${AZURE_SSH_USER}@${ip}" "$@"
 }
@@ -214,6 +222,9 @@ azure_get_instance_vcpus() {
 _azure_family_to_sku_family() {
   local family="${1,,}"
   case "$family" in
+    dsv5)  echo "standardDSv5Family" ;;
+    dasv5) echo "standardDASv5Family" ;;
+    dpsv6) echo "StandardDpsv6Family" ;;
     dsv4)  echo "standardDSv4Family" ;;
     fsv2)  echo "standardFSv2Family" ;;
     fasv6) echo "StandardFasv6Family" ;;
@@ -223,7 +234,7 @@ _azure_family_to_sku_family() {
 }
 
 azure_list_families() {
-  echo "dsv4 fsv2 fasv6 esv4"
+  echo "dsv5 dasv5 dpsv6 dsv4 fsv2 fasv6 esv4"
 }
 
 azure_list_instances() {

@@ -3,21 +3,33 @@ set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+gcp_instance_props() {
+  local machine_type="$1"
+  local family="${machine_type%%-*}"
+  case "$family" in
+    c4|n4)  echo "hyperdisk-balanced $GCP_IMAGE_FAMILY" ;;
+    c4a)    echo "hyperdisk-balanced ubuntu-2404-lts-arm64" ;;
+    *)      echo "pd-ssd $GCP_IMAGE_FAMILY" ;;
+  esac
+}
+
 gcp_create_instance() {
   local name="$1" machine_type="$2" startup_script="$3"
+  local props disk_type image_family
+  read -r disk_type image_family <<< "$(gcp_instance_props "$machine_type")"
 
-  log_info "Creating instance $name ($machine_type) in $GCP_ZONE"
+  log_info "Creating instance $name ($machine_type) in $GCP_ZONE [disk=$disk_type, image=$image_family]"
   gcloud compute instances create "$name" \
     --project="$GCP_PROJECT" \
     --zone="$GCP_ZONE" \
     --machine-type="$machine_type" \
-    --image-family="$GCP_IMAGE_FAMILY" \
+    --image-family="$image_family" \
     --image-project="$GCP_IMAGE_PROJECT" \
     --network="$GCP_NETWORK" \
     --subnet="$GCP_SUBNET" \
     --scopes=cloud-platform \
     --boot-disk-size=50GB \
-    --boot-disk-type=pd-ssd \
+    --boot-disk-type="$disk_type" \
     --metadata-from-file=startup-script="$startup_script" \
     --quiet
 }
@@ -103,7 +115,7 @@ gcp_get_instance_vcpus() {
 }
 
 gcp_list_families() {
-  echo "c3 n2"
+  echo "c4 c4a c3d n4 c3 n2 c2"
 }
 
 gcp_is_quota_error() {

@@ -86,15 +86,38 @@ aws_setup_networking() {
       --filters "Name=attachment.vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
       --query 'InternetGateways[0].InternetGatewayId' --output text)
 
+    # Find tagged route table, fall back to any VPC route table
     _AWS_RTB_ID=$(aws ec2 describe-route-tables \
       --region "$AWS_REGION" \
       --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
-      --query 'RouteTables[0].RouteTableId' --output text)
+      --query 'RouteTables[0].RouteTableId' --output text 2>/dev/null) || true
+    if [[ -z "$_AWS_RTB_ID" || "$_AWS_RTB_ID" == "None" ]]; then
+      _AWS_RTB_ID=$(aws ec2 describe-route-tables \
+        --region "$AWS_REGION" \
+        --filters "Name=vpc-id,Values=$AWS_VPC_ID" \
+        --query 'RouteTables[0].RouteTableId' --output text)
+    fi
 
     _AWS_RTB_ASSOC_ID=$(aws ec2 describe-route-tables \
       --region "$AWS_REGION" \
-      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
-      --query 'RouteTables[0].Associations[0].RouteTableAssociationId' --output text)
+      --filters "Name=route-table-id,Values=$_AWS_RTB_ID" \
+      --query 'RouteTables[0].Associations[0].RouteTableAssociationId' --output text 2>/dev/null) || true
+
+    # Ensure the IGW default route exists (may be missing after partial teardown)
+    local has_igw_route
+    has_igw_route=$(aws ec2 describe-route-tables \
+      --region "$AWS_REGION" \
+      --filters "Name=route-table-id,Values=$_AWS_RTB_ID" \
+      --query 'RouteTables[0].Routes[?DestinationCidrBlock==`0.0.0.0/0`].GatewayId' \
+      --output text 2>/dev/null) || true
+    if [[ -z "$has_igw_route" || "$has_igw_route" == "None" ]]; then
+      log_warn "Missing IGW route in route table $_AWS_RTB_ID, adding..."
+      aws ec2 create-route \
+        --region "$AWS_REGION" \
+        --route-table-id "$_AWS_RTB_ID" \
+        --destination-cidr-block 0.0.0.0/0 \
+        --gateway-id "$_AWS_IGW_ID" >/dev/null 2>&1 || true
+    fi
 
     AWS_PLACEMENT_GROUP=$(aws ec2 describe-placement-groups \
       --region "$AWS_REGION" \
@@ -478,7 +501,7 @@ aws_is_quota_error() {
 }
 
 aws_list_families() {
-  echo "c6i m6i c7g m7g"
+  echo "c6in c7i c7gn c8g c6i m6i c7g m7g"
 }
 
 aws_list_instances() {

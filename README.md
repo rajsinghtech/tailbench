@@ -15,7 +15,7 @@ export TS_OAUTH_CLIENT_SECRET="..."
 ./scripts/orchestrate.sh --provider aws
 
 # Azure — specific family
-./scripts/orchestrate.sh --provider azure --family dv5
+./scripts/orchestrate.sh --provider azure --family dsv5
 
 # All three providers in parallel
 ./scripts/orchestrate.sh --providers gcp,aws,azure
@@ -44,9 +44,9 @@ export TS_OAUTH_CLIENT_SECRET="..."
 
 | GCP | AWS | Azure |
 |-----|-----|-------|
-| c3, n2 | c6i, m6i, c7g, m7g | dv5, fv2, ev5 |
+| c4, c4a, c3d, n4, c3, n2, c2 | c6in, c7i, c7gn, c8g, c6i, m6i, c7g, m7g | dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, esv4 |
 
-Instance types are discovered dynamically from each provider's API.
+Families are ordered with current-gen and network-optimized families first. Instance types within each family are discovered dynamically from each provider's API.
 
 ## What It Does
 
@@ -93,6 +93,15 @@ az network vnet list --resource-group tailbench-rg --query "[?tags.Project=='tai
 ```
 
 To use your own pre-existing networking instead, set the relevant env vars (see below).
+
+## Performance Optimizations
+
+Each benchmark instance is configured with Tailscale's recommended performance best practices during provisioning (`scripts/setup-instance.sh`):
+
+- **UDP GRO forwarding** (`ethtool -K $NETDEV rx-udp-gro-forwarding on rx-gro-list off`) — Coalesces incoming UDP packets in the kernel before handing them to userspace, reducing per-packet overhead for WireGuard traffic. Requires kernel 6.2+. This is the single highest-impact optimization for Tailscale throughput.
+- **AWS cluster placement group** — Instances in the same benchmark pair are placed in a cluster placement group, removing the 5 Gbps single-flow cap between instances within the same AZ.
+
+These optimizations reflect what a production Tailscale deployment should apply. See [Tailscale KB: Performance best practices](https://tailscale.com/kb/1320/performance-best-practices) for the full list.
 
 ## AMI Selection (AWS)
 

@@ -526,8 +526,8 @@ footer a:hover { text-decoration: underline; }
   var state = {
     provider: 'all',
     family: 'all',
-    sortKey: 'instance_type',
-    sortDir: 'asc',
+    sortKey: 'ts_bw',
+    sortDir: 'desc',
     expanded: null
   };
 
@@ -596,8 +596,8 @@ footer a:hover { text-decoration: underline; }
     var parts = [];
     if (state.provider !== 'all') parts.push('provider=' + encodeURIComponent(state.provider));
     if (state.family !== 'all') parts.push('family=' + encodeURIComponent(state.family));
-    if (state.sortKey !== 'instance_type') parts.push('sort=' + encodeURIComponent(state.sortKey));
-    if (state.sortDir !== 'asc') parts.push('dir=' + encodeURIComponent(state.sortDir));
+    if (state.sortKey !== 'ts_bw') parts.push('sort=' + encodeURIComponent(state.sortKey));
+    if (state.sortDir !== 'desc') parts.push('dir=' + encodeURIComponent(state.sortDir));
     location.hash = parts.length ? parts.join('&') : '';
   }
   readHash();
