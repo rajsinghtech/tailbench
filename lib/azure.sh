@@ -56,33 +56,45 @@ azure_create_instance() {
   [[ -n "$AZURE_SUBNET" ]] && args+=(--subnet "$AZURE_SUBNET")
   [[ -n "$AZURE_NSG" ]] && args+=(--nsg "$AZURE_NSG")
 
-  "${args[@]}" >/dev/null
+  local create_output create_rc=0
+  create_output=$("${args[@]}" 2>&1) || create_rc=$?
+  if (( create_rc != 0 )); then
+    log_error "az vm create failed for $name (exit $create_rc): $create_output"
+    return 1
+  fi
 
   log_info "Waiting for $name to be running..."
-  if ! az vm wait \
+  local wait_output wait_rc=0
+  wait_output=$(az vm wait \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$name" \
-    --created 2>/dev/null; then
-    # Extract detailed error from instance view
+    --created \
+    --timeout 300 2>&1) || wait_rc=$?
+  if (( wait_rc != 0 )); then
     local error_msg
     error_msg=$(az vm get-instance-view \
       --resource-group "$AZURE_RESOURCE_GROUP" \
       --name "$name" \
       --query "instanceView.statuses[?level=='Error'].message" \
-      --output tsv 2>/dev/null)
+      --output tsv 2>/dev/null) || true
     log_error "VM $name provisioning failed: ${error_msg:-unknown error}"
+    [[ -n "$wait_output" ]] && log_error "az vm wait: $wait_output"
     return 1
   fi
 
-  # Cache public IP
+  # Cache public IP (|| true to avoid set -e killing the subshell)
   local ip
   ip=$(az vm show \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$name" \
     --show-details \
     --query 'publicIps' \
-    --output tsv 2>/dev/null)
-  [[ -n "$ip" ]] && _AZURE_PUBLIC_IP_CACHE[$name]="$ip"
+    --output tsv 2>/dev/null) || true
+  if [[ -n "$ip" ]]; then
+    _AZURE_PUBLIC_IP_CACHE[$name]="$ip"
+  else
+    log_warn "Could not resolve public IP for $name"
+  fi
 
   log_info "Azure VM $name is running"
 }
@@ -100,19 +112,31 @@ azure_delete_instance() {
     log_warn "Failed to delete VM $name: $output"
   fi
 
-  # Clean up associated resources
-  local res_name
+  # Clean up associated resources (retry NIC/IP after 10s if reserved)
+  local res_name attempt
   res_name="${name}VMNic"
-  if ! output=$(az network nic delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>&1); then
-    log_warn "Failed to delete NIC $res_name: $output"
-  fi
+  for attempt in 1 2; do
+    if output=$(az network nic delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>&1); then
+      break
+    fi
+    if [[ "$output" == *NicReservedForAnotherVm* ]] && (( attempt == 1 )); then
+      sleep 10
+    else
+      log_warn "Failed to delete NIC $res_name: $output"
+      break
+    fi
+  done
   res_name="${name}PublicIP"
   if ! output=$(az network public-ip delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$res_name" --output none 2>&1); then
     log_warn "Failed to delete public IP $res_name: $output"
   fi
-  if ! output=$(az disk delete --resource-group "$AZURE_RESOURCE_GROUP" --name "${name}_OsDisk_1" --yes --output none 2>&1); then
-    log_warn "Failed to delete disk ${name}_OsDisk_1: $output"
-  fi
+  # Disk names vary; try both naming patterns
+  local disk_deleted=false
+  for disk_pattern in "${name}_OsDisk_1" "${name}_disk1"; do
+    az disk list --resource-group "$AZURE_RESOURCE_GROUP" --query "[?starts_with(name, '${disk_pattern}')].name" --output tsv 2>/dev/null | while read -r disk; do
+      az disk delete --resource-group "$AZURE_RESOURCE_GROUP" --name "$disk" --yes --output none 2>/dev/null && disk_deleted=true
+    done
+  done
 }
 
 azure_get_internal_ip() {
@@ -192,13 +216,14 @@ _azure_family_to_sku_family() {
   case "$family" in
     dsv4)  echo "standardDSv4Family" ;;
     fsv2)  echo "standardFSv2Family" ;;
+    fasv6) echo "StandardFasv6Family" ;;
     esv4)  echo "standardESv4Family" ;;
     *)     return 1 ;;
   esac
 }
 
 azure_list_families() {
-  echo "dsv4 fsv2 esv4"
+  echo "dsv4 fsv2 fasv6 esv4"
 }
 
 azure_list_instances() {

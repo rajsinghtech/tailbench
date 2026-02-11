@@ -37,7 +37,7 @@ Options:
 Provider families:
   gcp:   c3, n2
   aws:   c6i, m6i, c7g, m7g
-  azure: dsv4, fsv2, esv4
+  azure: dsv4, fsv2, fasv6, esv4
 
 Required environment variables:
   TS_OAUTH_CLIENT_ID     Tailscale OAuth client ID
@@ -162,6 +162,20 @@ _run_provider() {
       continue
     fi
 
+    # Skip if result already exists (resume support)
+    local existing_result="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
+    if [[ -f "$existing_result" ]]; then
+      log_info "[$provider][$n/$total] Skipping $inst (result already exists)"
+      successes=$(( successes + 1 ))
+      local baseline tailscale_bw overhead
+      baseline=$(jq -r '.baseline_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$existing_result")
+      tailscale_bw=$(jq -r '.tailscale_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$existing_result")
+      overhead=$(jq -r '.overhead.bandwidth_pct | . * 10 | round / 10' "$existing_result")
+      result_lines+=("$(printf '%-20s %-17s %-18s %s%%' "$inst" "$baseline" "$tailscale_bw" "$overhead")")
+      echo "$inst|OK|cached" >> "$status_file"
+      continue
+    fi
+
     log_info "[$provider] === [$n/$total] Testing $inst ==="
 
     local safe_inst="${inst//_/-}"
@@ -215,10 +229,10 @@ _run_provider() {
         result_lines+=("$(printf '%-20s %-17s %-18s %s%%' "$inst" "$baseline" "$tailscale_bw" "$overhead")")
       fi
     elif [[ "$step_failed" == "quota" ]]; then
-      log_warn "[$provider][$n/$total] $inst QUOTA exceeded"
-      failures=$(( failures + 1 ))
-      echo "$inst|QUOTA|provision" >> "$status_file"
-      result_lines+=("$(printf '%-20s QUOTA (provision)' "$inst")")
+      log_warn "[$provider][$n/$total] $inst QUOTA exceeded (skipping)"
+      skipped=$(( skipped + 1 ))
+      echo "$inst|SKIPPED|quota" >> "$status_file"
+      result_lines+=("$(printf '%-20s SKIPPED (quota)' "$inst")")
     else
       log_error "[$provider][$n/$total] $inst FAILED at $step_failed"
       failures=$(( failures + 1 ))

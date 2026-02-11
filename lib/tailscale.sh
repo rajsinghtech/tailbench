@@ -119,6 +119,9 @@ ts_maybe_refresh_key() {
   now=$(date +%s)
   if (( now - TS_AUTHKEY_CREATED >= AUTHKEY_REFRESH_INTERVAL )); then
     log_info "Refreshing auth key (interval elapsed)"
+    # Re-obtain the access token first (OAuth tokens expire after ~1h)
+    TS_ACCESS_TOKEN=$(tailnet_get_access_token "$TS_OAUTH_CLIENT_ID" "$TS_OAUTH_CLIENT_SECRET")
+    export TS_ACCESS_TOKEN
     ts_create_authkey
   fi
 }

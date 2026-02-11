@@ -38,15 +38,40 @@ done
 # ── Phase 1: Baseline (LAN) — before Tailscale ──────────────────────
 log_info "=== Phase 1: Baseline (LAN, no Tailscale) ==="
 
+# Wait for LAN connectivity between instances (VPC fabric may need time)
+log_info "Verifying LAN connectivity: $client_name -> $server_lan_ip"
+lan_ok=false
+for attempt in $(seq 1 20); do
+  if cloud_ssh "$client_name" "nc -z -w 2 $server_lan_ip 22" 2>/dev/null; then
+    log_info "LAN connectivity confirmed (attempt $attempt)"
+    lan_ok=true
+    break
+  fi
+  if (( attempt % 5 == 0 )); then
+    log_warn "LAN not reachable yet (attempt $attempt/20), waiting..."
+  fi
+  sleep 3
+done
+if ! $lan_ok; then
+  log_error "LAN connectivity failed after 20 attempts ($client_name -> $server_lan_ip)"
+  # Try ping for diagnostics
+  cloud_ssh "$client_name" "ping -c 2 $server_lan_ip 2>&1" || true
+  cloud_ssh "$client_name" "ip route 2>&1" || true
+  return 1
+fi
+
 iperf_start_server "$server_name"
 sleep 2
 
 log_info "Running baseline TCP test"
 baseline_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
-  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
+  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS" "$server_name")
 
 log_info "Running baseline MTR"
-baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES")
+baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES") || {
+  log_warn "Baseline MTR failed (non-fatal), using empty result"
+  baseline_mtr='{"avg_ms":null,"min_ms":null,"max_ms":null,"loss_pct":null}'
+}
 
 iperf_stop_server "$server_name"
 
@@ -75,10 +100,13 @@ sleep 2
 
 log_info "Running Tailscale TCP test"
 tailscale_runs=$(iperf_run_test "$client_name" "$server_ts_ip" \
-  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
+  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS" "$server_name")
 
 log_info "Running Tailscale MTR"
-tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES")
+tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES") || {
+  log_warn "Tailscale MTR failed (non-fatal), using empty result"
+  tailscale_mtr='{"avg_ms":null,"min_ms":null,"max_ms":null,"loss_pct":null}'
+}
 
 iperf_stop_server "$server_name"
 

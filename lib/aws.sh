@@ -418,7 +418,8 @@ aws_ssh() {
   shift
   local ip
   ip=$(_aws_resolve_public_ip "$name")
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=ERROR \
+  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o ServerAliveInterval=15 \
+    -o ServerAliveCountMax=4 -o LogLevel=ERROR \
     -i "$AWS_SSH_KEY_PATH" \
     "${AWS_SSH_USER}@${ip}" "$@"
 }
