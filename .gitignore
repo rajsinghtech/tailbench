@@ -14,6 +14,9 @@ website/data.generated.js
 *.pem
 .env
 
+# Runtime artifacts
+.run/
+
 # Temp
 /tmp/
 *.log

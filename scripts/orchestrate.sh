@@ -131,6 +131,13 @@ _run_provider() {
   # Refresh authkey for this subprocess
   ts_maybe_refresh_key
 
+  # Status file for cross-provider summary
+  local status_dir="$TAILBENCH_ROOT/.run"
+  mkdir -p "$status_dir"
+  local status_file="$status_dir/$provider.status"
+  : > "$status_file"
+  echo "start_ts=$(date +%s)" >> "$status_file"
+
   # Track results
   declare -a result_lines=()
   declare -A skipped_families=()
@@ -147,6 +154,7 @@ _run_provider() {
       log_warn "[$provider][$n/$total] Skipping $inst (family $family hit quota limit)"
       skipped=$(( skipped + 1 ))
       result_lines+=("$(printf '%-20s SKIPPED (quota)' "$inst")")
+      echo "$inst|SKIPPED|quota" >> "$status_file"
       continue
     fi
 
@@ -193,6 +201,7 @@ _run_provider() {
     if [[ -z "$step_failed" ]]; then
       log_info "[$provider][$n/$total] $inst completed successfully"
       successes=$(( successes + 1 ))
+      echo "$inst|OK|" >> "$status_file"
 
       local result_file="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
       if [[ -f "$result_file" ]]; then
@@ -205,15 +214,23 @@ _run_provider() {
     elif [[ "$step_failed" == "quota" ]]; then
       log_warn "[$provider][$n/$total] $inst QUOTA exceeded"
       failures=$(( failures + 1 ))
+      echo "$inst|QUOTA|provision" >> "$status_file"
       result_lines+=("$(printf '%-20s QUOTA (provision)' "$inst")")
     else
       log_error "[$provider][$n/$total] $inst FAILED at $step_failed"
       failures=$(( failures + 1 ))
+      echo "$inst|FAILED|$step_failed" >> "$status_file"
       result_lines+=("$(printf '%-20s FAILED (%s)' "$inst" "$step_failed")")
     fi
 
     ts_maybe_refresh_key
   done
+
+  # Write status file footer
+  echo "end_ts=$(date +%s)" >> "$status_file"
+  echo "successes=$successes" >> "$status_file"
+  echo "failures=$failures" >> "$status_file"
+  echo "skipped=$skipped" >> "$status_file"
 
   # Generate aggregated results for this provider
   log_info "[$provider] Generating aggregated results..."
@@ -232,6 +249,64 @@ _run_provider() {
   if [[ $failures -gt 0 ]]; then
     return 1
   fi
+}
+
+# ── Cross-provider summary ──────────────────────────────────────────
+_print_cross_provider_summary() {
+  local status_dir="$TAILBENCH_ROOT/.run"
+  local total_ok=0 total_fail=0 total_skip=0
+
+  echo ""
+  echo "=========================================="
+  echo "  Cross-Provider Summary"
+  echo "=========================================="
+
+  for p in "${PROVIDER_LIST[@]}"; do
+    local sf="$status_dir/$p.status"
+    if [[ ! -f "$sf" ]]; then
+      echo ""
+      echo "  [$p] (no status file)"
+      continue
+    fi
+
+    # Read timing
+    local start_ts end_ts elapsed_str=""
+    start_ts=$(grep '^start_ts=' "$sf" | cut -d= -f2)
+    end_ts=$(grep '^end_ts=' "$sf" | cut -d= -f2)
+    if [[ -n "$start_ts" && -n "$end_ts" ]]; then
+      local elapsed=$(( end_ts - start_ts ))
+      local mins=$(( elapsed / 60 ))
+      local secs=$(( elapsed % 60 ))
+      elapsed_str=" (${mins}m$(printf '%02d' $secs)s)"
+    fi
+
+    local p_ok p_fail p_skip
+    p_ok=$(grep '^successes=' "$sf" | cut -d= -f2)
+    p_fail=$(grep '^failures=' "$sf" | cut -d= -f2)
+    p_skip=$(grep '^skipped=' "$sf" | cut -d= -f2)
+    p_ok="${p_ok:-0}"; p_fail="${p_fail:-0}"; p_skip="${p_skip:-0}"
+
+    total_ok=$(( total_ok + p_ok ))
+    total_fail=$(( total_fail + p_fail ))
+    total_skip=$(( total_skip + p_skip ))
+
+    echo ""
+    echo "  [$p]${elapsed_str}"
+    printf '  %-25s %-10s %s\n' "Instance" "Status" "Step"
+
+    # Read instance lines (lines containing |)
+    while IFS='|' read -r inst status step; do
+      [[ -z "$inst" ]] && continue
+      printf '  %-25s %-10s %s\n' "$inst" "$status" "$step"
+    done < <(grep '|' "$sf")
+
+    echo "  --- $p_ok passed, $p_fail failed, $p_skip skipped ---"
+  done
+
+  echo ""
+  echo "=========================================="
+  echo "  Overall: $total_ok passed, $total_fail failed, $total_skip skipped"
+  echo "=========================================="
 }
 
 # ── Dry-run ─────────────────────────────────────────────────────────
@@ -359,6 +434,9 @@ else
     echo "=========================================="
     cat "$log_dir/$p.log"
   done
+
+  # Cross-provider summary
+  _print_cross_provider_summary
 
   echo ""
   echo "Per-provider logs: $log_dir/"
