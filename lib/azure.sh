@@ -205,6 +205,13 @@ azure_list_instances() {
   done < <(echo "$json" | jq -r 'sort_by(.vcpus | tonumber) | .[] | "\(.name)\t\(.vcpus)"')
 }
 
+azure_is_quota_error() {
+  local stderr="$1"
+  [[ "$stderr" == *QuotaExceeded* ]] || \
+  [[ "$stderr" == *OperationNotAllowed*quota* ]] || \
+  [[ "$stderr" == *SkuNotAvailable* ]]
+}
+
 azure_setup_networking() {
   if [[ -n "$AZURE_VNET" ]]; then
     log_info "Using pre-existing Azure networking (vnet=$AZURE_VNET)"

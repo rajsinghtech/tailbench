@@ -8,7 +8,6 @@ CLOUD_PROVIDER="${CLOUD_PROVIDER:-gcp}"
 case "$CLOUD_PROVIDER" in
   gcp)
     source "$TAILBENCH_ROOT/config/gcp.sh"
-    source "$TAILBENCH_ROOT/config/gcp-instances.sh"
     source "$TAILBENCH_ROOT/lib/gcp.sh"
     CLOUD_REGION="${GCP_REGION}"
     CLOUD_ZONE="${GCP_ZONE}"
@@ -16,7 +15,6 @@ case "$CLOUD_PROVIDER" in
     ;;
   aws)
     source "$TAILBENCH_ROOT/config/aws.sh"
-    source "$TAILBENCH_ROOT/config/aws-instances.sh"
     source "$TAILBENCH_ROOT/lib/aws.sh"
     CLOUD_REGION="${AWS_REGION}"
     CLOUD_ZONE="${AWS_AZ}"
@@ -24,7 +22,6 @@ case "$CLOUD_PROVIDER" in
     ;;
   azure)
     source "$TAILBENCH_ROOT/config/azure.sh"
-    source "$TAILBENCH_ROOT/config/azure-instances.sh"
     source "$TAILBENCH_ROOT/lib/azure.sh"
     CLOUD_REGION="${AZURE_LOCATION}"
     CLOUD_ZONE="${AZURE_LOCATION}"
@@ -49,46 +46,23 @@ cloud_required_cmds()        { "${_cloud_prefix}_required_cmds"; }
 cloud_setup_networking()     { "${_cloud_prefix}_setup_networking"; }
 cloud_teardown_networking()  { "${_cloud_prefix}_teardown_networking"; }
 
-get_instance_family() { "${_cloud_prefix}_get_instance_family" "$@"; }
-get_instance_vcpus()  { "${_cloud_prefix}_get_instance_vcpus" "$@"; }
+get_instance_family()    { "${_cloud_prefix}_get_instance_family" "$@"; }
+get_instance_vcpus()     { "${_cloud_prefix}_get_instance_vcpus" "$@"; }
+cloud_is_quota_error()   { "${_cloud_prefix}_is_quota_error" "$@"; }
 
 get_instance_list() {
   local family="$1"
-  case "$CLOUD_PROVIDER" in
-    gcp)
-      case "$family" in
-        c3)  echo "${GCP_C3_INSTANCES[*]}" ;;
-        n2)  echo "${GCP_N2_INSTANCES[*]}" ;;
-        all) echo "${GCP_ALL_INSTANCES[*]}" ;;
-        *)   return 1 ;;
-      esac
-      ;;
-    aws)
-      case "$family" in
-        c6i) echo "${AWS_C6I_INSTANCES[*]}" ;;
-        m6i) echo "${AWS_M6I_INSTANCES[*]}" ;;
-        c7g) echo "${AWS_C7G_INSTANCES[*]}" ;;
-        m7g) echo "${AWS_M7G_INSTANCES[*]}" ;;
-        all) echo "${AWS_ALL_INSTANCES[*]}" ;;
-        *)   return 1 ;;
-      esac
-      ;;
-    azure)
-      case "$family" in
-        dv5)  echo "${AZURE_DV5_INSTANCES[*]}" ;;
-        fv2)  echo "${AZURE_FV2_INSTANCES[*]}" ;;
-        ev5)  echo "${AZURE_EV5_INSTANCES[*]}" ;;
-        all)  echo "${AZURE_ALL_INSTANCES[*]}" ;;
-        *)    return 1 ;;
-      esac
-      ;;
-  esac
+  if [[ "$family" == "all" ]]; then
+    local families
+    families=$(get_provider_families)
+    for f in $families; do
+      "${_cloud_prefix}_list_instances" "$f" 2>/dev/null || true
+    done
+  else
+    "${_cloud_prefix}_list_instances" "$family"
+  fi
 }
 
 get_provider_families() {
-  case "$CLOUD_PROVIDER" in
-    gcp)   echo "c3 n2" ;;
-    aws)   echo "c6i m6i c7g m7g" ;;
-    azure) echo "dv5 fv2 ev5" ;;
-  esac
+  "${_cloud_prefix}_list_families"
 }

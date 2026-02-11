@@ -68,13 +68,13 @@ source "$TAILBENCH_ROOT/lib/cleanup.sh"
 # Validate prereqs
 require_cmd jq curl $(cloud_required_cmds)
 
-# Build instance list
-instance_list=$(get_instance_list "$FAMILY") || {
+# Build instance list (dynamic API lookup)
+mapfile -t instances < <(get_instance_list "$FAMILY" 2>/dev/null | grep .)
+if (( ${#instances[@]} == 0 )); then
   valid_families=$(get_provider_families)
-  log_error "Unknown family '$FAMILY' for $CLOUD_PROVIDER (valid: $valid_families, or all)"
+  log_error "No instances found for family '$FAMILY' in $CLOUD_REGION (valid families: $valid_families, or all)"
   exit 1
-}
-read -ra instances <<< "$instance_list"
+fi
 
 if [[ -n "$FILTER" ]]; then
   filtered=()
@@ -179,19 +179,32 @@ if $CREATE_TAILNET; then
 fi
 
 # Get per-tailnet OAuth token and auth key
-ts_get_oauth_token
+TS_ACCESS_TOKEN=$(tailnet_get_access_token "$TS_OAUTH_CLIENT_ID" "$TS_OAUTH_CLIENT_SECRET")
+log_info "OAuth token acquired"
 ts_create_authkey
 export TS_ACCESS_TOKEN TS_AUTHKEY TS_AUTHKEY_CREATED TS_TAG
 export CLOUD_PROVIDER CLOUD_REGION CLOUD_ZONE
 
 # Track results for summary table
 declare -a result_lines=()
+declare -A skipped_families=()
 successes=0
 failures=0
+skipped=0
 
 for i in "${!instances[@]}"; do
   n=$(( i + 1 ))
   inst="${instances[$i]}"
+  family=$(get_instance_family "$inst")
+
+  # Skip if this family was already hit by a quota error
+  if [[ -n "${skipped_families[$family]:-}" ]]; then
+    log_warn "[$n/$total] Skipping $inst (family $family hit quota limit)"
+    skipped=$(( skipped + 1 ))
+    result_lines+=("$(printf '%-20s SKIPPED (quota)' "$inst")")
+    continue
+  fi
+
   log_info "=== [$n/$total] Testing $inst ==="
 
   safe_inst="${inst//_/-}"
@@ -203,8 +216,14 @@ for i in "${!instances[@]}"; do
 
   # Provision
   if [[ -z "$step_failed" ]]; then
-    if provision_output=$("$TAILBENCH_ROOT/scripts/provision-pair.sh" "$inst"); then
+    provision_rc=0
+    provision_output=$("$TAILBENCH_ROOT/scripts/provision-pair.sh" "$inst") || provision_rc=$?
+    if (( provision_rc == 0 )); then
       eval "$(echo "$provision_output" | grep -E '^[A-Z_]+=')"
+    elif (( provision_rc == 2 )); then
+      log_error "Provisioning hit quota limit for $inst"
+      skipped_families[$family]=1
+      step_failed="quota"
     else
       log_error "Provisioning failed for $inst"
       step_failed="provision"
@@ -229,7 +248,6 @@ for i in "${!instances[@]}"; do
     log_info "[$n/$total] $inst completed successfully"
     successes=$(( successes + 1 ))
 
-    family=$(get_instance_family "$inst")
     result_file="$TAILBENCH_ROOT/$CLOUD_PROVIDER/$family/results/$inst.json"
     if [[ -f "$result_file" ]]; then
       baseline=$(jq -r '.baseline_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$result_file")
@@ -237,6 +255,10 @@ for i in "${!instances[@]}"; do
       overhead=$(jq -r '.overhead.bandwidth_pct | . * 10 | round / 10' "$result_file")
       result_lines+=("$(printf '%-20s %-17s %-18s %s%%' "$inst" "$baseline" "$tailscale" "$overhead")")
     fi
+  elif [[ "$step_failed" == "quota" ]]; then
+    log_warn "[$n/$total] $inst QUOTA exceeded"
+    failures=$(( failures + 1 ))
+    result_lines+=("$(printf '%-20s QUOTA (provision)' "$inst")")
   else
     log_error "[$n/$total] $inst FAILED at $step_failed"
     failures=$(( failures + 1 ))
@@ -258,7 +280,7 @@ printf '%-20s %-17s %-18s %s\n' "-------------" "---------------" "-------------
 for line in "${result_lines[@]}"; do
   echo "$line"
 done
-echo "=== $successes/$total tests completed successfully ==="
+echo "=== $successes passed, $failures failed, $skipped skipped (of $total) ==="
 
 if [[ $failures -gt 0 ]]; then
   exit 1

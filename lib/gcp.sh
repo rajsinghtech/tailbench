@@ -106,6 +106,12 @@ gcp_list_families() {
   echo "c3 n2"
 }
 
+gcp_is_quota_error() {
+  local stderr="$1"
+  [[ "$stderr" == *QUOTA_EXCEEDED* ]] || \
+  [[ "$stderr" == *ZONE_RESOURCE_POOL_EXHAUSTED* ]]
+}
+
 gcp_list_instances() {
   local family="$1"
   gcloud compute machine-types list \

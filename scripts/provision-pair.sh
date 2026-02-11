@@ -17,13 +17,33 @@ client_name="${INSTANCE_PREFIX}-${safe_name}-client"
 
 log_info "Creating pair: $server_name + $client_name ($instance_type)"
 
-cloud_create_instance "$server_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" &
+server_err=$(mktemp)
+client_err=$(mktemp)
+
+cloud_create_instance "$server_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" 2>"$server_err" &
 pid_server=$!
-cloud_create_instance "$client_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" &
+cloud_create_instance "$client_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" 2>"$client_err" &
 pid_client=$!
 
-wait "$pid_server" || { log_error "Failed to create server $server_name"; exit 1; }
-wait "$pid_client" || { log_error "Failed to create client $client_name"; exit 1; }
+create_failed=false
+quota_hit=false
+
+if ! wait "$pid_server"; then
+  create_failed=true
+  log_error "Failed to create server $server_name: $(cat "$server_err")"
+  cloud_is_quota_error "$(cat "$server_err")" && quota_hit=true
+fi
+if ! wait "$pid_client"; then
+  create_failed=true
+  log_error "Failed to create client $client_name: $(cat "$client_err")"
+  cloud_is_quota_error "$(cat "$client_err")" && quota_hit=true
+fi
+
+rm -f "$server_err" "$client_err"
+if $create_failed; then
+  if $quota_hit; then exit 2; fi
+  exit 1
+fi
 
 wait_for_ssh "$server_name"
 wait_for_ssh "$client_name"

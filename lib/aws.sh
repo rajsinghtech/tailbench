@@ -141,11 +141,21 @@ aws_setup_networking() {
     --group-id "$AWS_SG_ID" \
     --protocol all --source-group "$AWS_SG_ID" >/dev/null
 
+  # Cluster placement group — removes the 5 Gbps single-flow cap between instances
+  AWS_PLACEMENT_GROUP="tailbench-pg-$(date +%s)"
+  aws ec2 create-placement-group \
+    --region "$AWS_REGION" \
+    --group-name "$AWS_PLACEMENT_GROUP" \
+    --strategy cluster \
+    --tag-specifications 'ResourceType=placement-group,Tags=[{Key=Name,Value=tailbench-pg},{Key=Project,Value=tailbench}]' \
+    --output none
+  log_info "Created placement group $AWS_PLACEMENT_GROUP"
+
   # Export for subprocesses (provision-pair.sh re-sources config/aws.sh)
-  export AWS_VPC_ID AWS_SUBNET_ID AWS_SG_ID
+  export AWS_VPC_ID AWS_SUBNET_ID AWS_SG_ID AWS_PLACEMENT_GROUP
   _AWS_NETWORKING_AUTO_CREATED=true
 
-  log_info "AWS networking ready (vpc=$AWS_VPC_ID subnet=$AWS_SUBNET_ID sg=$AWS_SG_ID)"
+  log_info "AWS networking ready (vpc=$AWS_VPC_ID subnet=$AWS_SUBNET_ID sg=$AWS_SG_ID pg=$AWS_PLACEMENT_GROUP)"
 }
 
 aws_teardown_networking() {
@@ -225,6 +235,15 @@ aws_teardown_networking() {
     log_warn "Failed to delete VPC $AWS_VPC_ID: $output"
   fi
 
+  # Placement group
+  if [[ -n "${AWS_PLACEMENT_GROUP:-}" ]]; then
+    if ! output=$(aws ec2 delete-placement-group \
+      --region "$AWS_REGION" \
+      --group-name "$AWS_PLACEMENT_GROUP" 2>&1); then
+      log_warn "Failed to delete placement group $AWS_PLACEMENT_GROUP: $output"
+    fi
+  fi
+
   log_info "AWS networking teardown complete"
 }
 
@@ -279,7 +298,7 @@ aws_create_instance() {
     --image-id "$ami"
     --instance-type "$instance_type"
     --key-name "$AWS_KEY_NAME"
-    --placement "AvailabilityZone=$AWS_AZ"
+    --placement "AvailabilityZone=$AWS_AZ${AWS_PLACEMENT_GROUP:+,GroupName=$AWS_PLACEMENT_GROUP}"
     --user-data "file://$startup_script"
     --tag-specifications "ResourceType=instance,Tags=[{Key=Name,Value=$name},{Key=Project,Value=tailbench}]"
     --block-device-mappings "DeviceName=/dev/sda1,Ebs={VolumeSize=50,VolumeType=gp3}"
@@ -393,6 +412,13 @@ aws_get_instance_vcpus() {
     --output text)
   _AWS_VCPU_CACHE[$instance_type]="$vcpus"
   echo "$vcpus"
+}
+
+aws_is_quota_error() {
+  local stderr="$1"
+  [[ "$stderr" == *VcpuLimitExceeded* ]] || \
+  [[ "$stderr" == *InsufficientInstanceCapacity* ]] || \
+  [[ "$stderr" == *InstanceLimitExceeded* ]]
 }
 
 aws_list_families() {
