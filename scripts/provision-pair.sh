@@ -5,7 +5,6 @@ TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/tailscale.sh"
-source "$TAILBENCH_ROOT/lib/cleanup.sh"
 
 instance_type="${1:?Usage: provision-pair.sh <instance_type>}"
 
@@ -16,14 +15,15 @@ safe_name="${safe_name,,}"
 server_name="${INSTANCE_PREFIX}-${safe_name}-server"
 client_name="${INSTANCE_PREFIX}-${safe_name}-client"
 
-cleanup_register "$server_name"
-cleanup_register "$client_name"
-
 log_info "Creating pair: $server_name + $client_name ($instance_type)"
 
 cloud_create_instance "$server_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" &
+pid_server=$!
 cloud_create_instance "$client_name" "$instance_type" "$TAILBENCH_ROOT/scripts/setup-instance.sh" &
-wait
+pid_client=$!
+
+wait "$pid_server" || { log_error "Failed to create server $server_name"; exit 1; }
+wait "$pid_client" || { log_error "Failed to create client $client_name"; exit 1; }
 
 wait_for_ssh "$server_name"
 wait_for_ssh "$client_name"
