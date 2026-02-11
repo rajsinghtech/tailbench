@@ -141,7 +141,8 @@ jobs:
           if [[ -n "${{ inputs.filter }}" ]]; then
             ARGS="$ARGS --filter '${{ inputs.filter }}'"
           fi
-          if [[ "${{ inputs.create_tailnet }}" == "true" ]]; then
+          CREATE_TAILNET="${{ inputs.create_tailnet }}"
+          if [[ "$CREATE_TAILNET" != "false" ]]; then
             ARGS="$ARGS --create-tailnet"
           fi
           eval "./scripts/orchestrate.sh $ARGS"

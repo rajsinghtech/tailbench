@@ -80,6 +80,15 @@ gcp_required_cmds() {
   echo "gcloud"
 }
 
+gcp_setup_networking() {
+  # GCP uses the pre-existing default network; nothing to create.
+  :
+}
+
+gcp_teardown_networking() {
+  :
+}
+
 gcp_get_instance_family() {
   local instance_type="$1"
   echo "${instance_type%%-*}"

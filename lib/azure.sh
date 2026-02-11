@@ -3,6 +3,8 @@ set -euo pipefail
 
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 
+_AZURE_NETWORKING_AUTO_CREATED="${_AZURE_NETWORKING_AUTO_CREATED:-false}"
+
 # IP cache — avoids repeated az queries
 declare -gA _AZURE_PUBLIC_IP_CACHE=() 2>/dev/null || true
 
@@ -40,7 +42,7 @@ azure_create_instance() {
     --image "$AZURE_IMAGE"
     --admin-username "$AZURE_SSH_USER"
     --ssh-key-values "$AZURE_SSH_PUB_KEY_PATH"
-    --custom-data "$startup_script"
+    --custom-data @"$startup_script"
     --os-disk-size-gb 50
     --storage-sku Premium_LRS
     --public-ip-sku Standard
@@ -53,7 +55,7 @@ azure_create_instance() {
   [[ -n "$AZURE_SUBNET" ]] && args+=(--subnet "$AZURE_SUBNET")
   [[ -n "$AZURE_NSG" ]] && args+=(--nsg "$AZURE_NSG")
 
-  "${args[@]}"
+  "${args[@]}" >/dev/null
 
   log_info "Waiting for $name to be running..."
   az vm wait \
@@ -141,4 +143,85 @@ azure_check_auth() {
 
 azure_required_cmds() {
   echo "az ssh scp"
+}
+
+azure_setup_networking() {
+  if [[ -n "$AZURE_VNET" ]]; then
+    log_info "Using pre-existing Azure networking (vnet=$AZURE_VNET)"
+    return 0
+  fi
+
+  log_info "Creating Azure networking resources..."
+
+  AZURE_VNET="tailbench-vnet"
+  AZURE_SUBNET="tailbench-subnet"
+  AZURE_NSG="tailbench-nsg"
+
+  # VNet + subnet in one call
+  az network vnet create \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_VNET" \
+    --location "$AZURE_LOCATION" \
+    --address-prefix 10.0.0.0/16 \
+    --subnet-name "$AZURE_SUBNET" \
+    --subnet-prefix 10.0.1.0/24 \
+    --tags Project=tailbench \
+    --output none
+
+  # NSG
+  az network nsg create \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_NSG" \
+    --location "$AZURE_LOCATION" \
+    --tags Project=tailbench \
+    --output none
+
+  az network nsg rule create \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --nsg-name "$AZURE_NSG" \
+    --name AllowSSH \
+    --priority 1000 \
+    --protocol Tcp \
+    --destination-port-ranges 22 \
+    --access Allow \
+    --direction Inbound \
+    --output none
+
+  az network nsg rule create \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --nsg-name "$AZURE_NSG" \
+    --name AllowVNetInternal \
+    --priority 1100 \
+    --protocol '*' \
+    --source-address-prefixes VirtualNetwork \
+    --destination-address-prefixes VirtualNetwork \
+    --access Allow \
+    --direction Inbound \
+    --output none
+
+  # Export for subprocesses
+  export AZURE_VNET AZURE_SUBNET AZURE_NSG
+  _AZURE_NETWORKING_AUTO_CREATED=true
+
+  log_info "Azure networking ready (vnet=$AZURE_VNET subnet=$AZURE_SUBNET nsg=$AZURE_NSG)"
+}
+
+azure_teardown_networking() {
+  if [[ "$_AZURE_NETWORKING_AUTO_CREATED" != "true" ]]; then
+    return 0
+  fi
+
+  log_info "Tearing down auto-created Azure networking..."
+
+  az network nsg delete \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_NSG" \
+    --output none 2>/dev/null || true
+
+  az network vnet delete \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name "$AZURE_VNET" \
+    --output none 2>/dev/null || true
+
+  log_info "Azure networking teardown complete"
 }

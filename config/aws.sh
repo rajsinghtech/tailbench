@@ -4,10 +4,10 @@
 AWS_REGION="${AWS_REGION:-us-east-1}"
 AWS_AZ="${AWS_AZ:-us-east-1a}"
 
-# Networking
-AWS_VPC_ID="${AWS_VPC_ID:-vpc-cbcba1b6}"
-AWS_SUBNET_ID="${AWS_SUBNET_ID:-subnet-181c457e}"
-AWS_SG_ID="${AWS_SG_ID:-sg-0e8940e9a0ff105a3}"
+# Networking — auto-created if empty (see lib/aws.sh aws_setup_networking)
+AWS_VPC_ID="${AWS_VPC_ID:-}"
+AWS_SUBNET_ID="${AWS_SUBNET_ID:-}"
+AWS_SG_ID="${AWS_SG_ID:-}"
 
 # SSH key pair
 AWS_KEY_NAME="${AWS_KEY_NAME:-raj_macbook}"

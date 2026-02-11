@@ -134,6 +134,11 @@ fi
 # Setup cleanup trap
 setup_cleanup_trap
 
+# Setup provider networking (auto-creates VPC/VNet if needed)
+cloud_setup_networking
+_original_exit_trap=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//")
+trap "$_original_exit_trap; cloud_teardown_networking" EXIT
+
 # Tailnet lifecycle
 if $CREATE_TAILNET; then
   # Get org-level access token
@@ -149,7 +154,8 @@ if $CREATE_TAILNET; then
   org_token="$ORG_ACCESS_TOKEN"
   trap_tailnet_cleanup() {
     log_info "Cleaning up ephemeral tailnet: $tailnet_dns"
-    tailnet_delete "$org_token" "$tailnet_dns" || log_warn "Failed to delete tailnet (may require manual cleanup)"
+    # API-only tailnets may auto-delete when all devices disconnect, so 404 is expected
+    tailnet_delete "$org_token" "$tailnet_dns" || log_warn "Tailnet already deleted (auto-cleanup) or requires manual removal"
   }
   # Chain with existing cleanup trap
   original_cleanup=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//")

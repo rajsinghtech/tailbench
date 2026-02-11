@@ -44,8 +44,10 @@ cloud_get_internal_ip()  { "${_cloud_prefix}_get_internal_ip" "$@"; }
 cloud_ssh()              { "${_cloud_prefix}_ssh" "$@"; }
 cloud_scp()              { "${_cloud_prefix}_scp" "$@"; }
 cloud_instance_exists()  { "${_cloud_prefix}_instance_exists" "$@"; }
-cloud_check_auth()       { "${_cloud_prefix}_check_auth"; }
-cloud_required_cmds()    { "${_cloud_prefix}_required_cmds"; }
+cloud_check_auth()           { "${_cloud_prefix}_check_auth"; }
+cloud_required_cmds()        { "${_cloud_prefix}_required_cmds"; }
+cloud_setup_networking()     { "${_cloud_prefix}_setup_networking"; }
+cloud_teardown_networking()  { "${_cloud_prefix}_teardown_networking"; }
 
 get_instance_family() { "${_cloud_prefix}_get_instance_family" "$@"; }
 get_instance_vcpus()  { "${_cloud_prefix}_get_instance_vcpus" "$@"; }
