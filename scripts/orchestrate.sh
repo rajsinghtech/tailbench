@@ -9,7 +9,7 @@ source "$TAILBENCH_ROOT/lib/tailnet.sh"
 FILTER=""
 DRY_RUN=false
 FAMILY="all"
-CREATE_TAILNET=false
+CREATE_TAILNET=true
 TAILNET_PREFIX="${TAILNET_PREFIX:-tailbench}"
 PROVIDER_LIST=()
 
@@ -27,21 +27,23 @@ Options:
   --providers <gcp,aws,azure>      Run multiple providers in parallel (comma-separated)
   --filter <regex>                  Only test instance types matching regex
   --family <name|all>               Select instance family (default: all)
-  --create-tailnet                  Create an ephemeral API-only tailnet for the run
+  --create-tailnet                  Create an ephemeral API-only tailnet (default)
+  --no-create-tailnet               Use existing tailnet credentials directly
   --dry-run                         Preview what would run without executing
   -h, --help                        Show this help
 
 Provider families:
   gcp:   c3, n2
   aws:   c6i, m6i, c7g, m7g
-  azure: dv5, fv2, ev5
+  azure: dsv6, fasv6, esv6
 
 Required environment variables:
   TS_OAUTH_CLIENT_ID     Tailscale OAuth client ID
   TS_OAUTH_CLIENT_SECRET Tailscale OAuth client secret
   TS_TAG                 Tailscale ACL tag (default: tag:bench)
 
-When --create-tailnet is used:
+Tailnet creation is on by default. Use --no-create-tailnet to skip it.
+When tailnet creation is enabled:
   - An API-only tailnet is created for the benchmark run
   - OAuth credentials from the new tailnet are used for auth keys
   - The tailnet is deleted on exit (including on failure/Ctrl-C)
@@ -56,7 +58,8 @@ while [[ $# -gt 0 ]]; do
     --providers)  IFS=',' read -ra PROVIDER_LIST <<< "$2"; shift 2 ;;
     --filter)     FILTER="$2"; shift 2 ;;
     --family)     FAMILY="$2"; shift 2 ;;
-    --create-tailnet) CREATE_TAILNET=true; shift ;;
+    --create-tailnet)    CREATE_TAILNET=true; shift ;;
+    --no-create-tailnet) CREATE_TAILNET=false; shift ;;
     --dry-run)    DRY_RUN=true; shift ;;
     -h|--help)    usage ;;
     *)            log_error "Unknown option: $1"; usage ;;
@@ -164,7 +167,7 @@ _run_provider() {
     safe_inst="${safe_inst,,}"
     local SERVER_NAME="${INSTANCE_PREFIX}-${safe_inst}-server"
     local CLIENT_NAME="${INSTANCE_PREFIX}-${safe_inst}-client"
-    local SERVER_LAN_IP="" CLIENT_LAN_IP="" SERVER_TS_IP="" CLIENT_TS_IP=""
+    local SERVER_LAN_IP="" CLIENT_LAN_IP=""
     local step_failed=""
 
     # Provision
@@ -188,8 +191,7 @@ _run_provider() {
     if [[ -z "$step_failed" ]]; then
       if ! "$TAILBENCH_ROOT/scripts/run-benchmark.sh" \
           "$inst" "$SERVER_NAME" "$CLIENT_NAME" \
-          "$SERVER_LAN_IP" "$CLIENT_LAN_IP" \
-          "$SERVER_TS_IP" "$CLIENT_TS_IP"; then
+          "$SERVER_LAN_IP" "$CLIENT_LAN_IP"; then
         log_error "[$provider] Benchmark failed for $inst"
         step_failed="benchmark"
       fi
@@ -341,7 +343,7 @@ if $DRY_RUN; then
         vcpus=$(get_instance_vcpus "$inst")
         echo "[$n/$local_total] $inst (family=$family, vcpus=$vcpus)"
         echo "  provision-pair.sh $inst"
-        echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> <s_ts> <c_ts>"
+        echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan>"
         echo "  teardown-pair.sh <server> <client>"
         echo "  -> $p/$family/results/$inst.json"
       done
@@ -383,8 +385,10 @@ if $CREATE_TAILNET; then
   TAILNET_ACCESS_TOKEN=$(tailnet_get_access_token "$TAILNET_OAUTH_CLIENT_ID" "$TAILNET_OAUTH_CLIENT_SECRET")
 
   acl_policy=$(jq -n --arg tag "$TS_TAG" '{
-    acls: [{action: "accept", src: [$tag], dst: [($tag + ":*")]}],
-    tagOwners: {($tag): [$tag]}
+    acls: [{action: "accept", src: ["*"], dst: ["*:*"]}],
+    tagOwners: {($tag): [$tag]},
+    ssh: [],
+    nodeAttrs: []
   }')
   tailnet_update_acl "$TAILNET_ACCESS_TOKEN" "$TAILNET_DNS_NAME" "$acl_policy"
 

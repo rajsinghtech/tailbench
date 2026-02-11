@@ -20,8 +20,8 @@ export TS_OAUTH_CLIENT_SECRET="..."
 # All three providers in parallel
 ./scripts/orchestrate.sh --providers gcp,aws,azure
 
-# Full suite with ephemeral tailnet
-./scripts/orchestrate.sh --provider aws --create-tailnet
+# Skip ephemeral tailnet, use existing credentials
+./scripts/orchestrate.sh --provider aws --no-create-tailnet
 
 # Dry run
 ./scripts/orchestrate.sh --provider aws --dry-run
@@ -35,7 +35,8 @@ export TS_OAUTH_CLIENT_SECRET="..."
 | `--providers <gcp,aws,azure>` | Run multiple providers in parallel |
 | `--filter <regex>` | Only test matching instance types |
 | `--family <name\|all>` | Instance family (default: all) |
-| `--create-tailnet` | Create/destroy an ephemeral API-only tailnet |
+| `--create-tailnet` | Create ephemeral tailnet (default) |
+| `--no-create-tailnet` | Use existing tailnet credentials directly |
 | `--dry-run` | Preview without executing |
 
 ### Families per provider

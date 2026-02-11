@@ -109,7 +109,9 @@ gcp_list_families() {
 gcp_is_quota_error() {
   local stderr="$1"
   [[ "$stderr" == *QUOTA_EXCEEDED* ]] || \
-  [[ "$stderr" == *ZONE_RESOURCE_POOL_EXHAUSTED* ]]
+  [[ "$stderr" == *ZONE_RESOURCE_POOL_EXHAUSTED* ]] || \
+  [[ "$stderr" == *"Quota"*"exceeded"* ]] || \
+  [[ "$stderr" == *"increase quotas"* ]]
 }
 
 gcp_list_instances() {

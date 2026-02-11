@@ -136,6 +136,12 @@ aws_setup_networking() {
     --group-id "$AWS_SG_ID" \
     --protocol tcp --port 22 --cidr 0.0.0.0/0 >/dev/null
 
+  # Tailscale WireGuard UDP — needed for direct connections between instances
+  aws ec2 authorize-security-group-ingress \
+    --region "$AWS_REGION" \
+    --group-id "$AWS_SG_ID" \
+    --protocol udp --port 41641 --cidr 0.0.0.0/0 >/dev/null
+
   aws ec2 authorize-security-group-ingress \
     --region "$AWS_REGION" \
     --group-id "$AWS_SG_ID" \
@@ -148,7 +154,7 @@ aws_setup_networking() {
     --group-name "$AWS_PLACEMENT_GROUP" \
     --strategy cluster \
     --tag-specifications 'ResourceType=placement-group,Tags=[{Key=Name,Value=tailbench-pg},{Key=Project,Value=tailbench}]' \
-    --output none
+    --output text >/dev/null
   log_info "Created placement group $AWS_PLACEMENT_GROUP"
 
   # Export for subprocesses (provision-pair.sh re-sources config/aws.sh)

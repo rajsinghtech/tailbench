@@ -59,10 +59,20 @@ azure_create_instance() {
   "${args[@]}" >/dev/null
 
   log_info "Waiting for $name to be running..."
-  az vm wait \
+  if ! az vm wait \
     --resource-group "$AZURE_RESOURCE_GROUP" \
     --name "$name" \
-    --created
+    --created 2>/dev/null; then
+    # Extract detailed error from instance view
+    local error_msg
+    error_msg=$(az vm get-instance-view \
+      --resource-group "$AZURE_RESOURCE_GROUP" \
+      --name "$name" \
+      --query "instanceView.statuses[?level=='Error'].message" \
+      --output tsv 2>/dev/null)
+    log_error "VM $name provisioning failed: ${error_msg:-unknown error}"
+    return 1
+  fi
 
   # Cache public IP
   local ip
@@ -155,11 +165,15 @@ azure_required_cmds() {
 
 azure_get_instance_family() {
   local instance_type="$1"
-  local name="${instance_type#Standard_}"
-  local letter="${name%%[0-9]*}"
-  letter="${letter%s}"
-  local suffix="${name##*_}"
-  echo "${letter}${suffix}"
+  case "$instance_type" in
+    Standard_D*s_v6)  echo "dsv6" ;;
+    Standard_F*as_v6) echo "fasv6" ;;
+    Standard_E*s_v6)  echo "esv6" ;;
+    *)
+      local name="${instance_type#Standard_}"
+      echo "$name" | sed 's/[0-9][0-9]*//' | tr -d '_-' | tr '[:upper:]' '[:lower:]'
+      ;;
+  esac
 }
 
 azure_get_instance_vcpus() {
@@ -177,15 +191,15 @@ azure_get_instance_vcpus() {
 _azure_family_to_sku_family() {
   local family="${1,,}"
   case "$family" in
-    dv5)  echo "standardDv5Family" ;;
-    fv2)  echo "standardFSv2Family" ;;
-    ev5)  echo "standardEv5Family" ;;
-    *)    return 1 ;;
+    dsv6)  echo "StandardDsv6Family" ;;
+    fasv6) echo "StandardFasv6Family" ;;
+    esv6)  echo "StandardEsv6Family" ;;
+    *)     return 1 ;;
   esac
 }
 
 azure_list_families() {
-  echo "dv5 fv2 ev5"
+  echo "dsv6 fasv6 esv6"
 }
 
 azure_list_instances() {
@@ -200,6 +214,10 @@ azure_list_instances() {
     --output json)
   while IFS=$'\t' read -r name vcpus; do
     [[ -z "$name" ]] && continue
+    # Skip constrained vCPU variants (e.g., Standard_E16-4s_v6)
+    [[ "$name" =~ [0-9]-[0-9] ]] && continue
+    # Skip isolated variants (e.g., Standard_E192is_v6)
+    [[ "$name" == *is_v* ]] && continue
     _AZURE_VCPU_CACHE[$name]="$vcpus"
     echo "$name"
   done < <(echo "$json" | jq -r 'sort_by(.vcpus | tonumber) | .[] | "\(.name)\t\(.vcpus)"')
@@ -209,7 +227,9 @@ azure_is_quota_error() {
   local stderr="$1"
   [[ "$stderr" == *QuotaExceeded* ]] || \
   [[ "$stderr" == *OperationNotAllowed*quota* ]] || \
-  [[ "$stderr" == *SkuNotAvailable* ]]
+  [[ "$stderr" == *SkuNotAvailable* ]] || \
+  [[ "$stderr" == *AllocationFailed* ]] || \
+  [[ "$stderr" == *"sufficient capacity"* ]]
 }
 
 azure_setup_networking() {
@@ -262,6 +282,18 @@ azure_setup_networking() {
     --protocol '*' \
     --source-address-prefixes VirtualNetwork \
     --destination-address-prefixes VirtualNetwork \
+    --access Allow \
+    --direction Inbound \
+    --output none
+
+  # Allow WireGuard UDP for Tailscale direct connections
+  az network nsg rule create \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --nsg-name "$AZURE_NSG" \
+    --name AllowWireGuardUDP \
+    --priority 1200 \
+    --protocol Udp \
+    --destination-port-ranges 41641 \
     --access Allow \
     --direction Inbound \
     --output none

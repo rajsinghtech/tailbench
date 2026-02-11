@@ -2,6 +2,7 @@
 set -euo pipefail
 
 export DEBIAN_FRONTEND=noninteractive
+export NEEDRESTART_MODE=a
 
 apt-get update -qq
 apt-get install -y -qq iperf3 mtr-tiny jq curl > /dev/null 2>&1

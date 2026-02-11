@@ -9,61 +9,83 @@ source "$TAILBENCH_ROOT/lib/iperf.sh"
 source "$TAILBENCH_ROOT/lib/mtr.sh"
 
 usage() {
-  echo "Usage: $0 <instance_type> <server_name> <client_name> <server_lan_ip> <client_lan_ip> <server_ts_ip> <client_ts_ip>" >&2
+  echo "Usage: $0 <instance_type> <server_name> <client_name> <server_lan_ip> <client_lan_ip>" >&2
   exit 1
 }
 
-[[ $# -eq 7 ]] || usage
+[[ $# -eq 5 ]] || usage
 
 instance_type="$1"
 server_name="$2"
 client_name="$3"
 server_lan_ip="$4"
 client_lan_ip="$5"
-server_ts_ip="$6"
-client_ts_ip="$7"
 
 require_cmd jq awk $(cloud_required_cmds)
 
 log_info "Starting benchmark for $instance_type"
-log_info "Server: $server_name ($server_lan_ip / $server_ts_ip)"
-log_info "Client: $client_name ($client_lan_ip / $client_ts_ip)"
+log_info "Server: $server_name ($server_lan_ip)"
+log_info "Client: $client_name ($client_lan_ip)"
 
-# Verify direct Tailscale connection before benchmarking
+# Verify iperf3 is available on both instances
+for node in "$server_name" "$client_name"; do
+  if ! cloud_ssh "$node" "which iperf3" >/dev/null 2>&1; then
+    log_warn "iperf3 not found on $node, installing..."
+    cloud_ssh "$node" "sudo apt-get update -qq && sudo apt-get install -y -qq iperf3" >/dev/null 2>&1
+  fi
+done
+
+# ── Phase 1: Baseline (LAN) — before Tailscale ──────────────────────
+log_info "=== Phase 1: Baseline (LAN, no Tailscale) ==="
+
+iperf_start_server "$server_name"
+sleep 2
+
+log_info "Running baseline TCP test"
+baseline_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
+  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
+
+log_info "Running baseline MTR"
+baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES")
+
+iperf_stop_server "$server_name"
+
+# ── Phase 2: Tailscale setup ────────────────────────────────────────
+log_info "=== Phase 2: Tailscale setup ==="
+
+ts_up "$server_name" "$server_name"
+ts_up "$client_name" "$client_name"
+
+server_ts_ip=$(ts_get_ip "$server_name")
+client_ts_ip=$(ts_get_ip "$client_name")
+log_info "Server TS: $server_ts_ip, Client TS: $client_ts_ip"
+
+ts_wait_for_peer "$client_name" "$server_ts_ip"
+
 connection_type=$(ts_wait_for_direct "$client_name" "$server_ts_ip")
 if [[ "$connection_type" == "relayed" ]]; then
   log_warn "Benchmarking over DERP relay — results will not reflect direct path performance"
 fi
 
-# Start iperf server
+# ── Phase 3: Tailscale benchmark ────────────────────────────────────
+log_info "=== Phase 3: Tailscale benchmark ==="
+
 iperf_start_server "$server_name"
 sleep 2
 
-# Baseline TCP test (LAN)
-log_info "Running baseline TCP test"
-baseline_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
-  "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
-
-# Tailscale TCP test
 log_info "Running Tailscale TCP test"
 tailscale_runs=$(iperf_run_test "$client_name" "$server_ts_ip" \
   "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS")
 
-# Baseline MTR
-log_info "Running baseline MTR"
-baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES")
-
-# Tailscale MTR
 log_info "Running Tailscale MTR"
 tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES")
 
-# Stop iperf server
 iperf_stop_server "$server_name"
 
+# ── Results ─────────────────────────────────────────────────────────
 baseline_summary=$(iperf_compute_summary "$baseline_runs")
 tailscale_summary=$(iperf_compute_summary "$tailscale_runs")
 
-# Overhead
 baseline_bw_avg=$(echo "$baseline_summary" | jq '.bandwidth_mbps_avg')
 tailscale_bw_avg=$(echo "$tailscale_summary" | jq '.bandwidth_mbps_avg')
 baseline_retransmits_avg=$(echo "$baseline_summary" | jq '.retransmits_avg')
@@ -74,19 +96,16 @@ bandwidth_overhead=$(jq -n --argjson b "$baseline_bw_avg" --argjson t "$tailscal
 retransmits_overhead=$(jq -n --argjson b "$baseline_retransmits_avg" --argjson t "$tailscale_retransmits_avg" \
   'if $b == 0 then 0 else (($t - $b) / $b * 100) end')
 
-# Tailscale version + kernel version
 ts_version=$(cloud_ssh "$server_name" "tailscale version | head -1" | tr -d '[:space:]')
 kernel_version=$(cloud_ssh "$server_name" "uname -r" | tr -d '[:space:]')
 log_info "Tailscale version: $ts_version"
 log_info "Kernel version: $kernel_version"
 log_info "Connection type: $connection_type"
 
-# Instance family + vcpus
 family=$(get_instance_family "$instance_type")
 vcpus=$(get_instance_vcpus "$instance_type")
 today=$(date +%Y-%m-%d)
 
-# Assemble result JSON
 result=$(jq -n \
   --arg provider "$CLOUD_PROVIDER" \
   --arg family "$family" \
@@ -134,7 +153,6 @@ result=$(jq -n \
     tailscale_mtr: $tailscale_mtr
   }')
 
-# Write output
 outdir="$TAILBENCH_ROOT/$CLOUD_PROVIDER/$family/results"
 mkdir -p "$outdir"
 outfile="$outdir/$instance_type.json"
