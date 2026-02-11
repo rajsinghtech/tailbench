@@ -60,6 +60,55 @@ aws_setup_networking() {
     return 0
   fi
 
+  # Check for existing tailbench VPC
+  local existing_vpc
+  existing_vpc=$(aws ec2 describe-vpcs \
+    --region "$AWS_REGION" \
+    --filters "Name=tag:Project,Values=tailbench" \
+    --query 'Vpcs[0].VpcId' --output text 2>/dev/null) || true
+
+  if [[ -n "$existing_vpc" && "$existing_vpc" != "None" ]]; then
+    log_info "Discovered existing tailbench VPC $existing_vpc"
+    AWS_VPC_ID="$existing_vpc"
+
+    AWS_SUBNET_ID=$(aws ec2 describe-subnets \
+      --region "$AWS_REGION" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --query 'Subnets[0].SubnetId' --output text)
+
+    AWS_SG_ID=$(aws ec2 describe-security-groups \
+      --region "$AWS_REGION" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --query 'SecurityGroups[0].GroupId' --output text)
+
+    _AWS_IGW_ID=$(aws ec2 describe-internet-gateways \
+      --region "$AWS_REGION" \
+      --filters "Name=attachment.vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --query 'InternetGateways[0].InternetGatewayId' --output text)
+
+    _AWS_RTB_ID=$(aws ec2 describe-route-tables \
+      --region "$AWS_REGION" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --query 'RouteTables[0].RouteTableId' --output text)
+
+    _AWS_RTB_ASSOC_ID=$(aws ec2 describe-route-tables \
+      --region "$AWS_REGION" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --query 'RouteTables[0].Associations[0].RouteTableAssociationId' --output text)
+
+    AWS_PLACEMENT_GROUP=$(aws ec2 describe-placement-groups \
+      --region "$AWS_REGION" \
+      --filters "Name=tag:Project,Values=tailbench" \
+      --query 'PlacementGroups[0].GroupName' --output text 2>/dev/null) || true
+    [[ "$AWS_PLACEMENT_GROUP" == "None" ]] && AWS_PLACEMENT_GROUP=""
+
+    export AWS_VPC_ID AWS_SUBNET_ID AWS_SG_ID AWS_PLACEMENT_GROUP
+    _AWS_NETWORKING_AUTO_CREATED=false
+
+    log_info "AWS networking reused (vpc=$AWS_VPC_ID subnet=$AWS_SUBNET_ID sg=$AWS_SG_ID pg=${AWS_PLACEMENT_GROUP:-none})"
+    return 0
+  fi
+
   log_info "Creating AWS networking resources..."
 
   # VPC

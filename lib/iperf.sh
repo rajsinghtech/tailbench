@@ -7,9 +7,19 @@ source "$TAILBENCH_ROOT/lib/common.sh"
 iperf_start_server() {
   local instance="$1"
   log_info "Starting iperf3 server on $instance"
-  cloud_ssh "$instance" "pkill iperf3 2>/dev/null || true; sleep 1; iperf3 -s -D"
+  cloud_ssh "$instance" "pkill -9 iperf3 2>/dev/null || true; sleep 2; nohup iperf3 -s </dev/null >/dev/null 2>&1 & sleep 1"
   # Verify server is listening
-  retry 5 2 cloud_ssh "$instance" "ss -tlnp | grep -q 5201" 2>/dev/null
+  local attempt=0
+  while (( attempt < 5 )); do
+    if cloud_ssh "$instance" "ss -tlnp | grep -q 5201" 2>/dev/null; then
+      log_info "iperf3 server listening on $instance:5201"
+      return 0
+    fi
+    attempt=$(( attempt + 1 ))
+    sleep 2
+  done
+  log_error "iperf3 server failed to start on $instance"
+  return 1
 }
 
 iperf_stop_server() {

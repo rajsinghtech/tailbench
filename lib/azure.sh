@@ -130,7 +130,8 @@ azure_ssh() {
   shift
   local ip
   ip=$(_azure_resolve_public_ip "$name")
-  ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 -o LogLevel=ERROR \
+  ssh -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o ConnectTimeout=10 -o LogLevel=ERROR \
     -i "$AZURE_SSH_KEY_PATH" \
     "${AZURE_SSH_USER}@${ip}" "$@"
 }
@@ -139,7 +140,8 @@ azure_scp() {
   local name="$1" src="$2" dest="$3"
   local ip
   ip=$(_azure_resolve_public_ip "$name")
-  scp -o StrictHostKeyChecking=no -o LogLevel=ERROR \
+  scp -o StrictHostKeyChecking=no -o UserKnownHostsFile=/dev/null \
+    -o LogLevel=ERROR \
     -i "$AZURE_SSH_KEY_PATH" \
     "$src" "${AZURE_SSH_USER}@${ip}:${dest}"
 }
@@ -165,15 +167,12 @@ azure_required_cmds() {
 
 azure_get_instance_family() {
   local instance_type="$1"
-  case "$instance_type" in
-    Standard_D*s_v6)  echo "dsv6" ;;
-    Standard_F*as_v6) echo "fasv6" ;;
-    Standard_E*s_v6)  echo "esv6" ;;
-    *)
-      local name="${instance_type#Standard_}"
-      echo "$name" | sed 's/[0-9][0-9]*//' | tr -d '_-' | tr '[:upper:]' '[:lower:]'
-      ;;
-  esac
+  # Strip Standard_ prefix, remove first digit sequence, remove _ and -, lowercase
+  # Standard_D4s_v4 → D4s_v4 → Ds_v4 → Dsv4 → dsv4
+  # Standard_F4s_v2 → F4s_v2 → Fs_v2 → Fsv2 → fsv2
+  # Standard_E4s_v4 → E4s_v4 → Es_v4 → Esv4 → esv4
+  local name="${instance_type#Standard_}"
+  echo "$name" | sed 's/[0-9][0-9]*//' | tr -d '_-' | tr '[:upper:]' '[:lower:]'
 }
 
 azure_get_instance_vcpus() {
@@ -191,15 +190,15 @@ azure_get_instance_vcpus() {
 _azure_family_to_sku_family() {
   local family="${1,,}"
   case "$family" in
-    dsv6)  echo "StandardDsv6Family" ;;
-    fasv6) echo "StandardFasv6Family" ;;
-    esv6)  echo "StandardEsv6Family" ;;
+    dsv4)  echo "standardDSv4Family" ;;
+    fsv2)  echo "standardFSv2Family" ;;
+    esv4)  echo "standardESv4Family" ;;
     *)     return 1 ;;
   esac
 }
 
 azure_list_families() {
-  echo "dsv6 fasv6 esv6"
+  echo "dsv4 fsv2 esv4"
 }
 
 azure_list_instances() {
@@ -210,7 +209,7 @@ azure_list_instances() {
   json=$(az vm list-skus \
     --location "$AZURE_LOCATION" \
     --resource-type virtualMachines \
-    --query "[?family=='${sku_family}' && restrictions[0]==null].{name:name,vcpus:capabilities[?name=='vCPUs'].value|[0]}" \
+    --query "[?family=='${sku_family}' && !(restrictions[?type=='Location'])].{name:name,vcpus:capabilities[?name=='vCPUs'].value|[0]}" \
     --output json)
   while IFS=$'\t' read -r name vcpus; do
     [[ -z "$name" ]] && continue
@@ -235,6 +234,23 @@ azure_is_quota_error() {
 azure_setup_networking() {
   if [[ -n "$AZURE_VNET" ]]; then
     log_info "Using pre-existing Azure networking (vnet=$AZURE_VNET)"
+    return 0
+  fi
+
+  # Check for existing tailbench VNet
+  if az network vnet show \
+    --resource-group "$AZURE_RESOURCE_GROUP" \
+    --name tailbench-vnet \
+    --output none 2>/dev/null; then
+
+    AZURE_VNET="tailbench-vnet"
+    AZURE_SUBNET="tailbench-subnet"
+    AZURE_NSG="tailbench-nsg"
+
+    export AZURE_VNET AZURE_SUBNET AZURE_NSG
+    _AZURE_NETWORKING_AUTO_CREATED=false
+
+    log_info "Azure networking reused (vnet=$AZURE_VNET subnet=$AZURE_SUBNET nsg=$AZURE_NSG)"
     return 0
   fi
 

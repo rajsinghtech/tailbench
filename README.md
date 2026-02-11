@@ -37,6 +37,7 @@ export TS_OAUTH_CLIENT_SECRET="..."
 | `--family <name\|all>` | Instance family (default: all) |
 | `--create-tailnet` | Create ephemeral tailnet (default) |
 | `--no-create-tailnet` | Use existing tailnet credentials directly |
+| `--cleanup-networking` | Tear down provider networking after run |
 | `--dry-run` | Preview without executing |
 
 ### Families per provider
@@ -65,16 +66,33 @@ Results go to `<provider>/<family>/results/<type>.json` and are aggregated into 
 
 **GCP** uses the pre-existing default VPC. No setup needed.
 
-**AWS** and **Azure** auto-create networking when their subnet/VNet variables are empty (the default):
+**AWS** and **Azure** networking persists across runs by default. On the first run, a VPC/VNet is created and tagged `Project=tailbench`. Subsequent runs discover the existing resources and reuse them, avoiding redundant create/delete cycles.
 
 | | AWS | Azure |
 |-|-----|-------|
 | **Creates** | VPC, subnet, internet gateway, route table, security group, cluster placement group | VNet + subnet, NSG with SSH and internal traffic rules |
+| **Discovery** | Tag query (`Project=tailbench`) to resolve VPC, subnet, SG, IGW, route table, placement group | Name-based lookup (`tailbench-vnet`) |
 | **CIDR** | 10.0.0.0/16 (VPC), 10.0.1.0/24 (subnet) | 10.0.0.0/16 (VNet), 10.0.1.0/24 (subnet) |
 | **Tagging** | All resources tagged `Project=tailbench` | All resources tagged `Project=tailbench` |
 | **Cleanup** | Waits for instances to terminate, then deletes in reverse order | Deletes NSG, then VNet |
 
-Both providers clean up on exit, including Ctrl-C. To use pre-existing networking instead, set the relevant env vars (see below).
+Networking is **not** torn down on exit. Use `--cleanup-networking` to explicitly delete networking resources after the run completes:
+
+```bash
+./scripts/orchestrate.sh --provider aws --cleanup-networking
+```
+
+To manually find leftover resources:
+
+```bash
+# AWS
+aws ec2 describe-vpcs --filters "Name=tag:Project,Values=tailbench" --query 'Vpcs[].VpcId'
+
+# Azure
+az network vnet list --resource-group tailbench-rg --query "[?tags.Project=='tailbench'].name"
+```
+
+To use your own pre-existing networking instead, set the relevant env vars (see below).
 
 ## AMI Selection (AWS)
 

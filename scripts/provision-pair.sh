@@ -4,7 +4,6 @@ set -euo pipefail
 TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
-source "$TAILBENCH_ROOT/lib/tailscale.sh"
 
 instance_type="${1:?Usage: provision-pair.sh <instance_type>}"
 
@@ -51,33 +50,12 @@ wait_for_ssh "$client_name"
 wait_for_ready "$server_name"
 wait_for_ready "$client_name"
 
-log_info "Bringing up Tailscale on both nodes..."
-if ! ts_up "$server_name" "$server_name"; then
-  log_error "ts_up failed for server $server_name"
-  exit 1
-fi
-if ! ts_up "$client_name" "$client_name"; then
-  log_error "ts_up failed for client $client_name"
-  exit 1
-fi
-
-log_info "Getting LAN IPs..."
 server_lan_ip=$(cloud_get_internal_ip "$server_name")
 client_lan_ip=$(cloud_get_internal_ip "$client_name")
-log_info "Server LAN: $server_lan_ip, Client LAN: $client_lan_ip"
 
-log_info "Getting Tailscale IPs..."
-server_ts_ip=$(ts_get_ip "$server_name")
-client_ts_ip=$(ts_get_ip "$client_name")
-log_info "Server TS: $server_ts_ip, Client TS: $client_ts_ip"
-
-ts_wait_for_peer "$client_name" "$server_ts_ip"
-
-log_info "Pair provisioned successfully"
+log_info "Pair ready: server=$server_lan_ip client=$client_lan_ip"
 
 echo "SERVER_NAME=$server_name"
 echo "CLIENT_NAME=$client_name"
 echo "SERVER_LAN_IP=$server_lan_ip"
 echo "CLIENT_LAN_IP=$client_lan_ip"
-echo "SERVER_TS_IP=$server_ts_ip"
-echo "CLIENT_TS_IP=$client_ts_ip"

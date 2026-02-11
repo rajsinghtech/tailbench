@@ -10,6 +10,7 @@ FILTER=""
 DRY_RUN=false
 FAMILY="all"
 CREATE_TAILNET=true
+CLEANUP_NETWORKING=false
 TAILNET_PREFIX="${TAILNET_PREFIX:-tailbench}"
 PROVIDER_LIST=()
 
@@ -29,13 +30,14 @@ Options:
   --family <name|all>               Select instance family (default: all)
   --create-tailnet                  Create an ephemeral API-only tailnet (default)
   --no-create-tailnet               Use existing tailnet credentials directly
+  --cleanup-networking              Tear down provider networking after run
   --dry-run                         Preview what would run without executing
   -h, --help                        Show this help
 
 Provider families:
   gcp:   c3, n2
   aws:   c6i, m6i, c7g, m7g
-  azure: dsv6, fasv6, esv6
+  azure: dsv4, fsv2, esv4
 
 Required environment variables:
   TS_OAUTH_CLIENT_ID     Tailscale OAuth client ID
@@ -60,6 +62,7 @@ while [[ $# -gt 0 ]]; do
     --family)     FAMILY="$2"; shift 2 ;;
     --create-tailnet)    CREATE_TAILNET=true; shift ;;
     --no-create-tailnet) CREATE_TAILNET=false; shift ;;
+    --cleanup-networking) CLEANUP_NETWORKING=true; shift ;;
     --dry-run)    DRY_RUN=true; shift ;;
     -h|--help)    usage ;;
     *)            log_error "Unknown option: $1"; usage ;;
@@ -99,10 +102,8 @@ _run_provider() {
   require_cmd jq curl $(cloud_required_cmds)
   cloud_check_auth
 
-  # Setup provider networking
+  # Setup provider networking (discovers existing or creates new)
   cloud_setup_networking
-  _original_exit_trap=$(trap -p EXIT | sed "s/^trap -- '//;s/' EXIT$//")
-  trap "$_original_exit_trap; cloud_teardown_networking" EXIT
 
   # Build instance list
   mapfile -t instances < <(get_instance_list "$FAMILY" 2>/dev/null | grep .)
@@ -248,6 +249,11 @@ _run_provider() {
   done
   echo "=== $successes passed, $failures failed, $skipped skipped (of $total) ==="
 
+  # Tear down networking only when explicitly requested
+  if [[ "$CLEANUP_NETWORKING" == "true" ]]; then
+    cloud_teardown_networking
+  fi
+
   if [[ $failures -gt 0 ]]; then
     return 1
   fi
@@ -336,6 +342,7 @@ if $DRY_RUN; then
 
       local_total=${#instances[@]}
       echo "--- $p ($CLOUD_REGION) ---"
+      echo "[networking] DISCOVER existing or CREATE new"
       for i in "${!instances[@]}"; do
         n=$(( i + 1 ))
         inst="${instances[$i]}"
@@ -347,6 +354,9 @@ if $DRY_RUN; then
         echo "  teardown-pair.sh <server> <client>"
         echo "  -> $p/$family/results/$inst.json"
       done
+      if $CLEANUP_NETWORKING; then
+        echo "[networking] CLEANUP"
+      fi
       echo ""
     )
   done
