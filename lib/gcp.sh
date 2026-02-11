@@ -57,14 +57,33 @@ gcp_get_internal_ip() {
 gcp_ssh() {
   local name="$1"
   shift
-  gcloud compute ssh "$name" \
-    --project="$GCP_PROJECT" \
-    --zone="$GCP_ZONE" \
-    --ssh-flag="-o StrictHostKeyChecking=no" \
-    --ssh-flag="-o ConnectTimeout=10" \
-    --ssh-flag="-o LogLevel=ERROR" \
-    --quiet \
-    --command="$*"
+  local attempt=0
+  while (( attempt < 3 )); do
+    local stderr_file="/tmp/gcp-ssh-$$-$RANDOM"
+    if gcloud compute ssh "$name" \
+      --project="$GCP_PROJECT" \
+      --zone="$GCP_ZONE" \
+      --ssh-flag="-o StrictHostKeyChecking=no" \
+      --ssh-flag="-o ConnectTimeout=10" \
+      --ssh-flag="-o ServerAliveInterval=30" \
+      --ssh-flag="-o LogLevel=ERROR" \
+      --quiet \
+      --command="$*" 2>"$stderr_file"; then
+      cat "$stderr_file" >&2
+      rm -f "$stderr_file"
+      return 0
+    fi
+    local rc=$?
+    rm -f "$stderr_file"
+    if (( rc != 255 )); then
+      return $rc
+    fi
+    attempt=$(( attempt + 1 ))
+    if (( attempt < 3 )); then
+      sleep $(( attempt * 5 ))
+    fi
+  done
+  return 255
 }
 
 gcp_scp() {

@@ -27,10 +27,11 @@ _wait_for_ssh() {
 
 _iperf_kill_all() {
   local instance="$1"
+  # Use pkill without -f to avoid matching this SSH session's own command line
   cloud_ssh "$instance" "
     sudo systemctl stop iperf3 2>/dev/null || true
     sudo systemctl mask iperf3 2>/dev/null || true
-    pkill -9 -f iperf3 2>/dev/null || true
+    pkill -9 -x iperf3 2>/dev/null || true
     sleep 1
   " 2>/dev/null || true
 }
@@ -39,10 +40,7 @@ iperf_start_server() {
   local instance="$1"
   log_info "Starting iperf3 server on $instance"
   _iperf_kill_all "$instance"
-  cloud_ssh "$instance" "
-    nohup iperf3 -s -p ${IPERF_PORT} </dev/null >/tmp/iperf3-server.log 2>&1 &
-    disown
-  "
+  cloud_ssh "$instance" "setsid iperf3 -s -p ${IPERF_PORT} </dev/null >/tmp/iperf3-server.log 2>&1 &" 2>/dev/null || true
   local attempt=0
   while (( attempt < 15 )); do
     if cloud_ssh "$instance" "ss -tlnp | grep -q ':${IPERF_PORT} '" 2>/dev/null; then
@@ -59,40 +57,22 @@ iperf_start_server() {
 iperf_stop_server() {
   local instance="$1"
   log_info "Stopping iperf3 server on $instance"
-  cloud_ssh "$instance" "pkill -9 -f iperf3 2>/dev/null || true"
+  cloud_ssh "$instance" "pkill -9 -x iperf3 2>/dev/null || true" 2>/dev/null || true
 }
 
 iperf_run_client() {
   local instance="$1" target_ip="$2" duration="$3" parallel="$4"
   local timeout_sec=$(( duration + 30 ))
-  local result_file="/tmp/iperf3-result.json"
-  local flag_file="/tmp/iperf3-done.flag"
 
-  # Launch in background so it survives SSH drops (network credit exhaustion)
-  cloud_ssh "$instance" "
-    rm -f $result_file $flag_file
-    pkill -9 -f 'iperf3 -c' 2>/dev/null || true
-    sleep 1
-    nohup sh -c 'timeout $timeout_sec iperf3 -c $target_ip -p ${IPERF_PORT} -t $duration -P $parallel -J > $result_file 2>&1; touch $flag_file' </dev/null >/dev/null 2>&1 &
-    disown
-  "
-
-  # Wait for iperf3 to finish (SSH may be unavailable during the test)
-  sleep $(( duration + 5 ))
-
-  # SSH may be down after iperf3 saturates the network — wait for recovery
-  if ! _wait_for_ssh "$instance" 180; then
-    return 1
-  fi
-
-  # Small delay to ensure file is flushed
-  sleep 2
-
+  # Run iperf3 synchronously over SSH. If SSH drops mid-test (Azure network
+  # credit exhaustion), the retry loop in iperf_run_test handles it.
   local result
-  result=$(cloud_ssh "$instance" "cat $result_file 2>/dev/null; rm -f $result_file $flag_file" 2>/dev/null) || true
+  result=$(cloud_ssh "$instance" "timeout $timeout_sec iperf3 -c $target_ip -p ${IPERF_PORT} -t $duration -P $parallel -J" 2>/dev/null) || true
 
   if [[ -z "$result" ]]; then
-    log_error "iperf3 produced no output"
+    # SSH may have dropped — wait for it to recover before returning
+    _wait_for_ssh "$instance" 180 || true
+    log_error "iperf3 produced no output on $instance"
     return 1
   fi
 

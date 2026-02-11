@@ -501,7 +501,7 @@ aws_is_quota_error() {
 }
 
 aws_list_families() {
-  echo "c6in c7i c7gn c8g c6i m6i c7g m7g"
+  echo "c8gn c6in c7i c7gn c8g c6i m6i c7g m7g"
 }
 
 aws_list_instances() {
