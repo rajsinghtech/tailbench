@@ -63,9 +63,13 @@ fi
 iperf_start_server "$server_name"
 sleep 2
 
-log_info "Running baseline TCP test"
+log_info "Running baseline TCP test (multi-stream)"
 baseline_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
   "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS" "$server_name")
+
+log_info "Running baseline TCP test (single stream)"
+baseline_single_runs=$(iperf_run_test "$client_name" "$server_lan_ip" \
+  "$IPERF_DURATION" 1 "$IPERF_ITERATIONS" "$server_name")
 
 log_info "Running baseline MTR"
 baseline_mtr=$(mtr_run_and_parse "$client_name" "$server_lan_ip" "$MTR_CYCLES") || {
@@ -98,9 +102,13 @@ log_info "=== Phase 3: Tailscale benchmark ==="
 iperf_start_server "$server_name"
 sleep 2
 
-log_info "Running Tailscale TCP test"
+log_info "Running Tailscale TCP test (multi-stream)"
 tailscale_runs=$(iperf_run_test "$client_name" "$server_ts_ip" \
   "$IPERF_DURATION" "$IPERF_PARALLEL" "$IPERF_ITERATIONS" "$server_name")
+
+log_info "Running Tailscale TCP test (single stream)"
+tailscale_single_runs=$(iperf_run_test "$client_name" "$server_ts_ip" \
+  "$IPERF_DURATION" 1 "$IPERF_ITERATIONS" "$server_name")
 
 log_info "Running Tailscale MTR"
 tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES") || {
@@ -111,6 +119,8 @@ tailscale_mtr=$(mtr_run_and_parse "$client_name" "$server_ts_ip" "$MTR_CYCLES") 
 iperf_stop_server "$server_name"
 
 # ── Results ─────────────────────────────────────────────────────────
+
+# Multi-stream summaries
 baseline_summary=$(iperf_compute_summary "$baseline_runs")
 tailscale_summary=$(iperf_compute_summary "$tailscale_runs")
 
@@ -124,11 +134,40 @@ bandwidth_overhead=$(jq -n --argjson b "$baseline_bw_avg" --argjson t "$tailscal
 retransmits_overhead=$(jq -n --argjson b "$baseline_retransmits_avg" --argjson t "$tailscale_retransmits_avg" \
   'if $b == 0 then 0 else (($t - $b) / $b * 100) end')
 
+# Single-stream summaries
+baseline_single_summary=$(iperf_compute_summary "$baseline_single_runs")
+tailscale_single_summary=$(iperf_compute_summary "$tailscale_single_runs")
+
+baseline_single_bw_avg=$(echo "$baseline_single_summary" | jq '.bandwidth_mbps_avg')
+tailscale_single_bw_avg=$(echo "$tailscale_single_summary" | jq '.bandwidth_mbps_avg')
+baseline_single_retransmits_avg=$(echo "$baseline_single_summary" | jq '.retransmits_avg')
+tailscale_single_retransmits_avg=$(echo "$tailscale_single_summary" | jq '.retransmits_avg')
+
+bandwidth_overhead_single=$(jq -n --argjson b "$baseline_single_bw_avg" --argjson t "$tailscale_single_bw_avg" \
+  'if $b == 0 then 0 else (($b - $t) / $b * 100) end')
+retransmits_overhead_single=$(jq -n --argjson b "$baseline_single_retransmits_avg" --argjson t "$tailscale_single_retransmits_avg" \
+  'if $b == 0 then 0 else (($t - $b) / $b * 100) end')
+
+# Collect system config from server
 ts_version=$(cloud_ssh "$server_name" "tailscale version | head -1" | tr -d '[:space:]')
 kernel_version=$(cloud_ssh "$server_name" "uname -r" | tr -d '[:space:]')
+kernel_full=$(cloud_ssh "$server_name" "uname -a" | tr -d '\n')
+tcp_cc=$(cloud_ssh "$server_name" "sysctl -n net.ipv4.tcp_congestion_control" | tr -d '[:space:]')
+cpu_governor=$(cloud_ssh "$server_name" "cat /sys/devices/system/cpu/cpu0/cpufreq/scaling_governor 2>/dev/null || echo unknown" | tr -d '[:space:]')
+netdev_server=$(cloud_ssh "$server_name" "ip -o route get 8.8.8.8 | cut -f 5 -d ' '" | tr -d '[:space:]')
+gro_udp_fwd=$(cloud_ssh "$server_name" "ethtool -k $netdev_server 2>/dev/null | grep rx-udp-gro-forwarding | awk '{print \$2}'" | tr -d '[:space:]')
+mtu_underlay=$(cloud_ssh "$server_name" "ip -o link show $netdev_server | grep -oP 'mtu \\K[0-9]+'" | tr -d '[:space:]')
+mtu_tailscale=$(cloud_ssh "$server_name" "ip -o link show tailscale0 2>/dev/null | grep -oP 'mtu \\K[0-9]+'" | tr -d '[:space:]')
+tcp_rmem=$(cloud_ssh "$server_name" "sysctl -n net.ipv4.tcp_rmem" | tr -d '\n')
+tcp_wmem=$(cloud_ssh "$server_name" "sysctl -n net.ipv4.tcp_wmem" | tr -d '\n')
+
+# Normalize booleans
+[[ "$gro_udp_fwd" == "on" ]] && gro_udp_fwd_bool="true" || gro_udp_fwd_bool="false"
+
 log_info "Tailscale version: $ts_version"
 log_info "Kernel version: $kernel_version"
 log_info "Connection type: $connection_type"
+log_info "TCP CC: $tcp_cc, CPU governor: $cpu_governor, GRO fwd: $gro_udp_fwd"
 
 family=$(get_instance_family "$instance_type")
 vcpus=$(get_instance_vcpus "$instance_type")
@@ -144,7 +183,15 @@ result=$(jq -n \
   --arg date "$today" \
   --arg ts_version "$ts_version" \
   --arg kernel_version "$kernel_version" \
+  --arg kernel_full "$kernel_full" \
   --arg connection_type "$connection_type" \
+  --arg tcp_cc "$tcp_cc" \
+  --arg cpu_governor "$cpu_governor" \
+  --argjson gro_udp_fwd "$gro_udp_fwd_bool" \
+  --argjson mtu_underlay "${mtu_underlay:-0}" \
+  --argjson mtu_tailscale "${mtu_tailscale:-0}" \
+  --arg tcp_rmem "$tcp_rmem" \
+  --arg tcp_wmem "$tcp_wmem" \
   --argjson duration "$IPERF_DURATION" \
   --argjson parallel "$IPERF_PARALLEL" \
   --argjson iterations "$IPERF_ITERATIONS" \
@@ -155,6 +202,12 @@ result=$(jq -n \
   --argjson tailscale_summary "$tailscale_summary" \
   --argjson bw_overhead "$bandwidth_overhead" \
   --argjson retransmits_overhead "$retransmits_overhead" \
+  --argjson baseline_single_runs "$baseline_single_runs" \
+  --argjson baseline_single_summary "$baseline_single_summary" \
+  --argjson tailscale_single_runs "$tailscale_single_runs" \
+  --argjson tailscale_single_summary "$tailscale_single_summary" \
+  --argjson bw_overhead_single "$bandwidth_overhead_single" \
+  --argjson retransmits_overhead_single "$retransmits_overhead_single" \
   --argjson baseline_mtr "$baseline_mtr" \
   --argjson tailscale_mtr "$tailscale_mtr" \
   '{
@@ -168,6 +221,16 @@ result=$(jq -n \
     tailscale_version: $ts_version,
     kernel_version: $kernel_version,
     connection_type: $connection_type,
+    system_config: {
+      tcp_congestion_control: $tcp_cc,
+      cpu_governor: $cpu_governor,
+      gro_udp_forwarding: $gro_udp_fwd,
+      mtu_underlay: $mtu_underlay,
+      mtu_tailscale: $mtu_tailscale,
+      tcp_rmem: $tcp_rmem,
+      tcp_wmem: $tcp_wmem,
+      kernel_full: $kernel_full
+    },
     test_config: {
       iperf_duration_sec: $duration,
       iperf_parallel_streams: $parallel,
@@ -177,6 +240,9 @@ result=$(jq -n \
     baseline_tcp: {runs: $baseline_runs, summary: $baseline_summary},
     tailscale_tcp: {runs: $tailscale_runs, summary: $tailscale_summary},
     overhead: {bandwidth_pct: $bw_overhead, retransmits_pct: $retransmits_overhead},
+    baseline_tcp_single: {runs: $baseline_single_runs, summary: $baseline_single_summary},
+    tailscale_tcp_single: {runs: $tailscale_single_runs, summary: $tailscale_single_summary},
+    overhead_single: {bandwidth_pct: $bw_overhead_single, retransmits_pct: $retransmits_overhead_single},
     baseline_mtr: $baseline_mtr,
     tailscale_mtr: $tailscale_mtr
   }')
@@ -187,6 +253,9 @@ outfile="$outdir/$instance_type.json"
 echo "$result" | jq '.' > "$outfile"
 
 log_info "Results written to $CLOUD_PROVIDER/$family/results/$instance_type.json"
-log_info "Baseline: $(echo "$baseline_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
-log_info "Tailscale: $(echo "$tailscale_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
-log_info "Bandwidth overhead: $(printf '%.1f' "$(echo "$bandwidth_overhead" | tr -d '\n')")%"
+log_info "Baseline (multi): $(echo "$baseline_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
+log_info "Tailscale (multi): $(echo "$tailscale_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
+log_info "Baseline (single): $(echo "$baseline_single_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
+log_info "Tailscale (single): $(echo "$tailscale_single_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
+log_info "BW overhead (multi): $(printf '%.1f' "$(echo "$bandwidth_overhead" | tr -d '\n')")%"
+log_info "BW overhead (single): $(printf '%.1f' "$(echo "$bandwidth_overhead_single" | tr -d '\n')")%"

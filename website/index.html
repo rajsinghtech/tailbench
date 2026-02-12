@@ -75,7 +75,7 @@ body {
 }
 
 /* Layout */
-.container { max-width: 1200px; margin: 0 auto; padding: 0 24px; }
+.container { max-width: 1440px; margin: 0 auto; padding: 0 24px; }
 
 /* Header */
 header {
@@ -192,12 +192,12 @@ header {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  overflow: hidden;
+  overflow-x: auto;
   box-shadow: var(--shadow-sm);
 }
 table { width: 100%; border-collapse: collapse; }
 thead th {
-  padding: 12px 16px;
+  padding: 10px 10px;
   font-size: 0.72rem;
   font-weight: 600;
   text-transform: uppercase;
@@ -229,8 +229,8 @@ tbody tr {
 tbody tr:hover { background: var(--bg-hover); }
 tbody tr:last-child { border-bottom: none; }
 td {
-  padding: 11px 16px;
-  font-size: 0.87rem;
+  padding: 9px 10px;
+  font-size: 0.85rem;
   vertical-align: middle;
 }
 td.mono {
@@ -246,13 +246,13 @@ td.mono {
 }
 .instance-family-tag {
   display: inline-block;
-  font-size: 0.62rem;
+  font-size: 0.6rem;
   font-weight: 700;
   text-transform: uppercase;
-  letter-spacing: 0.05em;
-  padding: 2px 6px;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
   border-radius: 4px;
-  margin-left: 8px;
+  margin-left: 6px;
   background: var(--accent-soft);
   color: var(--accent);
 }
@@ -272,7 +272,7 @@ td.mono {
 .bw-cell { position: relative; }
 .bw-bar {
   position: absolute;
-  left: 8px; top: 6px; bottom: 6px;
+  left: 4px; top: 5px; bottom: 5px;
   border-radius: 4px;
   transition: width 400ms ease;
 }
@@ -541,6 +541,9 @@ footer a:hover { text-decoration: underline; }
   var allProviders = getProviders();
   var multiProvider = allProviders.length > 1;
 
+  // --- Detect single-stream data ---
+  var hasSingle = TAILBENCH_DATA.some(function(d) { return d.baseline_tcp_single; });
+
   // --- Max BW for bar scaling ---
   var maxBW = 0;
   TAILBENCH_DATA.forEach(function(d) {
@@ -548,6 +551,14 @@ footer a:hover { text-decoration: underline; }
     var t = d.tailscale_tcp.summary.bandwidth_mbps_avg;
     if (b > maxBW) maxBW = b;
     if (t > maxBW) maxBW = t;
+    if (d.baseline_tcp_single) {
+      var bs = d.baseline_tcp_single.summary.bandwidth_mbps_avg;
+      if (bs > maxBW) maxBW = bs;
+    }
+    if (d.tailscale_tcp_single) {
+      var ts = d.tailscale_tcp_single.summary.bandwidth_mbps_avg;
+      if (ts > maxBW) maxBW = ts;
+    }
   });
 
   // --- Theme ---
@@ -692,6 +703,8 @@ footer a:hover { text-decoration: underline; }
       case 'overhead': return d.overhead.bandwidth_pct;
       case 'baseline_retrans': return d.baseline_tcp.summary.retransmits_avg;
       case 'ts_retrans': return d.tailscale_tcp.summary.retransmits_avg;
+      case 'baseline_bw_single': return d.baseline_tcp_single ? d.baseline_tcp_single.summary.bandwidth_mbps_avg : 0;
+      case 'ts_bw_single': return d.tailscale_tcp_single ? d.tailscale_tcp_single.summary.bandwidth_mbps_avg : 0;
       default: return 0;
     }
   }
@@ -728,6 +741,10 @@ footer a:hover { text-decoration: underline; }
     cols.push({key:'vcpus', label:'vCPUs'});
     cols.push({key:'baseline_bw', label:'Baseline BW'});
     cols.push({key:'ts_bw', label:'Tailscale BW'});
+    if (hasSingle) {
+      cols.push({key:'baseline_bw_single', label:'Single BW'});
+      cols.push({key:'ts_bw_single', label:'Single TS BW'});
+    }
     cols.push({key:'overhead', label:'BW Overhead'});
     cols.push({key:'baseline_retrans', label:'Baseline Retrans'});
     cols.push({key:'ts_retrans', label:'TS Retrans'});
@@ -765,7 +782,7 @@ footer a:hover { text-decoration: underline; }
   function renderTable() {
     var data = sortData(getFilteredData());
     var tbody = document.getElementById('tableBody');
-    var colCount = showCloudCol ? 9 : 8;
+    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0);
     var html = '';
 
     data.forEach(function(d) {
@@ -785,6 +802,14 @@ footer a:hover { text-decoration: underline; }
       html += '<td class="mono">' + vcpus + '</td>';
       html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + bBarW + '%"></div><span class="bw-val">' + toGbps(bBW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
       html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tBarW + '%"></div><span class="bw-val">' + toGbps(tBW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+      if (hasSingle) {
+        var bSingleBW = d.baseline_tcp_single ? d.baseline_tcp_single.summary.bandwidth_mbps_avg : 0;
+        var tSingleBW = d.tailscale_tcp_single ? d.tailscale_tcp_single.summary.bandwidth_mbps_avg : 0;
+        var bSingleBarW = maxBW ? (bSingleBW / maxBW * 85).toFixed(1) : 0;
+        var tSingleBarW = maxBW ? (tSingleBW / maxBW * 85).toFixed(1) : 0;
+        html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + bSingleBarW + '%"></div><span class="bw-val">' + (d.baseline_tcp_single ? toGbps(bSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+        html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tSingleBarW + '%"></div><span class="bw-val">' + (d.tailscale_tcp_single ? toGbps(tSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+      }
       html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
       html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
       html += '<td class="mono">' + fmtNum(d.tailscale_tcp.summary.retransmits_avg, 1) + '</td>';
@@ -823,6 +848,7 @@ footer a:hover { text-decoration: underline; }
   function renderDetail(d) {
     var html = '';
     var provider = (d.cloud_provider || 'gcp').toUpperCase();
+    var sc = d.system_config;
 
     // Meta
     html += '<div class="detail-meta">';
@@ -835,18 +861,44 @@ footer a:hover { text-decoration: underline; }
     html += '<div class="detail-meta-item"><strong>MTR:</strong> ' + d.test_config.mtr_cycles + ' cycles</div>';
     html += '</div>';
 
+    // System config (if present)
+    if (sc) {
+      html += '<div class="detail-meta" style="margin-bottom:16px">';
+      html += '<div class="detail-meta-item"><strong>TCP CC:</strong> ' + sc.tcp_congestion_control + '</div>';
+      html += '<div class="detail-meta-item"><strong>CPU Gov:</strong> ' + sc.cpu_governor + '</div>';
+      html += '<div class="detail-meta-item"><strong>GRO Fwd:</strong> ' + (sc.gro_udp_forwarding ? 'on' : 'off') + '</div>';
+      html += '<div class="detail-meta-item"><strong>MTU (underlay):</strong> ' + sc.mtu_underlay + '</div>';
+      html += '<div class="detail-meta-item"><strong>MTU (tailscale):</strong> ' + sc.mtu_tailscale + '</div>';
+      html += '<div class="detail-meta-item"><strong>TCP rmem:</strong> <span style="font-family:var(--font-mono);font-size:0.75rem">' + sc.tcp_rmem + '</span></div>';
+      html += '<div class="detail-meta-item"><strong>TCP wmem:</strong> <span style="font-family:var(--font-mono);font-size:0.75rem">' + sc.tcp_wmem + '</span></div>';
+      if (sc.kernel_full) {
+        html += '<div class="detail-meta-item" style="flex-basis:100%"><strong>Kernel:</strong> <span style="font-family:var(--font-mono);font-size:0.72rem">' + sc.kernel_full + '</span></div>';
+      }
+      html += '</div>';
+    }
+
     html += '<div class="detail-grid">';
 
     // iperf runs
+    var hasDetailSingle = d.baseline_tcp_single && d.baseline_tcp_single.runs;
     html += '<div class="detail-section">';
     html += '<h4>iperf3 Per-Run Results</h4>';
-    html += '<table class="mini-table"><thead><tr><th>Run</th><th>Mode</th><th>BW (Gbps)</th><th>Retrans</th><th>Bytes</th></tr></thead><tbody>';
+    html += '<table class="mini-table"><thead><tr><th>Run</th><th>Mode</th>' + (hasDetailSingle ? '<th>Streams</th>' : '') + '<th>BW (Gbps)</th><th>Retrans</th><th>Bytes</th></tr></thead><tbody>';
+    var streams = d.test_config.iperf_parallel_streams;
     d.baseline_tcp.runs.forEach(function(r, i) {
-      html += '<tr><td>#' + (i + 1) + '</td><td>Baseline</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
+      html += '<tr><td>#' + (i + 1) + '</td><td>Baseline</td>' + (hasDetailSingle ? '<td>' + streams + '</td>' : '') + '<td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
     });
     d.tailscale_tcp.runs.forEach(function(r, i) {
-      html += '<tr><td>#' + (i + 1) + '</td><td>Tailscale</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
+      html += '<tr><td>#' + (i + 1) + '</td><td>Tailscale</td>' + (hasDetailSingle ? '<td>' + streams + '</td>' : '') + '<td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
     });
+    if (hasDetailSingle) {
+      d.baseline_tcp_single.runs.forEach(function(r, i) {
+        html += '<tr><td>#' + (i + 1) + '</td><td>Baseline</td><td>1</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
+      });
+      d.tailscale_tcp_single.runs.forEach(function(r, i) {
+        html += '<tr><td>#' + (i + 1) + '</td><td>Tailscale</td><td>1</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td>' + (r.bytes_transferred / 1073741824).toFixed(1) + ' GB</td></tr>';
+      });
+    }
     html += '</tbody></table>';
     html += '</div>';
 
