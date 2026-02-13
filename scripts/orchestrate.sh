@@ -98,6 +98,12 @@ _run_provider() {
 
   setup_cleanup_trap
 
+  # ENA Express eligible families (AWS only)
+  local _ena_families=""
+  if [[ "$provider" == "aws" ]]; then
+    _ena_families=" $(aws_ena_express_families) "
+  fi
+
   # Validate prereqs
   require_cmd jq curl $(cloud_required_cmds)
   cloud_check_auth
@@ -209,6 +215,42 @@ _run_provider() {
           "$SERVER_LAN_IP" "$CLIENT_LAN_IP"; then
         log_error "[$provider] Benchmark failed for $inst"
         step_failed="benchmark"
+      fi
+    fi
+
+    # ENA Express interleaved run (AWS only, eligible families)
+    if [[ -z "$step_failed" && -n "$_ena_families" && "$_ena_families" == *" $family "* ]]; then
+      local ena_result="$TAILBENCH_ROOT/$provider/$family/results/$inst-ena-express.json"
+      if [[ -f "$ena_result" ]]; then
+        log_info "[$provider][$n/$total] Skipping ENA Express for $inst (result exists)"
+      else
+        log_info "[$provider][$n/$total] Enabling ENA Express on $inst pair"
+        local ena_failed=""
+        if aws_enable_ena_express "$SERVER_NAME" && aws_enable_ena_express "$CLIENT_NAME"; then
+          sleep 5
+          log_info "[$provider][$n/$total] Running ENA Express benchmark for $inst"
+          if ! ENA_EXPRESS=true "$TAILBENCH_ROOT/scripts/run-benchmark.sh" \
+              "$inst" "$SERVER_NAME" "$CLIENT_NAME" \
+              "$SERVER_LAN_IP" "$CLIENT_LAN_IP"; then
+            log_error "[$provider] ENA Express benchmark failed for $inst"
+            ena_failed="benchmark"
+          fi
+        else
+          log_error "[$provider] Failed to enable ENA Express on $inst"
+          ena_failed="ena-setup"
+        fi
+
+        if [[ -z "$ena_failed" && -f "$ena_result" ]]; then
+          local ena_baseline ena_ts_bw ena_overhead
+          ena_baseline=$(jq -r '.baseline_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$ena_result")
+          ena_ts_bw=$(jq -r '.tailscale_tcp.summary.bandwidth_mbps_avg / 1000 | . * 100 | round / 100' "$ena_result")
+          ena_overhead=$(jq -r '.overhead.bandwidth_pct | . * 10 | round / 10' "$ena_result")
+          result_lines+=("$(printf '%-20s %-17s %-18s %s%%' "$inst (ENA)" "$ena_baseline" "$ena_ts_bw" "$ena_overhead")")
+          echo "$inst-ena-express|OK|" >> "$status_file"
+        elif [[ -n "$ena_failed" ]]; then
+          result_lines+=("$(printf '%-20s FAILED (%s)' "$inst (ENA)" "$ena_failed")")
+          echo "$inst-ena-express|FAILED|$ena_failed" >> "$status_file"
+        fi
       fi
     fi
 
