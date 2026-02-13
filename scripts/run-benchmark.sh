@@ -20,6 +20,7 @@ server_name="$2"
 client_name="$3"
 server_lan_ip="$4"
 client_lan_ip="$5"
+ena_express="${ENA_EXPRESS:-false}"
 
 require_cmd jq awk $(cloud_required_cmds)
 
@@ -210,6 +211,7 @@ result=$(jq -n \
   --argjson retransmits_overhead_single "$retransmits_overhead_single" \
   --argjson baseline_mtr "$baseline_mtr" \
   --argjson tailscale_mtr "$tailscale_mtr" \
+  --argjson ena_express "$( [[ "$ena_express" == "true" ]] && echo true || echo false )" \
   '{
     cloud_provider: $provider,
     instance_family: $family,
@@ -221,6 +223,7 @@ result=$(jq -n \
     tailscale_version: $ts_version,
     kernel_version: $kernel_version,
     connection_type: $connection_type,
+    ena_express: $ena_express,
     system_config: {
       tcp_congestion_control: $tcp_cc,
       cpu_governor: $cpu_governor,
@@ -249,7 +252,11 @@ result=$(jq -n \
 
 outdir="$TAILBENCH_ROOT/$CLOUD_PROVIDER/$family/results"
 mkdir -p "$outdir"
-outfile="$outdir/$instance_type.json"
+if [[ "$ena_express" == "true" ]]; then
+  outfile="$outdir/$instance_type-ena-express.json"
+else
+  outfile="$outdir/$instance_type.json"
+fi
 echo "$result" | jq '.' > "$outfile"
 
 log_info "Results written to $CLOUD_PROVIDER/$family/results/$instance_type.json"
@@ -259,3 +266,6 @@ log_info "Baseline (single): $(echo "$baseline_single_summary" | jq -r '.bandwid
 log_info "Tailscale (single): $(echo "$tailscale_single_summary" | jq -r '.bandwidth_mbps_avg | round') Mbps"
 log_info "BW overhead (multi): $(printf '%.1f' "$(echo "$bandwidth_overhead" | tr -d '\n')")%"
 log_info "BW overhead (single): $(printf '%.1f' "$(echo "$bandwidth_overhead_single" | tr -d '\n')")%"
+if [[ "$ena_express" == "true" ]]; then
+  log_info "ENA Express: enabled"
+fi
