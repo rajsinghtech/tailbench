@@ -98,12 +98,6 @@ _run_provider() {
 
   setup_cleanup_trap
 
-  # ENA Express eligible families (AWS only)
-  local _ena_families=""
-  if [[ "$provider" == "aws" ]]; then
-    _ena_families=" $(aws_ena_express_families) "
-  fi
-
   # Validate prereqs
   require_cmd jq curl $(cloud_required_cmds)
   cloud_check_auth
@@ -170,7 +164,12 @@ _run_provider() {
 
     # Skip if result already exists (resume support)
     local existing_result="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
-    if [[ -f "$existing_result" ]]; then
+    local ena_needs_run=false
+    if [[ "$provider" == "aws" ]] && aws_supports_ena_express "$inst"; then
+      local ena_result_check="$TAILBENCH_ROOT/$provider/$family/results/$inst-ena-express.json"
+      [[ ! -f "$ena_result_check" ]] && ena_needs_run=true
+    fi
+    if [[ -f "$existing_result" && "$ena_needs_run" == "false" ]]; then
       log_info "[$provider][$n/$total] Skipping $inst (result already exists)"
       successes=$(( successes + 1 ))
       local baseline tailscale_bw overhead
@@ -208,9 +207,11 @@ _run_provider() {
       fi
     fi
 
-    # Run benchmark
+    # Run benchmark (skip if standard result already exists from a previous run)
     if [[ -z "$step_failed" ]]; then
-      if ! "$TAILBENCH_ROOT/scripts/run-benchmark.sh" \
+      if [[ -f "$existing_result" ]]; then
+        log_info "[$provider][$n/$total] Standard result exists, skipping to ENA Express"
+      elif ! "$TAILBENCH_ROOT/scripts/run-benchmark.sh" \
           "$inst" "$SERVER_NAME" "$CLIENT_NAME" \
           "$SERVER_LAN_IP" "$CLIENT_LAN_IP"; then
         log_error "[$provider] Benchmark failed for $inst"
@@ -218,8 +219,8 @@ _run_provider() {
       fi
     fi
 
-    # ENA Express interleaved run (AWS only, eligible families)
-    if [[ -z "$step_failed" && -n "$_ena_families" && "$_ena_families" == *" $family "* ]]; then
+    # ENA Express interleaved run (AWS only, eligible instance types)
+    if [[ -z "$step_failed" && "$provider" == "aws" ]] && aws_supports_ena_express "$inst"; then
       local ena_result="$TAILBENCH_ROOT/$provider/$family/results/$inst-ena-express.json"
       if [[ -f "$ena_result" ]]; then
         log_info "[$provider][$n/$total] Skipping ENA Express for $inst (result exists)"
@@ -409,13 +410,10 @@ if $DRY_RUN; then
         echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan>"
         echo "  teardown-pair.sh <server> <client>"
         echo "  -> $p/$family/results/$inst.json"
-        if [[ "$p" == "aws" ]]; then
-          _dr_ena_fams=" $(aws_ena_express_families) "
-          if [[ "$_dr_ena_fams" == *" $family "* ]]; then
-            echo "  [ENA Express] enable SRD on both ENIs"
-            echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> (ENA Express)"
-            echo "  -> $p/$family/results/$inst-ena-express.json"
-          fi
+        if [[ "$p" == "aws" ]] && aws_supports_ena_express "$inst"; then
+          echo "  [ENA Express] enable SRD on both ENIs"
+          echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> (ENA Express)"
+          echo "  -> $p/$family/results/$inst-ena-express.json"
         fi
       done
       if $CLEANUP_NETWORKING; then

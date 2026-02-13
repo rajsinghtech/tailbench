@@ -496,7 +496,6 @@ aws_get_instance_vcpus() {
 aws_is_quota_error() {
   local stderr="$1"
   [[ "$stderr" == *VcpuLimitExceeded* ]] || \
-  [[ "$stderr" == *InsufficientInstanceCapacity* ]] || \
   [[ "$stderr" == *InstanceLimitExceeded* ]]
 }
 
@@ -521,6 +520,32 @@ aws_list_instances() {
 
 aws_ena_express_families() {
   echo "c6in c7gn c8gn c7i c8g"
+}
+
+# Minimum vCPU count for ENA Express support per family
+# From: https://docs.aws.amazon.com/AWSEC2/latest/UserGuide/ena-express.html
+_aws_ena_express_min_vcpus() {
+  local family="$1"
+  case "$family" in
+    c7gn)  echo 16 ;;  # c7gn.4xlarge
+    c6in)  echo 32 ;;  # c6in.8xlarge
+    c8gn)  echo 32 ;;  # c8gn.8xlarge
+    c7i)   echo 48 ;;  # c7i.12xlarge
+    c8g)   echo 48 ;;  # c8g.12xlarge
+    *)     echo 9999 ;; # unknown — don't attempt
+  esac
+}
+
+aws_supports_ena_express() {
+  local instance_type="$1"
+  local family="${instance_type%%.*}"
+  local ena_fams=" $(aws_ena_express_families) "
+  [[ "$ena_fams" != *" $family "* ]] && return 1
+  local vcpus
+  vcpus=$(aws_get_instance_vcpus "$instance_type")
+  local min_vcpus
+  min_vcpus=$(_aws_ena_express_min_vcpus "$family")
+  (( vcpus >= min_vcpus ))
 }
 
 aws_enable_ena_express() {
