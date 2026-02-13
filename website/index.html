@@ -267,6 +267,18 @@ td.mono {
   background: var(--bg-tertiary);
   color: var(--text-muted);
 }
+.ena-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+  background: var(--yellow-bg);
+  color: var(--yellow);
+}
 
 /* BW bar cell */
 .bw-cell { position: relative; }
@@ -786,16 +798,17 @@ footer a:hover { text-decoration: underline; }
     var html = '';
 
     data.forEach(function(d) {
+      var rowKey = d.instance_type + (d.ena_express ? '-ena' : '');
       var vcpus = getVCPUs(d);
       var bBW = d.baseline_tcp.summary.bandwidth_mbps_avg;
       var tBW = d.tailscale_tcp.summary.bandwidth_mbps_avg;
       var bBarW = maxBW ? (bBW / maxBW * 85).toFixed(1) : 0;
       var tBarW = maxBW ? (tBW / maxBW * 85).toFixed(1) : 0;
       var oc = overheadClass(d.overhead.bandwidth_pct);
-      var isOpen = state.expanded === d.instance_type;
+      var isOpen = state.expanded === rowKey;
 
-      html += '<tr data-instance="' + d.instance_type + '" class="data-row">';
-      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span></td>';
+      html += '<tr data-instance="' + rowKey + '" class="data-row">';
+      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span>' + (d.ena_express ? '<span class="ena-tag">ENA Express</span>' : '') + '</td>';
       if (showCloudCol) {
         html += '<td><span class="cloud-tag">' + (d.cloud_provider || 'gcp').toUpperCase() + '</span></td>';
       }
@@ -813,11 +826,11 @@ footer a:hover { text-decoration: underline; }
       html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
       html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
       html += '<td class="mono">' + fmtNum(d.tailscale_tcp.summary.retransmits_avg, 1) + '</td>';
-      html += '<td><button class="btn-details" data-instance="' + d.instance_type + '">' + (isOpen ? 'Close' : 'Details') + '</button></td>';
+      html += '<td><button class="btn-details" data-instance="' + rowKey + '">' + (isOpen ? 'Close' : 'Details') + '</button></td>';
       html += '</tr>';
 
       // Detail row
-      html += '<tr class="detail-row' + (isOpen ? ' open' : '') + '" data-detail="' + d.instance_type + '">';
+      html += '<tr class="detail-row' + (isOpen ? ' open' : '') + '" data-detail="' + rowKey + '">';
       html += '<td colspan="' + colCount + '"><div class="detail-content">';
       html += renderDetail(d);
       html += '</div></td></tr>';
@@ -857,6 +870,9 @@ footer a:hover { text-decoration: underline; }
     html += '<div class="detail-meta-item"><strong>Tailscale:</strong> v' + d.tailscale_version + '</div>';
     html += '<div class="detail-meta-item"><strong>Region:</strong> ' + d.region + ' (' + d.zone + ')</div>';
     html += '<div class="detail-meta-item"><strong>vCPUs:</strong> ' + getVCPUs(d) + '</div>';
+    if (d.ena_express) {
+      html += '<div class="detail-meta-item"><strong>ENA Express:</strong> enabled</div>';
+    }
     html += '<div class="detail-meta-item"><strong>iperf3:</strong> ' + d.test_config.iperf_parallel_streams + ' streams, ' + d.test_config.iperf_duration_sec + 's, ' + d.test_config.iperf_iterations + ' runs</div>';
     html += '<div class="detail-meta-item"><strong>MTR:</strong> ' + d.test_config.mtr_cycles + ' cycles</div>';
     html += '</div>';
