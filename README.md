@@ -44,7 +44,7 @@ export TS_OAUTH_CLIENT_SECRET="..."
 
 | GCP | AWS | Azure |
 |-----|-----|-------|
-| c4, c4a, c3d, n4, c3, n2, c2 | c6in, c7i, c7gn, c8g, c6i, m6i, c7g, m7g | dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, esv4 |
+| c4, c4a, c3d, n4, c3, n2, c2 | c6in, c7i, c7gn, c8g, c6i, m6i, c7g, m7g | dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, fasv7, esv4 |
 
 Families are ordered with current-gen and network-optimized families first. Instance types within each family are discovered dynamically from each provider's API.
 

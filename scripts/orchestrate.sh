@@ -37,7 +37,7 @@ Options:
 Provider families:
   gcp:   c4, c4a, c3d, n4, c3, n2, c2
   aws:   c6in, c7i, c7gn, c8g, c6i, m6i, c7g, m7g
-  azure: dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, esv4
+  azure: dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, fasv7, esv4
 
 Required environment variables:
   TS_OAUTH_CLIENT_ID     Tailscale OAuth client ID

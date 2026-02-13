@@ -230,13 +230,16 @@ _azure_family_to_sku_family() {
     fasv6)  echo "StandardFasv6Family" ;;
     falsv6) echo "StandardFalsv6Family" ;;
     famsv6) echo "StandardFamsv6Family" ;;
+    fasv7)  echo "StandardFasv7Family" ;;
+    falsv7) echo "StandardFalsv7Family" ;;
+    famsv7) echo "StandardFamsv7Family" ;;
     esv4)   echo "standardESv4Family" ;;
     *)      return 1 ;;
   esac
 }
 
 azure_list_families() {
-  echo "dsv5 dasv5 dpsv6 dsv4 fsv2 fasv6 falsv6 famsv6 esv4"
+  echo "dsv5 dasv5 dpsv6 dsv4 fsv2 fasv6 falsv6 famsv6 fasv7 falsv7 famsv7 esv4"
 }
 
 azure_list_instances() {
