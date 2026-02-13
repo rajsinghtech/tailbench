@@ -409,6 +409,14 @@ if $DRY_RUN; then
         echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan>"
         echo "  teardown-pair.sh <server> <client>"
         echo "  -> $p/$family/results/$inst.json"
+        if [[ "$p" == "aws" ]]; then
+          local _dr_ena_fams=" $(aws_ena_express_families) "
+          if [[ "$_dr_ena_fams" == *" $family "* ]]; then
+            echo "  [ENA Express] enable SRD on both ENIs"
+            echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> (ENA Express)"
+            echo "  -> $p/$family/results/$inst-ena-express.json"
+          fi
+        fi
       done
       if $CLEANUP_NETWORKING; then
         echo "[networking] CLEANUP"
