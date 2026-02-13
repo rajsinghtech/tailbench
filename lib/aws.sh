@@ -518,3 +518,34 @@ aws_list_instances() {
     echo "$name"
   done < <(echo "$json" | jq -r '.[] | "\(.[0])\t\(.[1])"')
 }
+
+aws_ena_express_families() {
+  echo "c6in c7gn c8gn c7i c8g"
+}
+
+aws_enable_ena_express() {
+  local name="$1"
+  local instance_id
+  instance_id=$(_aws_resolve_instance_id "$name") || {
+    log_error "Cannot resolve instance $name for ENA Express"
+    return 1
+  }
+
+  local eni_id
+  eni_id=$(aws ec2 describe-instances \
+    --region "$AWS_REGION" \
+    --instance-ids "$instance_id" \
+    --query 'Reservations[0].Instances[0].NetworkInterfaces[0].NetworkInterfaceId' \
+    --output text)
+
+  if [[ -z "$eni_id" || "$eni_id" == "None" ]]; then
+    log_error "No ENI found for instance $name ($instance_id)"
+    return 1
+  fi
+
+  log_info "Enabling ENA Express (SRD) on $name ENI $eni_id"
+  aws ec2 modify-network-interface-attribute \
+    --region "$AWS_REGION" \
+    --network-interface-id "$eni_id" \
+    --ena-srd-specification 'EnaSrdEnabled=true,EnaSrdUdpSpecification={EnaSrdUdpEnabled=true}'
+}
