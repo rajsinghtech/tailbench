@@ -122,6 +122,10 @@ _run_provider() {
     eks_get_cluster_info
     k8s_check_prereqs
     k8s_ensure_namespace
+    # Match node group to benchmark family
+    if [[ -n "$FAMILY" && "$FAMILY" != "all" ]]; then
+      eks_ensure_node_group "${FAMILY}.xlarge"
+    fi
   fi
 
   # Build instance list

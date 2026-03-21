@@ -45,3 +45,65 @@ eks_get_node_instance_type() {
   fi
   echo "$EKS_NODE_INSTANCE_TYPE"
 }
+
+eks_ensure_node_group() {
+  local target_type="$1"
+  local current_type
+  current_type=$(eks_get_node_instance_type 2>/dev/null) || true
+
+  if [[ "$current_type" == "$target_type" ]]; then
+    log_info "EKS node group already uses $target_type"
+    return 0
+  fi
+
+  if [[ -n "$current_type" && "$current_type" != "None" ]]; then
+    log_info "EKS node group uses $current_type, need $target_type — recreating"
+    eksctl delete nodegroup \
+      --cluster "$EKS_CLUSTER_NAME" \
+      --region "$AWS_REGION" \
+      --name tailbench-nodes \
+      --wait 2>&1 | while IFS= read -r line; do log_info "eksctl: $line"; done
+  else
+    log_info "no existing node group — creating with $target_type"
+  fi
+
+  # Find the EKS subnet in the benchmark AZ
+  local eks_subnet
+  eks_subnet=$(aws ec2 describe-subnets \
+    --region "$AWS_REGION" \
+    --filters "Name=tag:Name,Values=tailbench-eks-subnet" \
+    --query 'Subnets[0].SubnetId' --output text)
+
+  local ng_config
+  ng_config=$(mktemp /tmp/tailbench-ng-XXXXXX.yaml)
+  cat > "$ng_config" <<EOF
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name: ${EKS_CLUSTER_NAME}
+  region: ${AWS_REGION}
+
+managedNodeGroups:
+  - name: tailbench-nodes
+    instanceType: ${target_type}
+    desiredCapacity: 1
+    minSize: 1
+    maxSize: 2
+    subnets:
+      - ${eks_subnet}
+    labels:
+      Project: tailbench
+    updateConfig:
+      maxUnavailable: 1
+EOF
+
+  log_info "creating node group with $target_type"
+  eksctl create nodegroup -f "$ng_config" 2>&1 | while IFS= read -r line; do log_info "eksctl: $line"; done
+  rm -f "$ng_config"
+
+  # Wait for node to be ready
+  kubectl wait node --all --for=condition=Ready --timeout=180s >/dev/null
+  log_info "node group ready with $target_type"
+  EKS_NODE_INSTANCE_TYPE="$target_type"
+}
