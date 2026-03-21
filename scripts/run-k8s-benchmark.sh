@@ -9,6 +9,7 @@ source "$TAILBENCH_ROOT/config/aws.sh"
 source "$TAILBENCH_ROOT/config/eks.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/iperf.sh"
+source "$TAILBENCH_ROOT/lib/tailscale.sh"
 source "$TAILBENCH_ROOT/lib/eks.sh"
 source "$TAILBENCH_ROOT/lib/k8s.sh"
 
@@ -160,3 +161,135 @@ mv "$tmp_result" "$result_file"
 log_info "K8s results merged into $result_file"
 log_info "pod→ec2: ${pod_to_ec2_avg} Mbps (${pod_to_ec2_overhead}% overhead)"
 log_info "ec2→pod: ${ec2_to_pod_avg} Mbps (${ec2_to_pod_overhead}% overhead)"
+
+# ============================================================
+# Phase 2: Tailscale sidecar pod ↔ EC2 over Tailscale mesh
+# ============================================================
+
+if [[ -z "${TS_AUTHKEY:-}" ]]; then
+  log_warn "TS_AUTHKEY not set — skipping Tailscale sidecar benchmark"
+  exit 0
+fi
+
+log_info "=== K8s Tailscale sidecar benchmark for $instance_type ==="
+
+# Get EC2's Tailscale IP (still running from run-benchmark.sh phase 3)
+server_ts_ip=$(ts_get_ip "$server_name")
+log_info "EC2 Tailscale IP: $server_ts_ip"
+
+# Create secret and deploy sidecar pod
+k8s_create_ts_secret "$TS_AUTHKEY"
+k8s_deploy_ts_iperf_pod "$AWS_AZ"
+k8s_wait_for_ts_pod 240
+
+# Wait for sidecar to get a Tailscale IP
+sidecar_ts_ip=$(k8s_get_ts_ip)
+log_info "sidecar Tailscale IP: $sidecar_ts_ip"
+
+# Wait for direct peering
+log_info "waiting for direct connection between sidecar and EC2"
+kubectl exec "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" -c ts-sidecar \
+  -- tailscale ping --c 1 "$server_ts_ip" >/dev/null 2>&1 || true
+sleep 5
+
+# Start iperf3 server on EC2 for sidecar tests
+iperf_start_server "$server_name"
+
+# --- Sidecar → EC2 over Tailscale ---
+log_info "--- K8s Tailscale Phase: Sidecar → EC2 ---"
+k8s_ts_pod_to_ec2_runs="[]"
+for i in $(seq 1 "$IPERF_ITERATIONS"); do
+  log_info "sidecar→ec2 iteration $i/$IPERF_ITERATIONS"
+  raw=$(k8s_ts_exec iperf3 -c "$server_ts_ip" -p "$IPERF_PORT" \
+    -t "$IPERF_DURATION" -P "$IPERF_PARALLEL" -J 2>/dev/null) || {
+    log_warn "sidecar→ec2 iteration $i failed, skipping"
+    continue
+  }
+  entry=$(echo "$raw" | jq '{
+    bandwidth_mbps: (.end.sum_sent.bits_per_second / 1000000),
+    retransmits: .end.sum_sent.retransmits,
+    duration_sec: .end.sum_sent.seconds,
+    bytes_transferred: .end.sum_sent.bytes
+  }')
+  k8s_ts_pod_to_ec2_runs=$(echo "$k8s_ts_pod_to_ec2_runs" | jq --argjson e "$entry" '. + [$e]')
+  [[ $i -lt "$IPERF_ITERATIONS" ]] && sleep 30
+done
+
+iperf_stop_server "$server_name"
+
+# --- EC2 → Sidecar over Tailscale ---
+log_info "--- K8s Tailscale Phase: EC2 → Sidecar ---"
+k8s_ts_ec2_to_pod_runs="[]"
+for i in $(seq 1 "$IPERF_ITERATIONS"); do
+  log_info "ec2→sidecar iteration $i/$IPERF_ITERATIONS"
+  raw=$(cloud_ssh "$server_name" "iperf3 -c $sidecar_ts_ip -p $IPERF_PORT \
+    -t $IPERF_DURATION -P $IPERF_PARALLEL -J" 2>/dev/null) || {
+    log_warn "ec2→sidecar iteration $i failed, skipping"
+    continue
+  }
+  entry=$(echo "$raw" | jq '{
+    bandwidth_mbps: (.end.sum_sent.bits_per_second / 1000000),
+    retransmits: .end.sum_sent.retransmits,
+    duration_sec: .end.sum_sent.seconds,
+    bytes_transferred: .end.sum_sent.bytes
+  }')
+  k8s_ts_ec2_to_pod_runs=$(echo "$k8s_ts_ec2_to_pod_runs" | jq --argjson e "$entry" '. + [$e]')
+  [[ $i -lt "$IPERF_ITERATIONS" ]] && sleep 30
+done
+
+# Cleanup sidecar
+k8s_cleanup_ts_pod
+
+# Check if we got any results
+ts_pod_count=$(echo "$k8s_ts_pod_to_ec2_runs" | jq 'length')
+ts_ec2_count=$(echo "$k8s_ts_ec2_to_pod_runs" | jq 'length')
+if [[ "$ts_pod_count" -eq 0 && "$ts_ec2_count" -eq 0 ]]; then
+  log_error "all Tailscale sidecar iterations failed — skipping result merge"
+  exit 0
+fi
+
+# Compute summaries
+ts_pod_to_ec2_summary=$(compute_summary "$k8s_ts_pod_to_ec2_runs")
+ts_ec2_to_pod_summary=$(compute_summary "$k8s_ts_ec2_to_pod_runs")
+
+ts_pod_to_ec2_avg=$(echo "$ts_pod_to_ec2_summary" | jq '.bandwidth_mbps_avg')
+ts_ec2_to_pod_avg=$(echo "$ts_ec2_to_pod_summary" | jq '.bandwidth_mbps_avg')
+
+ts_pod_overhead=$(echo "$baseline_avg $ts_pod_to_ec2_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
+ts_ec2_overhead=$(echo "$baseline_avg $ts_ec2_to_pod_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
+
+# Merge Tailscale sidecar results
+ts_data=$(jq -n \
+  --argjson pod_to_ec2_runs "$k8s_ts_pod_to_ec2_runs" \
+  --argjson pod_to_ec2_summary "$ts_pod_to_ec2_summary" \
+  --argjson ec2_to_pod_runs "$k8s_ts_ec2_to_pod_runs" \
+  --argjson ec2_to_pod_summary "$ts_ec2_to_pod_summary" \
+  --arg sidecar_ts_ip "$sidecar_ts_ip" \
+  --argjson pod_to_ec2_overhead "$ts_pod_overhead" \
+  --argjson ec2_to_pod_overhead "$ts_ec2_overhead" \
+  '{
+    k8s_tailscale_pod_to_ec2_tcp: {
+      runs: $pod_to_ec2_runs,
+      summary: $pod_to_ec2_summary
+    },
+    k8s_tailscale_ec2_to_pod_tcp: {
+      runs: $ec2_to_pod_runs,
+      summary: $ec2_to_pod_summary
+    },
+    k8s_tailscale_config: {
+      sidecar_ts_ip: $sidecar_ts_ip,
+      mode: "kernel"
+    },
+    k8s_tailscale_overhead: {
+      pod_to_ec2_vs_baseline_pct: $pod_to_ec2_overhead,
+      ec2_to_pod_vs_baseline_pct: $ec2_to_pod_overhead
+    }
+  }')
+
+tmp_result=$(mktemp)
+jq --argjson ts "$ts_data" '. + $ts' "$result_file" > "$tmp_result"
+mv "$tmp_result" "$result_file"
+
+log_info "Tailscale sidecar results merged into $result_file"
+log_info "sidecar→ec2: ${ts_pod_to_ec2_avg} Mbps (${ts_pod_overhead}% overhead)"
+log_info "ec2→sidecar: ${ts_ec2_to_pod_avg} Mbps (${ts_ec2_overhead}% overhead)"

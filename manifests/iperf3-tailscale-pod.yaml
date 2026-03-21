@@ -1,0 +1,52 @@
+apiVersion: v1
+kind: Pod
+metadata:
+  name: tailbench-iperf3-ts
+  labels:
+    app: tailbench-iperf3-ts
+spec:
+  nodeSelector:
+    topology.kubernetes.io/zone: REPLACE_AZ
+  terminationGracePeriodSeconds: 5
+  initContainers:
+  - name: sysctler
+    image: ghcr.io/tailscale/tailscale:latest
+    command: ["/bin/sh", "-c", "sysctl -w net.ipv4.ip_forward=1 net.ipv6.conf.all.forwarding=1"]
+    securityContext:
+      privileged: true
+  containers:
+  - name: iperf3
+    image: networkstatic/iperf3:latest
+    command: ["iperf3", "-s", "-p", "15201"]
+    ports:
+    - containerPort: 15201
+      protocol: TCP
+    resources:
+      requests:
+        cpu: "2"
+        memory: "1Gi"
+      limits:
+        cpu: "4"
+        memory: "2Gi"
+  - name: ts-sidecar
+    image: ghcr.io/tailscale/tailscale:latest
+    securityContext:
+      privileged: true
+    env:
+    - name: TS_AUTHKEY
+      valueFrom:
+        secretKeyRef:
+          name: tailbench-ts-authkey
+          key: authkey
+    - name: TS_USERSPACE
+      value: "false"
+    - name: TS_KUBE_SECRET
+      value: ""
+    - name: TS_STATE_DIR
+      value: /dev/shm
+    - name: TS_HOSTNAME
+      value: "tailbench-sidecar"
+    - name: TS_EXTRA_ARGS
+      value: "--advertise-tags=tag:bench --accept-routes"
+    - name: TS_DEBUG_FIREWALL_MODE
+      value: auto
