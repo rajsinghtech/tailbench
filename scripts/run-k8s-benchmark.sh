@@ -6,6 +6,7 @@ TAILBENCH_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "$TAILBENCH_ROOT/lib/common.sh"
 source "$TAILBENCH_ROOT/config/defaults.sh"
 source "$TAILBENCH_ROOT/config/aws.sh"
+source "$TAILBENCH_ROOT/config/gcp.sh"
 source "$TAILBENCH_ROOT/config/eks.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/iperf.sh"
@@ -27,8 +28,9 @@ result_file="$4"
 
 log_info "=== K8s benchmark for $instance_type ==="
 
-# Deploy iperf3 pod
-k8s_deploy_iperf_pod "$AWS_AZ"
+# Deploy iperf3 pod — use the right AZ/zone depending on provider
+K8S_AZ="${GCP_ZONE:-${AWS_AZ:-}}"
+k8s_deploy_iperf_pod "$K8S_AZ"
 k8s_wait_for_pod 180
 
 pod_ip=$(k8s_get_pod_ip)
@@ -165,7 +167,7 @@ log_info "EC2 Tailscale IP: $server_ts_ip"
 
 # Create secret and deploy sidecar pod
 k8s_create_ts_secret "$TS_AUTHKEY"
-k8s_deploy_ts_iperf_pod "$AWS_AZ"
+k8s_deploy_ts_iperf_pod "$K8S_AZ"
 k8s_wait_for_ts_pod 240
 
 # Wait for sidecar to get a Tailscale IP
