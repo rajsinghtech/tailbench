@@ -279,6 +279,17 @@ td.mono {
   background: var(--yellow-bg);
   color: var(--yellow);
 }
+.k8s-tag {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 600;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: #e67e22;
+  color: #fff;
+  margin-left: 4px;
+  vertical-align: middle;
+}
 
 /* BW bar cell */
 .bw-cell { position: relative; }
@@ -493,6 +504,11 @@ footer a:hover { text-decoration: underline; }
     <div class="pill-group" id="familyFilter"></div>
   </div>
 
+  <div class="filter-bar" id="k8sFilterBar" style="display:none">
+    <label>Show</label>
+    <div class="pill-group" id="k8sFilter"></div>
+  </div>
+
   <div class="table-wrap">
     <table id="mainTable">
       <thead id="tableHead">
@@ -540,7 +556,8 @@ footer a:hover { text-decoration: underline; }
     family: 'all',
     sortKey: 'ts_bw',
     sortDir: 'desc',
-    expanded: null
+    expanded: null,
+    filterK8s: false
   };
 
   // --- Detect providers present in data ---
@@ -555,6 +572,9 @@ footer a:hover { text-decoration: underline; }
 
   // --- Detect single-stream data ---
   var hasSingle = TAILBENCH_DATA.some(function(d) { return d.baseline_tcp_single; });
+
+  // --- Detect K8s data ---
+  var hasK8s = TAILBENCH_DATA.some(function(d) { return d.k8s_pod_to_ec2_tcp; });
 
   // --- Max BW for bar scaling ---
   var maxBW = 0;
@@ -614,6 +634,7 @@ footer a:hover { text-decoration: underline; }
     if (params.family) state.family = params.family;
     if (params.sort) state.sortKey = params.sort;
     if (params.dir) state.sortDir = params.dir;
+    if (params.k8s) state.filterK8s = params.k8s === '1';
   }
   function writeHash() {
     var parts = [];
@@ -621,6 +642,7 @@ footer a:hover { text-decoration: underline; }
     if (state.family !== 'all') parts.push('family=' + encodeURIComponent(state.family));
     if (state.sortKey !== 'ts_bw') parts.push('sort=' + encodeURIComponent(state.sortKey));
     if (state.sortDir !== 'desc') parts.push('dir=' + encodeURIComponent(state.sortDir));
+    if (state.filterK8s) parts.push('k8s=1');
     location.hash = parts.length ? parts.join('&') : '';
   }
   readHash();
@@ -636,8 +658,9 @@ footer a:hover { text-decoration: underline; }
   // --- Family-filtered data (after provider filter) ---
   function getFilteredData() {
     var data = getProviderData();
-    if (state.family === 'all') return data;
-    return data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
+    if (state.family !== 'all') data = data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
+    if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_ec2_tcp; });
+    return data;
   }
 
   // --- Stats ---
@@ -677,6 +700,21 @@ footer a:hover { text-decoration: underline; }
         writeHash();
         render();
       });
+    });
+  }
+
+  // --- K8s filter ---
+  function renderK8sFilter() {
+    var bar = document.getElementById('k8sFilterBar');
+    if (!hasK8s) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    var html = '<button class="pill' + (state.filterK8s ? ' active' : '') + '" id="k8sPill">K8s Only</button>';
+    document.getElementById('k8sFilter').innerHTML = html;
+    document.getElementById('k8sPill').addEventListener('click', function() {
+      state.filterK8s = !state.filterK8s;
+      state.expanded = null;
+      writeHash();
+      render();
     });
   }
 
@@ -757,6 +795,10 @@ footer a:hover { text-decoration: underline; }
       cols.push({key:'baseline_bw_single', label:'Single BW'});
       cols.push({key:'ts_bw_single', label:'Single TS BW'});
     }
+    if (hasK8s) {
+      cols.push({key:'k8s_pod_to_ec2', label:'K8s\u2192EC2'});
+      cols.push({key:'k8s_ec2_to_pod', label:'EC2\u2192K8s'});
+    }
     cols.push({key:'overhead', label:'BW Overhead'});
     cols.push({key:'baseline_retrans', label:'Baseline Retrans'});
     cols.push({key:'ts_retrans', label:'TS Retrans'});
@@ -794,7 +836,7 @@ footer a:hover { text-decoration: underline; }
   function renderTable() {
     var data = sortData(getFilteredData());
     var tbody = document.getElementById('tableBody');
-    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0);
+    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0) + (hasK8s ? 2 : 0);
     var html = '';
 
     data.forEach(function(d) {
@@ -808,7 +850,7 @@ footer a:hover { text-decoration: underline; }
       var isOpen = state.expanded === rowKey;
 
       html += '<tr data-instance="' + rowKey + '" class="data-row">';
-      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span>' + (d.ena_express ? '<span class="ena-tag">ENA Express</span>' : '') + '</td>';
+      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span>' + (d.ena_express ? '<span class="ena-tag">ENA Express</span>' : '') + (d.k8s_pod_to_ec2_tcp ? '<span class="k8s-tag">K8s</span>' : '') + '</td>';
       if (showCloudCol) {
         html += '<td><span class="cloud-tag">' + (d.cloud_provider || 'gcp').toUpperCase() + '</span></td>';
       }
@@ -822,6 +864,12 @@ footer a:hover { text-decoration: underline; }
         var tSingleBarW = maxBW ? (tSingleBW / maxBW * 85).toFixed(1) : 0;
         html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + bSingleBarW + '%"></div><span class="bw-val">' + (d.baseline_tcp_single ? toGbps(bSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
         html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tSingleBarW + '%"></div><span class="bw-val">' + (d.tailscale_tcp_single ? toGbps(tSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+      }
+      if (hasK8s) {
+        var k8sPod = d.k8s_pod_to_ec2_tcp ? (d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) : '—';
+        var k8sEc2 = d.k8s_ec2_to_pod_tcp ? (d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) : '—';
+        html += '<td class="mono">' + k8sPod + (k8sPod !== '—' ? ' Gbps' : '') + '</td>';
+        html += '<td class="mono">' + k8sEc2 + (k8sEc2 !== '—' ? ' Gbps' : '') + '</td>';
       }
       html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
       html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
@@ -947,6 +995,38 @@ footer a:hover { text-decoration: underline; }
     html += '</div></div>';
     html += '</div>';
 
+    if (d.k8s_pod_to_ec2_tcp) {
+      html += '<div class="detail-section" style="border: 2px solid #e67e22; border-radius: 8px; padding: 16px; margin-top: 16px;">';
+      html += '<h3 style="color: #e67e22; margin-top: 0;">Kubernetes (' + (d.k8s_config && d.k8s_config.cni ? d.k8s_config.cni : 'unknown CNI') + ')</h3>';
+      html += '<div class="detail-grid">';
+
+      html += '<div><h4>Pod \u2192 EC2</h4>';
+      html += '<p>Avg: ' + (d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) + ' Gbps</p>';
+      d.k8s_pod_to_ec2_tcp.runs.forEach(function(r, i) {
+        html += '<p class="detail-run">Run ' + (i + 1) + ': ' + (r.bandwidth_mbps / 1000).toFixed(1) + ' Gbps</p>';
+      });
+      if (d.k8s_overhead) {
+        html += '<p><span class="overhead-badge" style="background: #e74c3c; color: #fff;">' + d.k8s_overhead.pod_to_ec2_vs_baseline_pct + '% vs baseline</span></p>';
+      }
+      html += '</div>';
+
+      html += '<div><h4>EC2 \u2192 Pod</h4>';
+      html += '<p>Avg: ' + (d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) + ' Gbps</p>';
+      d.k8s_ec2_to_pod_tcp.runs.forEach(function(r, i) {
+        html += '<p class="detail-run">Run ' + (i + 1) + ': ' + (r.bandwidth_mbps / 1000).toFixed(1) + ' Gbps</p>';
+      });
+      if (d.k8s_overhead) {
+        html += '<p><span class="overhead-badge" style="background: #e74c3c; color: #fff;">' + d.k8s_overhead.ec2_to_pod_vs_baseline_pct + '% vs baseline</span></p>';
+      }
+      html += '</div>';
+
+      html += '</div>';
+      html += '<p style="font-size: 12px; opacity: 0.7; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 8px;">';
+      html += 'Cluster: ' + (d.k8s_config && d.k8s_config.cluster_name ? d.k8s_config.cluster_name : '') + ' | K8s ' + (d.k8s_config && d.k8s_config.k8s_version ? d.k8s_config.k8s_version : '') + ' | Node: ' + (d.k8s_config && d.k8s_config.node_instance_type ? d.k8s_config.node_instance_type : '');
+      html += '</p>';
+      html += '</div>';
+    }
+
     return html;
   }
 
@@ -955,6 +1035,7 @@ footer a:hover { text-decoration: underline; }
     renderStats();
     renderProviderFilter();
     renderFamilyFilter();
+    renderK8sFilter();
     renderTableHead();
     renderTable();
   }
