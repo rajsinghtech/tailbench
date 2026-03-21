@@ -112,7 +112,9 @@ aws ec2 associate-route-table --region "$AWS_REGION" \
   --route-table-id "$RTB_ID" --subnet-id "$EKS_SUBNET_ID_AZ2" >/dev/null 2>&1 || true
 
 # Generate eksctl ClusterConfig YAML
-CLUSTER_CONFIG=$(mktemp /tmp/tailbench-eksctl-XXXXXX.yaml)
+CLUSTER_CONFIG=$(mktemp /tmp/tailbench-eksctl-XXXXXX)
+mv "$CLUSTER_CONFIG" "${CLUSTER_CONFIG}.yaml"
+CLUSTER_CONFIG="${CLUSTER_CONFIG}.yaml"
 cat > "$CLUSTER_CONFIG" <<EOF
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
