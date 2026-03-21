@@ -73,7 +73,7 @@ aws_setup_networking() {
 
     AWS_SUBNET_ID=$(aws ec2 describe-subnets \
       --region "$AWS_REGION" \
-      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Name,Values=tailbench-subnet" \
       --query 'Subnets[0].SubnetId' --output text)
 
     AWS_SG_ID=$(aws ec2 describe-security-groups \
