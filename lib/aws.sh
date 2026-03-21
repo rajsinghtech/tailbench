@@ -78,7 +78,7 @@ aws_setup_networking() {
 
     AWS_SG_ID=$(aws ec2 describe-security-groups \
       --region "$AWS_REGION" \
-      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Project,Values=tailbench" \
+      --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=tag:Name,Values=tailbench-sg" \
       --query 'SecurityGroups[0].GroupId' --output text)
 
     _AWS_IGW_ID=$(aws ec2 describe-internet-gateways \
