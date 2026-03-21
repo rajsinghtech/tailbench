@@ -6121,10 +6121,10 @@ const TAILBENCH_DATA = [
     "instance_type": "c6in.xlarge",
     "vcpus": 4,
     "region": "us-east-1",
-    "zone": "us-east-1b",
-    "date": "2026-02-12",
-    "tailscale_version": "1.94.1",
-    "kernel_version": "6.14.0-1018-aws",
+    "zone": "us-east-1a",
+    "date": "2026-03-21",
+    "tailscale_version": "1.96.2",
+    "kernel_version": "6.17.0-1009-aws",
     "connection_type": "direct",
     "ena_express": false,
     "system_config": {
@@ -6135,7 +6135,7 @@ const TAILBENCH_DATA = [
       "mtu_tailscale": 1280,
       "tcp_rmem": "4096\t87380\t67108864",
       "tcp_wmem": "4096\t65536\t67108864",
-      "kernel_full": "Linux ip-10-0-1-82 6.14.0-1018-aws #18~24.04.1-Ubuntu SMP Mon Nov 24 19:46:27 UTC 2025 x86_64 x86_64 x86_64 GNU/Linux"
+      "kernel_full": "Linux ip-10-0-1-138 6.17.0-1009-aws #9~24.04.2-Ubuntu SMP Fri Mar  6 23:50:29 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
     },
     "test_config": {
       "iperf_duration_sec": 30,
@@ -6146,155 +6146,155 @@ const TAILBENCH_DATA = [
     "baseline_tcp": {
       "runs": [
         {
-          "bandwidth_mbps": 29613.961093457565,
-          "retransmits": 49,
-          "duration_sec": 30.002152,
-          "bytes_transferred": 111060320256
+          "bandwidth_mbps": 29773.249575257516,
+          "retransmits": 0,
+          "duration_sec": 30.001708,
+          "bytes_transferred": 111656042496
         },
         {
-          "bandwidth_mbps": 29613.234636731107,
-          "retransmits": 54,
-          "duration_sec": 30.00133,
-          "bytes_transferred": 111054553088
+          "bandwidth_mbps": 29690.01123523225,
+          "retransmits": 0,
+          "duration_sec": 30.001694,
+          "bytes_transferred": 111343828992
         },
         {
-          "bandwidth_mbps": 29614.751272368652,
-          "retransmits": 5878,
-          "duration_sec": 30.001918,
-          "bytes_transferred": 111062417408
+          "bandwidth_mbps": 29717.04486186428,
+          "retransmits": 0,
+          "duration_sec": 30.001183,
+          "bytes_transferred": 111443312640
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 29613.982334185774,
-        "bandwidth_mbps_min": 29613.234636731107,
-        "bandwidth_mbps_max": 29614.751272368652,
-        "bandwidth_mbps_stddev": 0.7585,
-        "retransmits_avg": 1993.6666666666667
+        "bandwidth_mbps_avg": 29726.76855745135,
+        "bandwidth_mbps_min": 29690.01123523225,
+        "bandwidth_mbps_max": 29773.249575257516,
+        "bandwidth_mbps_stddev": 42.4625,
+        "retransmits_avg": 0
       }
     },
     "tailscale_tcp": {
       "runs": [
         {
-          "bandwidth_mbps": 4336.18299610585,
+          "bandwidth_mbps": 4276.59095185137,
           "retransmits": 0,
-          "duration_sec": 30.001163,
-          "bytes_transferred": 16261316608
+          "duration_sec": 30.001165,
+          "bytes_transferred": 16037838848
         },
         {
-          "bandwidth_mbps": 4302.114487864963,
-          "retransmits": 2156,
-          "duration_sec": 30.001101,
-          "bytes_transferred": 16133521408
+          "bandwidth_mbps": 4285.914063078897,
+          "retransmits": 0,
+          "duration_sec": 30.000493,
+          "bytes_transferred": 16072441856
         },
         {
-          "bandwidth_mbps": 4324.285828232394,
-          "retransmits": 1757,
-          "duration_sec": 30.001501,
-          "bytes_transferred": 16216883200
+          "bandwidth_mbps": 4301.622193323809,
+          "retransmits": 0,
+          "duration_sec": 30.000878,
+          "bytes_transferred": 16131555328
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 4320.861104067736,
-        "bandwidth_mbps_min": 4302.114487864963,
-        "bandwidth_mbps_max": 4336.18299610585,
-        "bandwidth_mbps_stddev": 17.2905,
-        "retransmits_avg": 1304.3333333333333
+        "bandwidth_mbps_avg": 4288.042402751358,
+        "bandwidth_mbps_min": 4276.59095185137,
+        "bandwidth_mbps_max": 4301.622193323809,
+        "bandwidth_mbps_stddev": 12.6506,
+        "retransmits_avg": 0
       }
     },
     "overhead": {
-      "bandwidth_pct": 85.40938852698706,
-      "retransmits_pct": -34.576157833138275
+      "bandwidth_pct": 85.57514788577141,
+      "retransmits_pct": 0
     },
     "baseline_tcp_single": {
       "runs": [
         {
-          "bandwidth_mbps": 9464.380699541265,
+          "bandwidth_mbps": 9481.96713259276,
           "retransmits": 0,
-          "duration_sec": 30.001318,
-          "bytes_transferred": 35492986880
+          "duration_sec": 30.000967,
+          "bytes_transferred": 35558522880
         },
         {
-          "bandwidth_mbps": 9459.879490356421,
+          "bandwidth_mbps": 9481.479322325229,
           "retransmits": 0,
-          "duration_sec": 30.001516,
-          "bytes_transferred": 35476340736
+          "duration_sec": 30.001294,
+          "bytes_transferred": 35557081088
         },
         {
-          "bandwidth_mbps": 9464.436800784995,
+          "bandwidth_mbps": 9482.39089359006,
           "retransmits": 0,
-          "duration_sec": 30.000697,
-          "bytes_transferred": 35492462592
+          "duration_sec": 30.001285,
+          "bytes_transferred": 35560488960
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 9462.898996894228,
-        "bandwidth_mbps_min": 9459.879490356421,
-        "bandwidth_mbps_max": 9464.436800784995,
-        "bandwidth_mbps_stddev": 2.6151,
+        "bandwidth_mbps_avg": 9481.945782836017,
+        "bandwidth_mbps_min": 9481.479322325229,
+        "bandwidth_mbps_max": 9482.39089359006,
+        "bandwidth_mbps_stddev": 0.4562,
         "retransmits_avg": 0
       }
     },
     "tailscale_tcp_single": {
       "runs": [
         {
-          "bandwidth_mbps": 4228.896275768462,
-          "retransmits": 415,
-          "duration_sec": 30.00082,
-          "bytes_transferred": 15858794496
+          "bandwidth_mbps": 3985.31112759314,
+          "retransmits": 0,
+          "duration_sec": 30.000351,
+          "bytes_transferred": 14945091584
         },
         {
-          "bandwidth_mbps": 4242.119258506852,
-          "retransmits": 367,
-          "duration_sec": 30.000493,
-          "bytes_transferred": 15908208640
+          "bandwidth_mbps": 3994.281175153196,
+          "retransmits": 0,
+          "duration_sec": 30.000446,
+          "bytes_transferred": 14978777088
         },
         {
-          "bandwidth_mbps": 4265.142768154778,
-          "retransmits": 814,
-          "duration_sec": 30.000808,
-          "bytes_transferred": 15994716160
+          "bandwidth_mbps": 4000.300155101931,
+          "retransmits": 0,
+          "duration_sec": 30.000916,
+          "bytes_transferred": 15001583616
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 4245.386100810031,
-        "bandwidth_mbps_min": 4228.896275768462,
-        "bandwidth_mbps_max": 4265.142768154778,
-        "bandwidth_mbps_stddev": 18.3427,
-        "retransmits_avg": 532
+        "bandwidth_mbps_avg": 3993.2974859494225,
+        "bandwidth_mbps_min": 3985.31112759314,
+        "bandwidth_mbps_max": 4000.300155101931,
+        "bandwidth_mbps_stddev": 7.5428,
+        "retransmits_avg": 0
       }
     },
     "overhead_single": {
-      "bandwidth_pct": 55.13651680945354,
+      "bandwidth_pct": 57.88525290686653,
       "retransmits_pct": 0
     },
     "baseline_mtr": {
-      "target_ip": "10.0.1.82",
+      "target_ip": "10.0.1.138",
       "hops": [
         {
           "hop": 1,
-          "host": "10.0.1.82",
+          "host": "10.0.1.138",
           "loss_pct": 0.0,
           "snt": 100,
-          "last_ms": 0.200,
-          "avg_ms": 0.200,
+          "last_ms": 0.100,
+          "avg_ms": 0.100,
           "best_ms": 0.100,
-          "worst_ms": 0.500,
+          "worst_ms": 0.200,
           "stdev_ms": 0.000
         }
       ]
     },
     "tailscale_mtr": {
-      "target_ip": "100.76.250.105",
+      "target_ip": "100.84.6.89",
       "hops": [
         {
           "hop": 1,
-          "host": "100.76.250.105",
+          "host": "100.84.6.89",
           "loss_pct": 0.0,
           "snt": 100,
-          "last_ms": 0.500,
-          "avg_ms": 0.400,
-          "best_ms": 0.400,
-          "worst_ms": 0.600,
+          "last_ms": 0.300,
+          "avg_ms": 0.300,
+          "best_ms": 0.200,
+          "worst_ms": 0.500,
           "stdev_ms": 0.100
         }
       ]
@@ -6309,58 +6309,112 @@ const TAILBENCH_DATA = [
     "k8s_pod_to_ec2_tcp": {
       "runs": [
         {
-          "bandwidth_mbps": 9950.540274825933,
-          "retransmits": 19328,
-          "duration_sec": 30.00008,
-          "bytes_transferred": 37314625536
-        },
-        {
-          "bandwidth_mbps": 9950.821552812784,
-          "retransmits": 22406,
-          "duration_sec": 30.000075,
-          "bytes_transferred": 37315674112
+          "bandwidth_mbps": 9950.68472822693,
+          "retransmits": 23851,
+          "duration_sec": 30.000066,
+          "bytes_transferred": 37315149824
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 9950.680913819358,
-        "bandwidth_mbps_min": 9950.540274825933,
-        "bandwidth_mbps_max": 9950.821552812784,
-        "bandwidth_mbps_stddev": 0.14063899342545483,
-        "retransmits_avg": 20867
+        "bandwidth_mbps_avg": 9950.68472822693,
+        "bandwidth_mbps_min": 9950.68472822693,
+        "bandwidth_mbps_max": 9950.68472822693,
+        "bandwidth_mbps_stddev": 0,
+        "retransmits_avg": 23851
       }
     },
     "k8s_ec2_to_pod_tcp": {
       "runs": [
         {
-          "bandwidth_mbps": 9944.36304765985,
-          "retransmits": 86,
-          "duration_sec": 30.000579,
-          "bytes_transferred": 37292081152
-        },
-        {
-          "bandwidth_mbps": 9922.6743732591,
-          "retransmits": 72,
-          "duration_sec": 30.000635,
-          "bytes_transferred": 37210816512
-        },
-        {
-          "bandwidth_mbps": 9950.87715435981,
+          "bandwidth_mbps": 9944.0547787108,
           "retransmits": 0,
-          "duration_sec": 30.001488,
-          "bytes_transferred": 37317640192
+          "duration_sec": 30.00056,
+          "bytes_transferred": 37290901504
+        },
+        {
+          "bandwidth_mbps": 9949.649327063804,
+          "retransmits": 5,
+          "duration_sec": 30.000764,
+          "bytes_transferred": 37312135168
+        },
+        {
+          "bandwidth_mbps": 9888.701217501866,
+          "retransmits": 0,
+          "duration_sec": 30.000529,
+          "bytes_transferred": 37083283456
         }
       ],
       "summary": {
-        "bandwidth_mbps_avg": 9939.304858426252,
-        "bandwidth_mbps_min": 9922.6743732591,
-        "bandwidth_mbps_max": 9950.87715435981,
-        "bandwidth_mbps_stddev": 12.056483019404853,
-        "retransmits_avg": 53
+        "bandwidth_mbps_avg": 9927.468441092156,
+        "bandwidth_mbps_min": 9888.701217501866,
+        "bandwidth_mbps_max": 9949.649327063804,
+        "bandwidth_mbps_stddev": 27.507550011990233,
+        "retransmits_avg": 2
       }
     },
     "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 66.4,
-      "ec2_to_pod_vs_baseline_pct": 66.4
+      "pod_to_ec2_vs_baseline_pct": 66.5,
+      "ec2_to_pod_vs_baseline_pct": 66.6
+    },
+    "k8s_tailscale_pod_to_ec2_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 3847.109201546342,
+          "retransmits": 2608,
+          "duration_sec": 30.000088,
+          "bytes_transferred": 14426701824
+        },
+        {
+          "bandwidth_mbps": 3828.3397462034113,
+          "retransmits": 2218,
+          "duration_sec": 30.000088,
+          "bytes_transferred": 14356316160
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 3837.724473874877,
+        "bandwidth_mbps_min": 3828.3397462034113,
+        "bandwidth_mbps_max": 3847.109201546342,
+        "bandwidth_mbps_stddev": 9.38472767146527,
+        "retransmits_avg": 2413
+      }
+    },
+    "k8s_tailscale_ec2_to_pod_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 988.428747599612,
+          "retransmits": 0,
+          "duration_sec": 30.000877,
+          "bytes_transferred": 3706716160
+        },
+        {
+          "bandwidth_mbps": 1019.7245922045591,
+          "retransmits": 0,
+          "duration_sec": 30.000458,
+          "bytes_transferred": 3824025600
+        },
+        {
+          "bandwidth_mbps": 1007.314046899497,
+          "retransmits": 0,
+          "duration_sec": 30.000535,
+          "bytes_transferred": 3777495040
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 1005.1557955678894,
+        "bandwidth_mbps_min": 988.428747599612,
+        "bandwidth_mbps_max": 1019.7245922045591,
+        "bandwidth_mbps_stddev": 12.867297281403959,
+        "retransmits_avg": 0
+      }
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.67.54.59",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_ec2_vs_baseline_pct": 87.1,
+      "ec2_to_pod_vs_baseline_pct": 96.6
     },
     "source": "aws/c6in/results/c6in.xlarge.json"
   },
