@@ -81,11 +81,26 @@ eks_ensure_node_group() {
       --nodegroup-name "$ng" 2>/dev/null || true
   done
 
-  # Also wait for any eksctl CF stacks to be fully gone
-  local cf_stack="eksctl-${EKS_CLUSTER_NAME}-nodegroup-tailbench-nodes"
-  aws cloudformation wait stack-delete-complete \
+  # Clean up orphaned eksctl CF stacks for nodegroups
+  local stacks
+  stacks=$(aws cloudformation list-stacks \
     --region "$AWS_REGION" \
-    --stack-name "$cf_stack" 2>/dev/null || true
+    --stack-status-filter CREATE_COMPLETE DELETE_IN_PROGRESS \
+    --query 'StackSummaries[?contains(StackName,`'"$EKS_CLUSTER_NAME"'-nodegroup`)].StackName' \
+    --output text 2>/dev/null) || true
+  for stack in $stacks; do
+    [[ -z "$stack" || "$stack" == "None" ]] && continue
+    log_info "cleaning up CF stack $stack"
+    aws cloudformation update-termination-protection --region "$AWS_REGION" \
+      --no-enable-termination-protection --stack-name "$stack" 2>/dev/null || true
+    aws cloudformation delete-stack --region "$AWS_REGION" \
+      --stack-name "$stack" 2>/dev/null || true
+  done
+  for stack in $stacks; do
+    [[ -z "$stack" || "$stack" == "None" ]] && continue
+    aws cloudformation wait stack-delete-complete --region "$AWS_REGION" \
+      --stack-name "$stack" 2>/dev/null || true
+  done
 
   # Use a unique name per instance type to avoid eksctl name conflicts
   local ng_name="tb-${target_type//\./-}"
