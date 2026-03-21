@@ -4,8 +4,14 @@ set -euo pipefail
 export DEBIAN_FRONTEND=noninteractive
 export NEEDRESTART_MODE=a
 
-apt-get update -qq
-apt-get install -y -qq iperf3 mtr-tiny jq curl > /dev/null 2>&1
+# Retry apt-get update up to 3 times to handle transient mirror sync issues
+for attempt in 1 2 3; do
+  apt-get update -qq && break || {
+    echo "apt-get update failed (attempt $attempt), retrying in 15s..."
+    sleep 15
+  }
+done
+apt-get install -y -qq --fix-missing iperf3 mtr-tiny jq curl > /dev/null 2>&1
 
 # Disable the iperf3 systemd service that ships with the package -
 # we manage the server process ourselves and it causes port conflicts.
