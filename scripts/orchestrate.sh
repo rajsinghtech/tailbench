@@ -97,9 +97,14 @@ _run_provider() {
   export TAILBENCH_CLEANUP_FILE="/tmp/tailbench-cleanup-$$-$provider"
 
   source "$TAILBENCH_ROOT/lib/provider.sh"
-  if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
-    source "$TAILBENCH_ROOT/config/eks.sh"
-    source "$TAILBENCH_ROOT/lib/eks.sh"
+  if [[ "$K8S" == "true" ]]; then
+    if [[ "$provider" == "aws" ]]; then
+      source "$TAILBENCH_ROOT/config/eks.sh"
+      source "$TAILBENCH_ROOT/lib/eks.sh"
+    elif [[ "$provider" == "gcp" ]]; then
+      source "$TAILBENCH_ROOT/config/gke.sh"
+      source "$TAILBENCH_ROOT/lib/gke.sh"
+    fi
     source "$TAILBENCH_ROOT/lib/k8s.sh"
   fi
   source "$TAILBENCH_ROOT/lib/cleanup.sh"
@@ -122,9 +127,20 @@ _run_provider() {
     eks_get_cluster_info
     k8s_check_prereqs
     k8s_ensure_namespace
-    # Match node group to benchmark family
     if [[ -n "$FAMILY" && "$FAMILY" != "all" ]]; then
       eks_ensure_node_group "${FAMILY}.xlarge"
+    fi
+  elif [[ "$K8S" == "true" && "$provider" == "gcp" ]]; then
+    if ! gke_discover_cluster 2>/dev/null; then
+      log_info "GKE cluster not found — provisioning via setup-gke-cluster.sh"
+      "$TAILBENCH_ROOT/scripts/setup-gke-cluster.sh"
+    fi
+    gke_get_kubeconfig
+    gke_get_cluster_info
+    k8s_check_prereqs
+    k8s_ensure_namespace
+    if [[ -n "$FAMILY" && "$FAMILY" != "all" ]]; then
+      gke_ensure_node_pool "${FAMILY}-standard-4"
     fi
   fi
 
@@ -193,7 +209,7 @@ _run_provider() {
       [[ ! -f "$ena_result_check" ]] && ena_needs_run=true
     fi
     local k8s_needs_run=false
-    if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
+    if [[ "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp") ]]; then
       if ! jq -e '.k8s_pod_to_ec2_tcp and .k8s_tailscale_pod_to_ec2_tcp' "$existing_result" &>/dev/null; then
         k8s_needs_run=true
       fi
@@ -285,7 +301,7 @@ _run_provider() {
     fi
 
     # --- K8s benchmark phase ---
-    if [[ -z "$step_failed" && "$K8S" == "true" && "$provider" == "aws" ]]; then
+    if [[ -z "$step_failed" && "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp") ]]; then
       local result_file="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
       if [[ -f "$result_file" ]]; then
         log_info "[$inst] running K8s benchmark"
@@ -461,7 +477,11 @@ if $DRY_RUN; then
         if [[ "$K8S" == "true" && "$p" == "aws" ]]; then
           echo "  [K8s] deploy iperf3 pod on ${EKS_CLUSTER_NAME:-<eks-cluster>}"
           echo "  run-k8s-benchmark.sh $inst <server> <s_lan> <result_file>"
-          echo "  -> pod↔ec2 results merged into $p/$family/results/$inst.json"
+          echo "  -> pod↔vm results merged into $p/$family/results/$inst.json"
+        elif [[ "$K8S" == "true" && "$p" == "gcp" ]]; then
+          echo "  [K8s] deploy iperf3 pod on ${GKE_CLUSTER_NAME:-<gke-cluster>}"
+          echo "  run-k8s-benchmark.sh $inst <server> <s_lan> <result_file>"
+          echo "  -> pod↔vm results merged into $p/$family/results/$inst.json"
         fi
       done
       if $CLEANUP_NETWORKING; then
