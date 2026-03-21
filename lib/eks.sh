@@ -56,26 +56,39 @@ eks_ensure_node_group() {
     return 0
   fi
 
-  # Delete existing node group via AWS API (no drain, no PDB issues)
-  local existing_ng
-  existing_ng=$(aws eks list-nodegroups \
+  # Delete ALL existing node groups via AWS API (no drain, no PDB issues)
+  local ng_list
+  ng_list=$(aws eks list-nodegroups \
     --region "$AWS_REGION" \
     --cluster-name "$EKS_CLUSTER_NAME" \
-    --query 'nodegroups[0]' --output text 2>/dev/null) || true
+    --query 'nodegroups[]' --output text 2>/dev/null) || true
 
-  if [[ -n "$existing_ng" && "$existing_ng" != "None" ]]; then
-    log_info "deleting node group $existing_ng ($current_type) to replace with $target_type"
+  for ng in $ng_list; do
+    [[ "$ng" == "None" || -z "$ng" ]] && continue
+    log_info "deleting node group $ng"
     aws eks delete-nodegroup \
       --region "$AWS_REGION" \
       --cluster-name "$EKS_CLUSTER_NAME" \
-      --nodegroup-name "$existing_ng" >/dev/null
-    log_info "waiting for node group deletion..."
+      --nodegroup-name "$ng" >/dev/null 2>&1 || true
+  done
+  # Wait for all to finish deleting
+  for ng in $ng_list; do
+    [[ "$ng" == "None" || -z "$ng" ]] && continue
+    log_info "waiting for $ng deletion..."
     aws eks wait nodegroup-deleted \
       --region "$AWS_REGION" \
       --cluster-name "$EKS_CLUSTER_NAME" \
-      --nodegroup-name "$existing_ng" 2>/dev/null || true
-    log_info "node group deleted"
-  fi
+      --nodegroup-name "$ng" 2>/dev/null || true
+  done
+
+  # Also wait for any eksctl CF stacks to be fully gone
+  local cf_stack="eksctl-${EKS_CLUSTER_NAME}-nodegroup-tailbench-nodes"
+  aws cloudformation wait stack-delete-complete \
+    --region "$AWS_REGION" \
+    --stack-name "$cf_stack" 2>/dev/null || true
+
+  # Use a unique name per instance type to avoid eksctl name conflicts
+  local ng_name="tb-${target_type//\./-}"
 
   # Find the EKS subnet in the benchmark AZ
   local eks_subnet
@@ -95,7 +108,7 @@ metadata:
   region: ${AWS_REGION}
 
 managedNodeGroups:
-  - name: tailbench-nodes
+  - name: ${ng_name}
     instanceType: ${target_type}
     desiredCapacity: 1
     minSize: 1
@@ -108,12 +121,12 @@ managedNodeGroups:
       maxUnavailable: 1
 EOF
 
-  log_info "creating node group with $target_type"
+  log_info "creating node group $ng_name with $target_type"
   eksctl create nodegroup -f "$ng_config" 2>&1 | while IFS= read -r line; do log_info "eksctl: $line"; done
   rm -f "$ng_config"
 
   # Wait for node to be ready
-  kubectl wait node --all --for=condition=Ready --timeout=180s >/dev/null
+  kubectl wait node --all --for=condition=Ready --timeout=300s >/dev/null
   log_info "node group ready with $target_type"
   EKS_NODE_INSTANCE_TYPE="$target_type"
 }
