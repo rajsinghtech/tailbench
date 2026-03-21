@@ -281,14 +281,19 @@ td.mono {
 }
 .k8s-tag {
   display: inline-block;
-  font-size: 10px;
-  font-weight: 600;
-  padding: 2px 6px;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
   border-radius: 4px;
-  background: #e67e22;
-  color: #fff;
-  margin-left: 4px;
-  vertical-align: middle;
+  margin-left: 6px;
+  background: rgba(230, 126, 34, 0.12);
+  color: #e67e22;
+}
+[data-theme="dark"] .k8s-tag {
+  background: rgba(230, 126, 34, 0.15);
+  color: #f0a050;
 }
 
 /* BW bar cell */
@@ -755,6 +760,8 @@ footer a:hover { text-decoration: underline; }
       case 'ts_retrans': return d.tailscale_tcp.summary.retransmits_avg;
       case 'baseline_bw_single': return d.baseline_tcp_single ? d.baseline_tcp_single.summary.bandwidth_mbps_avg : 0;
       case 'ts_bw_single': return d.tailscale_tcp_single ? d.tailscale_tcp_single.summary.bandwidth_mbps_avg : 0;
+      case 'k8s_pod_to_ec2': return d.k8s_pod_to_ec2_tcp ? d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg : 0;
+      case 'k8s_ec2_to_pod': return d.k8s_ec2_to_pod_tcp ? d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg : 0;
       default: return 0;
     }
   }
@@ -866,10 +873,20 @@ footer a:hover { text-decoration: underline; }
         html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tSingleBarW + '%"></div><span class="bw-val">' + (d.tailscale_tcp_single ? toGbps(tSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
       }
       if (hasK8s) {
-        var k8sPod = d.k8s_pod_to_ec2_tcp ? (d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) : '—';
-        var k8sEc2 = d.k8s_ec2_to_pod_tcp ? (d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) : '—';
-        html += '<td class="mono">' + k8sPod + (k8sPod !== '—' ? ' Gbps' : '') + '</td>';
-        html += '<td class="mono">' + k8sEc2 + (k8sEc2 !== '—' ? ' Gbps' : '') + '</td>';
+        if (d.k8s_pod_to_ec2_tcp) {
+          var k8sPodBW = d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg;
+          var k8sPodBarW = maxBW ? (k8sPodBW / maxBW * 85).toFixed(1) : 0;
+          html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + k8sPodBarW + '%"></div><span class="bw-val">' + toGbps(k8sPodBW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+        } else {
+          html += '<td class="mono">—</td>';
+        }
+        if (d.k8s_ec2_to_pod_tcp) {
+          var k8sEc2BW = d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg;
+          var k8sEc2BarW = maxBW ? (k8sEc2BW / maxBW * 85).toFixed(1) : 0;
+          html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + k8sEc2BarW + '%"></div><span class="bw-val">' + toGbps(k8sEc2BW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+        } else {
+          html += '<td class="mono">—</td>';
+        }
       }
       html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
       html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
@@ -996,34 +1013,59 @@ footer a:hover { text-decoration: underline; }
     html += '</div>';
 
     if (d.k8s_pod_to_ec2_tcp) {
-      html += '<div class="detail-section" style="border: 2px solid #e67e22; border-radius: 8px; padding: 16px; margin-top: 16px;">';
-      html += '<h3 style="color: #e67e22; margin-top: 0;">Kubernetes (' + (d.k8s_config && d.k8s_config.cni ? d.k8s_config.cni : 'unknown CNI') + ')</h3>';
-      html += '<div class="detail-grid">';
+      var k8sCni = d.k8s_config && d.k8s_config.cni ? d.k8s_config.cni : 'unknown';
+      var k8sCluster = d.k8s_config && d.k8s_config.cluster_name ? d.k8s_config.cluster_name : '';
+      var k8sVer = d.k8s_config && d.k8s_config.k8s_version ? d.k8s_config.k8s_version : '';
+      var k8sNode = d.k8s_config && d.k8s_config.node_instance_type ? d.k8s_config.node_instance_type : '';
 
-      html += '<div><h4>Pod \u2192 EC2</h4>';
-      html += '<p>Avg: ' + (d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) + ' Gbps</p>';
+      html += '<div class="detail-grid" style="margin-top:20px">';
+
+      // K8s VPC-native runs
+      html += '<div class="detail-section">';
+      html += '<h4>K8s Pod \u2194 EC2 (VPC / ' + k8sCni + ')</h4>';
+      html += '<table class="mini-table"><thead><tr><th>Run</th><th>Direction</th><th>BW (Gbps)</th><th>Retrans</th><th>Overhead</th></tr></thead><tbody>';
       d.k8s_pod_to_ec2_tcp.runs.forEach(function(r, i) {
-        html += '<p class="detail-run">Run ' + (i + 1) + ': ' + (r.bandwidth_mbps / 1000).toFixed(1) + ' Gbps</p>';
+        html += '<tr><td>#' + (i+1) + '</td><td>Pod\u2192EC2</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td></td></tr>';
       });
-      if (d.k8s_overhead) {
-        html += '<p><span class="overhead-badge" style="background: #e74c3c; color: #fff;">' + d.k8s_overhead.pod_to_ec2_vs_baseline_pct + '% vs baseline</span></p>';
-      }
-      html += '</div>';
-
-      html += '<div><h4>EC2 \u2192 Pod</h4>';
-      html += '<p>Avg: ' + (d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg / 1000).toFixed(1) + ' Gbps</p>';
       d.k8s_ec2_to_pod_tcp.runs.forEach(function(r, i) {
-        html += '<p class="detail-run">Run ' + (i + 1) + ': ' + (r.bandwidth_mbps / 1000).toFixed(1) + ' Gbps</p>';
+        html += '<tr><td>#' + (i+1) + '</td><td>EC2\u2192Pod</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td></td></tr>';
       });
       if (d.k8s_overhead) {
-        html += '<p><span class="overhead-badge" style="background: #e74c3c; color: #fff;">' + d.k8s_overhead.ec2_to_pod_vs_baseline_pct + '% vs baseline</span></p>';
+        var k8sOcPod = overheadClass(d.k8s_overhead.pod_to_ec2_vs_baseline_pct);
+        var k8sOcEc2 = overheadClass(d.k8s_overhead.ec2_to_pod_vs_baseline_pct);
+        html += '<tr><td></td><td>Pod\u2192EC2 avg</td><td>' + toGbps(d.k8s_pod_to_ec2_tcp.summary.bandwidth_mbps_avg) + '</td><td></td><td><span class="overhead-badge ' + k8sOcPod + '">' + d.k8s_overhead.pod_to_ec2_vs_baseline_pct + '%</span></td></tr>';
+        html += '<tr><td></td><td>EC2\u2192Pod avg</td><td>' + toGbps(d.k8s_ec2_to_pod_tcp.summary.bandwidth_mbps_avg) + '</td><td></td><td><span class="overhead-badge ' + k8sOcEc2 + '">' + d.k8s_overhead.ec2_to_pod_vs_baseline_pct + '%</span></td></tr>';
       }
+      html += '</tbody></table>';
       html += '</div>';
 
+      // K8s Tailscale sidecar runs (if present)
+      if (d.k8s_tailscale_pod_to_ec2_tcp) {
+        html += '<div class="detail-section">';
+        html += '<h4>K8s Tailscale Sidecar \u2194 EC2</h4>';
+        html += '<table class="mini-table"><thead><tr><th>Run</th><th>Direction</th><th>BW (Gbps)</th><th>Retrans</th><th>Overhead</th></tr></thead><tbody>';
+        d.k8s_tailscale_pod_to_ec2_tcp.runs.forEach(function(r, i) {
+          html += '<tr><td>#' + (i+1) + '</td><td>Sidecar\u2192EC2</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td></td></tr>';
+        });
+        d.k8s_tailscale_ec2_to_pod_tcp.runs.forEach(function(r, i) {
+          html += '<tr><td>#' + (i+1) + '</td><td>EC2\u2192Sidecar</td><td>' + toGbps(r.bandwidth_mbps) + '</td><td>' + r.retransmits + '</td><td></td></tr>';
+        });
+        if (d.k8s_tailscale_overhead) {
+          var tsOcPod = overheadClass(d.k8s_tailscale_overhead.pod_to_ec2_vs_baseline_pct);
+          var tsOcEc2 = overheadClass(d.k8s_tailscale_overhead.ec2_to_pod_vs_baseline_pct);
+          html += '<tr><td></td><td>Sidecar\u2192EC2 avg</td><td>' + toGbps(d.k8s_tailscale_pod_to_ec2_tcp.summary.bandwidth_mbps_avg) + '</td><td></td><td><span class="overhead-badge ' + tsOcPod + '">' + d.k8s_tailscale_overhead.pod_to_ec2_vs_baseline_pct + '%</span></td></tr>';
+          html += '<tr><td></td><td>EC2\u2192Sidecar avg</td><td>' + toGbps(d.k8s_tailscale_ec2_to_pod_tcp.summary.bandwidth_mbps_avg) + '</td><td></td><td><span class="overhead-badge ' + tsOcEc2 + '">' + d.k8s_tailscale_overhead.ec2_to_pod_vs_baseline_pct + '%</span></td></tr>';
+        }
+        html += '</tbody></table>';
+        html += '</div>';
+      }
+
       html += '</div>';
-      html += '<p style="font-size: 12px; opacity: 0.7; margin-top: 12px; border-top: 1px solid var(--border-color); padding-top: 8px;">';
-      html += 'Cluster: ' + (d.k8s_config && d.k8s_config.cluster_name ? d.k8s_config.cluster_name : '') + ' | K8s ' + (d.k8s_config && d.k8s_config.k8s_version ? d.k8s_config.k8s_version : '') + ' | Node: ' + (d.k8s_config && d.k8s_config.node_instance_type ? d.k8s_config.node_instance_type : '');
-      html += '</p>';
+      html += '<div class="detail-meta" style="margin-top:12px">';
+      html += '<div class="detail-meta-item"><strong>Cluster:</strong> ' + k8sCluster + '</div>';
+      html += '<div class="detail-meta-item"><strong>K8s:</strong> v' + k8sVer + '</div>';
+      html += '<div class="detail-meta-item"><strong>CNI:</strong> ' + k8sCni + '</div>';
+      html += '<div class="detail-meta-item"><strong>Node:</strong> ' + k8sNode + '</div>';
       html += '</div>';
     }
 

@@ -90,23 +90,9 @@ if [[ "$pod_to_ec2_count" -eq 0 && "$ec2_to_pod_count" -eq 0 ]]; then
   exit 1
 fi
 
-# Compute summaries
-compute_summary() {
-  local runs="$1"
-  echo "$runs" | jq '{
-    bandwidth_mbps_avg: ([.[].bandwidth_mbps] | add / length),
-    bandwidth_mbps_min: ([.[].bandwidth_mbps] | min),
-    bandwidth_mbps_max: ([.[].bandwidth_mbps] | max),
-    bandwidth_mbps_stddev: (
-      ([.[].bandwidth_mbps] | add / length) as $avg |
-      ([.[].bandwidth_mbps | . - $avg | . * .] | add / length | sqrt)
-    ),
-    retransmits_avg: ([.[].retransmits] | add / length | round)
-  }'
-}
-
-pod_to_ec2_summary=$(compute_summary "$k8s_pod_to_ec2_runs")
-ec2_to_pod_summary=$(compute_summary "$k8s_ec2_to_pod_runs")
+# Compute summaries (reuse existing iperf library function)
+pod_to_ec2_summary=$(iperf_compute_summary "$k8s_pod_to_ec2_runs")
+ec2_to_pod_summary=$(iperf_compute_summary "$k8s_ec2_to_pod_runs")
 
 # Read baseline for overhead calculation
 baseline_avg=$(jq '.baseline_tcp.summary.bandwidth_mbps_avg' "$result_file")
@@ -249,8 +235,8 @@ if [[ "$ts_pod_count" -eq 0 && "$ts_ec2_count" -eq 0 ]]; then
 fi
 
 # Compute summaries
-ts_pod_to_ec2_summary=$(compute_summary "$k8s_ts_pod_to_ec2_runs")
-ts_ec2_to_pod_summary=$(compute_summary "$k8s_ts_ec2_to_pod_runs")
+ts_pod_to_ec2_summary=$(iperf_compute_summary "$k8s_ts_pod_to_ec2_runs")
+ts_ec2_to_pod_summary=$(iperf_compute_summary "$k8s_ts_ec2_to_pod_runs")
 
 ts_pod_to_ec2_avg=$(echo "$ts_pod_to_ec2_summary" | jq '.bandwidth_mbps_avg')
 ts_ec2_to_pod_avg=$(echo "$ts_ec2_to_pod_summary" | jq '.bandwidth_mbps_avg')
