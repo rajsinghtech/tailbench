@@ -1,6 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 cd "$(dirname "${BASH_SOURCE[0]}")/.."
+[[ -f .env ]] && source .env
 
 families=(c4 c3d n4 c3 n2 c2)
 
