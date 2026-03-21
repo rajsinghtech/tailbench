@@ -56,16 +56,25 @@ eks_ensure_node_group() {
     return 0
   fi
 
-  if [[ -n "$current_type" && "$current_type" != "None" ]]; then
-    log_info "EKS node group uses $current_type, need $target_type — recreating"
-    eksctl delete nodegroup \
-      --cluster "$EKS_CLUSTER_NAME" \
+  # Delete existing node group via AWS API (no drain, no PDB issues)
+  local existing_ng
+  existing_ng=$(aws eks list-nodegroups \
+    --region "$AWS_REGION" \
+    --cluster-name "$EKS_CLUSTER_NAME" \
+    --query 'nodegroups[0]' --output text 2>/dev/null) || true
+
+  if [[ -n "$existing_ng" && "$existing_ng" != "None" ]]; then
+    log_info "deleting node group $existing_ng ($current_type) to replace with $target_type"
+    aws eks delete-nodegroup \
       --region "$AWS_REGION" \
-      --name tailbench-nodes \
-      --disable-eviction \
-      --wait 2>&1 | while IFS= read -r line; do log_info "eksctl: $line"; done
-  else
-    log_info "no existing node group — creating with $target_type"
+      --cluster-name "$EKS_CLUSTER_NAME" \
+      --nodegroup-name "$existing_ng" >/dev/null
+    log_info "waiting for node group deletion..."
+    aws eks wait nodegroup-deleted \
+      --region "$AWS_REGION" \
+      --cluster-name "$EKS_CLUSTER_NAME" \
+      --nodegroup-name "$existing_ng" 2>/dev/null || true
+    log_info "node group deleted"
   fi
 
   # Find the EKS subnet in the benchmark AZ
