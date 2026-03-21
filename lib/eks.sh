@@ -113,7 +113,9 @@ eks_ensure_node_group() {
     --query 'Subnets[0].SubnetId' --output text)
 
   local ng_config
-  ng_config=$(mktemp /tmp/tailbench-ng-XXXXXX.yaml)
+  ng_config=$(mktemp /tmp/tailbench-ng-XXXXXX)
+  mv "$ng_config" "${ng_config}.yaml"
+  ng_config="${ng_config}.yaml"
   cat > "$ng_config" <<EOF
 apiVersion: eksctl.io/v1alpha5
 kind: ClusterConfig
