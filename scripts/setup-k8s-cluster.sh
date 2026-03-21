@@ -76,11 +76,21 @@ else
     log_info "found existing AZ2 subnet: $EKS_SUBNET_ID_AZ2"
   fi
 
-  # Associate subnets with VPC route table
+  # Find the route table with an IGW route (used by the benchmark subnet)
+  # The main route table only has local — nodes need internet to reach EKS API
+  IGW_ID=$(aws ec2 describe-internet-gateways \
+    --region "$AWS_REGION" \
+    --filters "Name=attachment.vpc-id,Values=$AWS_VPC_ID" \
+    --query 'InternetGateways[0].InternetGatewayId' --output text)
   RTB_ID=$(aws ec2 describe-route-tables \
     --region "$AWS_REGION" \
-    --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=association.main,Values=true" \
+    --filters "Name=vpc-id,Values=$AWS_VPC_ID" "Name=route.gateway-id,Values=$IGW_ID" \
     --query 'RouteTables[0].RouteTableId' --output text)
+  if [[ -z "$RTB_ID" || "$RTB_ID" == "None" ]]; then
+    log_error "no route table with IGW found in VPC — nodes won't be able to reach EKS API"
+    exit 1
+  fi
+  log_info "associating EKS subnets with route table $RTB_ID (has IGW $IGW_ID)"
   aws ec2 associate-route-table --region "$AWS_REGION" \
     --route-table-id "$RTB_ID" --subnet-id "$EKS_SUBNET_ID" >/dev/null 2>&1 || true
   aws ec2 associate-route-table --region "$AWS_REGION" \
