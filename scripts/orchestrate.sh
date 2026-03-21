@@ -114,7 +114,10 @@ _run_provider() {
   cloud_setup_networking
 
   if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
-    eks_discover_cluster
+    if ! eks_discover_cluster 2>/dev/null; then
+      log_info "EKS cluster not found — provisioning via setup-k8s-cluster.sh"
+      "$TAILBENCH_ROOT/scripts/setup-k8s-cluster.sh"
+    fi
     eks_get_kubeconfig
     eks_get_cluster_info
     k8s_check_prereqs
