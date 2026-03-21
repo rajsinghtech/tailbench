@@ -144,6 +144,13 @@ EOF
 
   # Wait for node to be ready
   kubectl wait node --all --for=condition=Ready --timeout=300s >/dev/null
+
+  # Wait for DaemonSets to finish pulling images before benchmarking
+  # (aws-node, kube-proxy pulling images competes with benchmark instance apt-get)
+  log_info "waiting for DaemonSets to become ready..."
+  kubectl rollout status daemonset/aws-node -n kube-system --timeout=120s >/dev/null 2>&1 || true
+  kubectl rollout status daemonset/kube-proxy -n kube-system --timeout=120s >/dev/null 2>&1 || true
+
   log_info "node group ready with $target_type"
   EKS_NODE_INSTANCE_TYPE="$target_type"
 }
