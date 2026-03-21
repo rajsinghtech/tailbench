@@ -6299,6 +6299,69 @@ const TAILBENCH_DATA = [
         }
       ]
     },
+    "k8s_config": {
+      "cluster_name": "tailbench-eks",
+      "k8s_version": "unknown",
+      "cni": "aws-vpc-cni",
+      "node_instance_type": "m5.xlarge",
+      "pod_ip": "10.0.2.171"
+    },
+    "k8s_pod_to_ec2_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9950.540274825933,
+          "retransmits": 19328,
+          "duration_sec": 30.00008,
+          "bytes_transferred": 37314625536
+        },
+        {
+          "bandwidth_mbps": 9950.821552812784,
+          "retransmits": 22406,
+          "duration_sec": 30.000075,
+          "bytes_transferred": 37315674112
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9950.680913819358,
+        "bandwidth_mbps_min": 9950.540274825933,
+        "bandwidth_mbps_max": 9950.821552812784,
+        "bandwidth_mbps_stddev": 0.14063899342545483,
+        "retransmits_avg": 20867
+      }
+    },
+    "k8s_ec2_to_pod_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9944.36304765985,
+          "retransmits": 86,
+          "duration_sec": 30.000579,
+          "bytes_transferred": 37292081152
+        },
+        {
+          "bandwidth_mbps": 9922.6743732591,
+          "retransmits": 72,
+          "duration_sec": 30.000635,
+          "bytes_transferred": 37210816512
+        },
+        {
+          "bandwidth_mbps": 9950.87715435981,
+          "retransmits": 0,
+          "duration_sec": 30.001488,
+          "bytes_transferred": 37317640192
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9939.304858426252,
+        "bandwidth_mbps_min": 9922.6743732591,
+        "bandwidth_mbps_max": 9950.87715435981,
+        "bandwidth_mbps_stddev": 12.056483019404853,
+        "retransmits_avg": 53
+      }
+    },
+    "k8s_overhead": {
+      "pod_to_ec2_vs_baseline_pct": 66.4,
+      "ec2_to_pod_vs_baseline_pct": 66.4
+    },
     "source": "aws/c6in/results/c6in.xlarge.json"
   },
   {

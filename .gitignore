@@ -17,3 +17,6 @@ azure/*/results/*.json
 # Temp
 /tmp/
 *.log
+
+# Slop
+.superpowers/
