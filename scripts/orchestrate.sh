@@ -11,6 +11,7 @@ DRY_RUN=false
 FAMILY="all"
 CREATE_TAILNET=true
 CLEANUP_NETWORKING=false
+K8S="${K8S:-false}"
 TAILNET_PREFIX="${TAILNET_PREFIX:-tailbench}"
 PROVIDER_LIST=()
 
@@ -32,6 +33,7 @@ Options:
   --no-create-tailnet               Use existing tailnet credentials directly
   --cleanup-networking              Tear down provider networking after run
   --dry-run                         Preview what would run without executing
+  --k8s               Run K8s benchmark phase (requires pre-provisioned EKS cluster)
   -h, --help                        Show this help
 
 Provider families:
@@ -64,6 +66,7 @@ while [[ $# -gt 0 ]]; do
     --no-create-tailnet) CREATE_TAILNET=false; shift ;;
     --cleanup-networking) CLEANUP_NETWORKING=true; shift ;;
     --dry-run)    DRY_RUN=true; shift ;;
+    --k8s)        K8S=true; shift ;;
     -h|--help)    usage ;;
     *)            log_error "Unknown option: $1"; usage ;;
   esac
@@ -94,6 +97,11 @@ _run_provider() {
   export TAILBENCH_CLEANUP_FILE="/tmp/tailbench-cleanup-$$-$provider"
 
   source "$TAILBENCH_ROOT/lib/provider.sh"
+  if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
+    source "$TAILBENCH_ROOT/config/eks.sh"
+    source "$TAILBENCH_ROOT/lib/eks.sh"
+    source "$TAILBENCH_ROOT/lib/k8s.sh"
+  fi
   source "$TAILBENCH_ROOT/lib/cleanup.sh"
 
   setup_cleanup_trap
@@ -104,6 +112,14 @@ _run_provider() {
 
   # Setup provider networking (discovers existing or creates new)
   cloud_setup_networking
+
+  if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
+    eks_discover_cluster
+    eks_get_kubeconfig
+    eks_get_cluster_info
+    k8s_check_prereqs
+    k8s_ensure_namespace
+  fi
 
   # Build instance list
   mapfile -t instances < <(get_instance_list "$FAMILY" 2>/dev/null | grep .)
@@ -169,7 +185,13 @@ _run_provider() {
       local ena_result_check="$TAILBENCH_ROOT/$provider/$family/results/$inst-ena-express.json"
       [[ ! -f "$ena_result_check" ]] && ena_needs_run=true
     fi
-    if [[ -f "$existing_result" && "$ena_needs_run" == "false" ]]; then
+    local k8s_needs_run=false
+    if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
+      if ! jq -e '.k8s_pod_to_ec2_tcp' "$existing_result" &>/dev/null; then
+        k8s_needs_run=true
+      fi
+    fi
+    if [[ -f "$existing_result" && "$ena_needs_run" == "false" && "$k8s_needs_run" == "false" ]]; then
       log_info "[$provider][$n/$total] Skipping $inst (result already exists)"
       successes=$(( successes + 1 ))
       local baseline tailscale_bw overhead
@@ -252,6 +274,20 @@ _run_provider() {
           result_lines+=("$(printf '%-20s FAILED (%s)' "$inst (ENA)" "$ena_failed")")
           echo "$inst-ena-express|FAILED|$ena_failed" >> "$status_file"
         fi
+      fi
+    fi
+
+    # --- K8s benchmark phase ---
+    if [[ -z "$step_failed" && "$K8S" == "true" && "$provider" == "aws" ]]; then
+      local result_file="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
+      if [[ -f "$result_file" ]]; then
+        log_info "[$inst] running K8s benchmark"
+        "$TAILBENCH_ROOT/scripts/run-k8s-benchmark.sh" \
+          "$inst" "$SERVER_NAME" "$SERVER_LAN_IP" "$result_file" || {
+          log_warn "[$inst] K8s benchmark failed"
+        }
+      else
+        log_warn "[$inst] skipping K8s benchmark — no result file found"
       fi
     fi
 
@@ -414,6 +450,11 @@ if $DRY_RUN; then
           echo "  [ENA Express] enable SRD on both ENIs"
           echo "  run-benchmark.sh $inst <server> <client> <s_lan> <c_lan> (ENA Express)"
           echo "  -> $p/$family/results/$inst-ena-express.json"
+        fi
+        if [[ "$K8S" == "true" && "$p" == "aws" ]]; then
+          echo "  [K8s] deploy iperf3 pod on ${EKS_CLUSTER_NAME:-<eks-cluster>}"
+          echo "  run-k8s-benchmark.sh $inst <server> <s_lan> <result_file>"
+          echo "  -> pod↔ec2 results merged into $p/$family/results/$inst.json"
         fi
       done
       if $CLEANUP_NETWORKING; then
