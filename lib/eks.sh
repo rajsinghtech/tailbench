@@ -62,6 +62,7 @@ eks_ensure_node_group() {
       --cluster "$EKS_CLUSTER_NAME" \
       --region "$AWS_REGION" \
       --name tailbench-nodes \
+      --disable-eviction \
       --wait 2>&1 | while IFS= read -r line; do log_info "eksctl: $line"; done
   else
     log_info "no existing node group — creating with $target_type"
