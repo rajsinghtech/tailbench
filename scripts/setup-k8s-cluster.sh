@@ -104,12 +104,22 @@ else
   log_info "found existing AZ2 subnet: $EKS_SUBNET_ID_AZ2"
 fi
 
-# Associate subnets with IGW route table
+# Ensure subnets use the IGW route table (replace existing association if any)
 log_info "associating EKS subnets with IGW route table $RTB_ID"
-aws ec2 associate-route-table --region "$AWS_REGION" \
-  --route-table-id "$RTB_ID" --subnet-id "$EKS_SUBNET_ID" >/dev/null 2>&1 || true
-aws ec2 associate-route-table --region "$AWS_REGION" \
-  --route-table-id "$RTB_ID" --subnet-id "$EKS_SUBNET_ID_AZ2" >/dev/null 2>&1 || true
+for sid in "$EKS_SUBNET_ID" "$EKS_SUBNET_ID_AZ2"; do
+  existing_assoc=$(aws ec2 describe-route-tables \
+    --region "$AWS_REGION" \
+    --filters "Name=association.subnet-id,Values=$sid" \
+    --query 'RouteTables[0].Associations[?SubnetId==`'"$sid"'`].RouteTableAssociationId' \
+    --output text 2>/dev/null) || true
+  if [[ -n "$existing_assoc" && "$existing_assoc" != "None" ]]; then
+    aws ec2 replace-route-table-association --region "$AWS_REGION" \
+      --association-id "$existing_assoc" --route-table-id "$RTB_ID" >/dev/null 2>&1 || true
+  else
+    aws ec2 associate-route-table --region "$AWS_REGION" \
+      --route-table-id "$RTB_ID" --subnet-id "$sid" >/dev/null 2>&1 || true
+  fi
+done
 
 # Generate eksctl ClusterConfig YAML
 CLUSTER_CONFIG=$(mktemp /tmp/tailbench-eksctl-XXXXXX)
