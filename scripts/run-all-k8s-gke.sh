@@ -5,7 +5,7 @@ cd "$(dirname "${BASH_SOURCE[0]}")/.."
 
 families=(c4 c3d n4 c3 n2 c2)
 
-export READY_TIMEOUT=900
+export READY_TIMEOUT=1200
 
 for fam in "${families[@]}"; do
   echo "=== Running GKE K8s benchmark for ${fam}-standard-4 ==="

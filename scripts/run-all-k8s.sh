@@ -5,7 +5,7 @@ cd /Users/rajsingh/Documents/GitHub/tailbench
 
 families=(c6in c7i c6i c8g c7gn c8gn m6i c7g m7g)
 
-export READY_TIMEOUT=900
+export READY_TIMEOUT=1200
 
 # Export static AWS credentials from SSO session so they survive the long run
 # SSO tokens expire in ~1h but static creds last the session duration (~8h)
