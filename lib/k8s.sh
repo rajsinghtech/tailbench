@@ -90,16 +90,31 @@ k8s_deploy_ts_iperf_pod() {
 
 k8s_wait_for_ts_pod() {
   local max_wait="${1:-180}"
-  log_info "waiting for pod $K8S_TS_POD_NAME to be Running (timeout: ${max_wait}s)"
-  if ! kubectl wait pod/"$K8S_TS_POD_NAME" \
-    -n "$EKS_NAMESPACE" \
-    --for=condition=Ready \
-    --timeout="${max_wait}s" 2>/dev/null; then
-    log_error "pod $K8S_TS_POD_NAME not ready after ${max_wait}s"
-    kubectl describe pod "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" 2>/dev/null || true
-    return 1
-  fi
-  log_info "pod $K8S_TS_POD_NAME is Running"
+  local attempt=0 interval=3
+  local max_attempts=$(( max_wait / interval ))
+  log_info "waiting for pod $K8S_TS_POD_NAME containers to start (timeout: ${max_wait}s)"
+  # Can't use --for=condition=Ready because the sidecar won't be Ready
+  # until Tailscale connects. Instead wait for pod phase=Running and
+  # the iperf3 container to be started.
+  while (( attempt < max_attempts )); do
+    local phase
+    phase=$(kubectl get pod "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" \
+      -o jsonpath='{.status.phase}' 2>/dev/null) || true
+    if [[ "$phase" == "Running" ]]; then
+      local iperf_ready
+      iperf_ready=$(kubectl get pod "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" \
+        -o jsonpath='{.status.containerStatuses[?(@.name=="iperf3")].ready}' 2>/dev/null) || true
+      if [[ "$iperf_ready" == "true" ]]; then
+        log_info "pod $K8S_TS_POD_NAME is Running, iperf3 container ready"
+        return 0
+      fi
+    fi
+    attempt=$(( attempt + 1 ))
+    sleep "$interval"
+  done
+  log_error "pod $K8S_TS_POD_NAME not running after ${max_wait}s"
+  kubectl describe pod "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" 2>/dev/null || true
+  return 1
 }
 
 k8s_get_ts_ip() {
