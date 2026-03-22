@@ -22,6 +22,8 @@ k8s_ensure_namespace() {
 k8s_deploy_iperf_pod() {
   local az="${1:-$AWS_AZ}"
   log_info "deploying iperf3 pod in namespace $EKS_NAMESPACE"
+  # Delete first to allow node selector changes across runs
+  kubectl delete pod "$K8S_POD_NAME" -n "$EKS_NAMESPACE" --ignore-not-found --wait=false >/dev/null 2>&1 || true
   sed "s/REPLACE_AZ/$az/" "$K8S_MANIFEST_DIR/iperf3-pod.yaml" \
     | kubectl apply -n "$EKS_NAMESPACE" -f -
 }
