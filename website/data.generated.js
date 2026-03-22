@@ -560,7 +560,19 @@ const TAILBENCH_DATA = [
       "node_instance_type": "c2-standard-4",
       "pod_ip": "10.72.0.12"
     },
-    "k8s_pod_to_ec2_tcp": {
+    "k8s_overhead": {
+      "pod_to_vm_vs_baseline_pct": 0.7,
+      "vm_to_pod_vs_baseline_pct": -1.0
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.64.198.89",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_vm_vs_baseline_pct": 65.7,
+      "vm_to_pod_vs_baseline_pct": 88.4
+    },
+    "k8s_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 9565.36757307566,
@@ -577,7 +589,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 236721
       }
     },
-    "k8s_ec2_to_pod_tcp": {
+    "k8s_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 9726.46881990645,
@@ -606,11 +618,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 0
       }
     },
-    "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 0.7,
-      "ec2_to_pod_vs_baseline_pct": -1.0
-    },
-    "k8s_tailscale_pod_to_ec2_tcp": {
+    "k8s_tailscale_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 3312.303493107934,
@@ -633,7 +641,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 57390.5
       }
     },
-    "k8s_tailscale_ec2_to_pod_tcp": {
+    "k8s_tailscale_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 1131.1359202113886,
@@ -661,14 +669,6 @@ const TAILBENCH_DATA = [
         "bandwidth_mbps_stddev": 24.8868,
         "retransmits_avg": 90.33333333333333
       }
-    },
-    "k8s_tailscale_config": {
-      "sidecar_ts_ip": "100.64.198.89",
-      "mode": "kernel"
-    },
-    "k8s_tailscale_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 65.7,
-      "ec2_to_pod_vs_baseline_pct": 88.4
     },
     "source": "gcp/c2/results/c2-standard-4.json"
   },
@@ -1048,7 +1048,19 @@ const TAILBENCH_DATA = [
       "node_instance_type": "c3-standard-4",
       "pod_ip": "10.72.0.12"
     },
-    "k8s_pod_to_ec2_tcp": {
+    "k8s_overhead": {
+      "pod_to_vm_vs_baseline_pct": 0.3,
+      "vm_to_pod_vs_baseline_pct": 2.0
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.111.194.15",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_vm_vs_baseline_pct": 76.0,
+      "vm_to_pod_vs_baseline_pct": 92.6
+    },
+    "k8s_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 21083.640325318804,
@@ -1071,7 +1083,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 524250
       }
     },
-    "k8s_ec2_to_pod_tcp": {
+    "k8s_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 20526.73002721195,
@@ -1100,11 +1112,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 71
       }
     },
-    "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 0.3,
-      "ec2_to_pod_vs_baseline_pct": 2.0
-    },
-    "k8s_tailscale_pod_to_ec2_tcp": {
+    "k8s_tailscale_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 5070.4110174646885,
@@ -1127,7 +1135,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 3660.5
       }
     },
-    "k8s_tailscale_ec2_to_pod_tcp": {
+    "k8s_tailscale_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 1567.9329626777971,
@@ -1155,14 +1163,6 @@ const TAILBENCH_DATA = [
         "bandwidth_mbps_stddev": 7.5859,
         "retransmits_avg": 1094
       }
-    },
-    "k8s_tailscale_config": {
-      "sidecar_ts_ip": "100.111.194.15",
-      "mode": "kernel"
-    },
-    "k8s_tailscale_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 76.0,
-      "ec2_to_pod_vs_baseline_pct": 92.6
     },
     "source": "gcp/c3/results/c3-standard-4.json"
   },
@@ -3393,7 +3393,19 @@ const TAILBENCH_DATA = [
       "node_instance_type": "n2-standard-4",
       "pod_ip": "10.72.0.12"
     },
-    "k8s_pod_to_ec2_tcp": {
+    "k8s_overhead": {
+      "pod_to_vm_vs_baseline_pct": -0.0,
+      "vm_to_pod_vs_baseline_pct": -0.5
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.106.211.15",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_vm_vs_baseline_pct": 69.1,
+      "vm_to_pod_vs_baseline_pct": 90.3
+    },
+    "k8s_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 9645.85535285323,
@@ -3416,7 +3428,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 155415
       }
     },
-    "k8s_ec2_to_pod_tcp": {
+    "k8s_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 9780.766899176393,
@@ -3445,11 +3457,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 0
       }
     },
-    "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": -0.0,
-      "ec2_to_pod_vs_baseline_pct": -0.5
-    },
-    "k8s_tailscale_pod_to_ec2_tcp": {
+    "k8s_tailscale_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 2971.5503145940247,
@@ -3478,7 +3486,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 10079.333333333334
       }
     },
-    "k8s_tailscale_ec2_to_pod_tcp": {
+    "k8s_tailscale_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 896.2521115575563,
@@ -3506,14 +3514,6 @@ const TAILBENCH_DATA = [
         "bandwidth_mbps_stddev": 54.7825,
         "retransmits_avg": 207.33333333333334
       }
-    },
-    "k8s_tailscale_config": {
-      "sidecar_ts_ip": "100.106.211.15",
-      "mode": "kernel"
-    },
-    "k8s_tailscale_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 69.1,
-      "ec2_to_pod_vs_baseline_pct": 90.3
     },
     "source": "gcp/n2/results/n2-standard-4.json"
   },
@@ -4393,7 +4393,19 @@ const TAILBENCH_DATA = [
       "node_instance_type": "c6i.xlarge",
       "pod_ip": "10.0.2.224"
     },
-    "k8s_pod_to_ec2_tcp": {
+    "k8s_overhead": {
+      "pod_to_vm_vs_baseline_pct": -0.0,
+      "vm_to_pod_vs_baseline_pct": 0.2
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.114.60.81",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_vm_vs_baseline_pct": 68.8,
+      "vm_to_pod_vs_baseline_pct": 88.6
+    },
+    "k8s_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 12412.555204919452,
@@ -4422,7 +4434,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 22113.333333333332
       }
     },
-    "k8s_ec2_to_pod_tcp": {
+    "k8s_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 12378.430923793061,
@@ -4451,11 +4463,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 0
       }
     },
-    "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": -0.0,
-      "ec2_to_pod_vs_baseline_pct": 0.2
-    },
-    "k8s_tailscale_pod_to_ec2_tcp": {
+    "k8s_tailscale_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 3903.4527802353637,
@@ -4484,7 +4492,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 2978.6666666666665
       }
     },
-    "k8s_tailscale_ec2_to_pod_tcp": {
+    "k8s_tailscale_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 1385.8431862684054,
@@ -4512,14 +4520,6 @@ const TAILBENCH_DATA = [
         "bandwidth_mbps_stddev": 31.3093,
         "retransmits_avg": 218.66666666666666
       }
-    },
-    "k8s_tailscale_config": {
-      "sidecar_ts_ip": "100.114.60.81",
-      "mode": "kernel"
-    },
-    "k8s_tailscale_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 68.8,
-      "ec2_to_pod_vs_baseline_pct": 88.6
     },
     "source": "aws/c6i/results/c6i.xlarge.json"
   },
@@ -10658,7 +10658,19 @@ const TAILBENCH_DATA = [
       "node_instance_type": "c7i.xlarge",
       "pod_ip": "10.0.2.151"
     },
-    "k8s_pod_to_ec2_tcp": {
+    "k8s_overhead": {
+      "pod_to_vm_vs_baseline_pct": -0.0,
+      "vm_to_pod_vs_baseline_pct": 0.5
+    },
+    "k8s_tailscale_config": {
+      "sidecar_ts_ip": "100.93.154.82",
+      "mode": "kernel"
+    },
+    "k8s_tailscale_overhead": {
+      "pod_to_vm_vs_baseline_pct": 66.3,
+      "vm_to_pod_vs_baseline_pct": 85.2
+    },
+    "k8s_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 12411.925160848776,
@@ -10681,7 +10693,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 20780.5
       }
     },
-    "k8s_ec2_to_pod_tcp": {
+    "k8s_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 12331.74657270308,
@@ -10710,11 +10722,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 0
       }
     },
-    "k8s_overhead": {
-      "pod_to_ec2_vs_baseline_pct": -0.0,
-      "ec2_to_pod_vs_baseline_pct": 0.5
-    },
-    "k8s_tailscale_pod_to_ec2_tcp": {
+    "k8s_tailscale_pod_to_vm_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 4220.262337558355,
@@ -10743,7 +10751,7 @@ const TAILBENCH_DATA = [
         "retransmits_avg": 8003
       }
     },
-    "k8s_tailscale_ec2_to_pod_tcp": {
+    "k8s_tailscale_vm_to_pod_tcp": {
       "runs": [
         {
           "bandwidth_mbps": 1835.5906590944248,
@@ -10771,14 +10779,6 @@ const TAILBENCH_DATA = [
         "bandwidth_mbps_stddev": 38.0228,
         "retransmits_avg": 622
       }
-    },
-    "k8s_tailscale_config": {
-      "sidecar_ts_ip": "100.93.154.82",
-      "mode": "kernel"
-    },
-    "k8s_tailscale_overhead": {
-      "pod_to_ec2_vs_baseline_pct": 66.3,
-      "ec2_to_pod_vs_baseline_pct": 85.2
     },
     "source": "aws/c7i/results/c7i.xlarge.json"
   },
