@@ -85,9 +85,17 @@ func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 	case "eks":
 		return nil, fmt.Errorf("eks provider not yet implemented")
 	case "gke":
-		return nil, fmt.Errorf("gke provider not yet implemented")
+		return &provider.GKEProvider{
+			Project:  cfg.GCPProject,
+			Zone:     cfg.GCPZone,
+			StateDir: cfg.StateDir,
+		}, nil
 	case "aks":
-		return nil, fmt.Errorf("aks provider not yet implemented")
+		return &provider.AKSProvider{
+			Location:      cfg.AzureLocation,
+			ResourceGroup: cfg.AzureResourceGroup,
+			StateDir:      cfg.StateDir,
+		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
