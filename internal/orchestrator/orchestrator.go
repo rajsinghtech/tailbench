@@ -301,6 +301,8 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			SSHKeyPath:   o.cfg.SSHKeyPath,
 			SSHPubKey:    sshPubKeyForProvider(p.Name(), o.cfg),
 			SSHUser:      sshUserForProvider(p.Name(), o.cfg),
+			BenchImage:   o.cfg.BenchImage,
+			TSImage:      o.cfg.TSImage,
 		})
 		if err != nil {
 			if p.IsQuotaError(err) {

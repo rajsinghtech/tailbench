@@ -371,5 +371,18 @@ func collectSystemConfig(ctx context.Context, server Executor) (*result.SystemCo
 		cfg.TCPWmem = strings.TrimSpace(stdout)
 	}
 
+	// Container runtime detection
+	if stdout, _, err := server.Run(ctx, "cat /proc/1/cgroup 2>/dev/null | head -5"); err == nil {
+		cgroup := strings.TrimSpace(stdout)
+		switch {
+		case strings.Contains(cgroup, "containerd"):
+			cfg.ContainerRuntime = "containerd"
+		case strings.Contains(cgroup, "cri-o"):
+			cfg.ContainerRuntime = "cri-o"
+		case strings.Contains(cgroup, "docker"):
+			cfg.ContainerRuntime = "docker"
+		}
+	}
+
 	return cfg, nil
 }
