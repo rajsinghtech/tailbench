@@ -19,12 +19,14 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/result"
 	"github.com/rajsinghtech/tailbench/internal/sshclient"
 	"github.com/rajsinghtech/tailbench/internal/tailnet"
+	"tailscale.com/tsnet"
 )
 
 type Orchestrator struct {
 	cfg       *config.Config
 	providers []provider.Provider
 	tailnet   *tailnet.Manager
+	tsnetSrv  *tsnet.Server
 }
 
 func New(cfg *config.Config) (*Orchestrator, error) {
@@ -43,43 +45,29 @@ func New(cfg *config.Config) (*Orchestrator, error) {
 func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 	switch name {
 	case "gcp":
-		pubKey, err := os.ReadFile(cfg.SSHPubKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("read SSH pub key %s: %w", cfg.SSHPubKeyPath, err)
-		}
-		// Derive region from zone (e.g. us-central1-a -> us-central1)
 		region := cfg.GCPZone
 		if idx := strings.LastIndex(cfg.GCPZone, "-"); idx > 0 {
 			region = cfg.GCPZone[:idx]
 		}
 		return &provider.GCPProvider{
-			Project:   cfg.GCPProject,
-			Zone:      cfg.GCPZone,
-			Region:    region,
-			Network:   "default",
-			Subnet:    "default",
-			SSHPubKey: strings.TrimSpace(string(pubKey)),
-			SSHUser:   "ubuntu",
-			StateDir:  cfg.StateDir,
+			Project:  cfg.GCPProject,
+			Zone:     cfg.GCPZone,
+			Region:   region,
+			Network:  "default",
+			Subnet:   "default",
+			StateDir: cfg.StateDir,
 		}, nil
 	case "aws":
 		return &provider.AWSProvider{
 			Region:   cfg.AWSRegion,
 			AZ:       cfg.AWSAZ,
 			KeyName:  cfg.AWSKeyName,
-			SSHUser:  cfg.SSHUser,
 			StateDir: cfg.StateDir,
 		}, nil
 	case "azure":
-		pubKey, err := os.ReadFile(cfg.SSHPubKeyPath)
-		if err != nil {
-			return nil, fmt.Errorf("read SSH pub key %s: %w", cfg.SSHPubKeyPath, err)
-		}
 		return &provider.AzureProvider{
 			Location:      cfg.AzureLocation,
 			ResourceGroup: cfg.AzureResourceGroup,
-			SSHUser:       "azureuser",
-			SSHPubKey:     strings.TrimSpace(string(pubKey)),
 			StateDir:      cfg.StateDir,
 		}, nil
 	case "eks":
@@ -135,7 +123,6 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 		defer func() {
 			log.Printf("deleting tailnet %s", info.DNSName)
-			// Use background context so deletion proceeds even if ctx is cancelled.
 			delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 			defer cancel()
 			if err := o.tailnet.DeleteTailnet(delCtx, info.DNSName); err != nil {
@@ -144,7 +131,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}()
 
 		log.Println("setting up ACL")
-		if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+		if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true); err != nil {
 			return fmt.Errorf("setup ACL: %w", err)
 		}
 
@@ -155,9 +142,23 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 		authKeyCreated = time.Now()
 
-		// Store credentials for auth key refresh in runProvider
 		o.cfg.OAuthClientID = info.OAuthClientID
 		o.cfg.OAuthClientSecret = info.OAuthClientSecret
+
+		// Join the tailnet as the orchestrator node
+		o.tsnetSrv = &tsnet.Server{
+			Dir:           filepath.Join(".tailbench", "tsnet"),
+			Hostname:      "tailbench-orchestrator",
+			AuthKey:       authKey,
+			Ephemeral:     true,
+			AdvertiseTags: []string{o.cfg.Tag},
+		}
+		log.Println("starting tsnet server")
+		if _, err := o.tsnetSrv.Up(ctx); err != nil {
+			return fmt.Errorf("tsnet up: %w", err)
+		}
+		defer o.tsnetSrv.Close()
+		log.Println("tsnet server joined tailnet")
 	}
 
 	if len(o.providers) == 1 {
@@ -215,7 +216,6 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		return fmt.Errorf("setup networking: %w", err)
 	}
 
-	// Build instance list
 	var families []string
 	if o.cfg.Family == "all" {
 		families = p.ListFamilies()
@@ -233,7 +233,6 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		instances = append(instances, list...)
 	}
 
-	// Apply regex filter
 	if o.cfg.Filter != "" {
 		re, err := regexp.Compile(o.cfg.Filter)
 		if err != nil {
@@ -263,46 +262,42 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			continue
 		}
 
-		// Resume support: skip if result file already exists
 		resultPath := filepath.Join(o.cfg.RootDir, p.Name(), family, "results", inst.Type+".json")
 		if _, err := os.Stat(resultPath); err == nil {
 			log.Printf("%s skipping %s (result exists)", prefix, inst.Type)
 			continue
 		}
 
-		// Render cloud-init
 		safeType := safeHostname(inst.Type)
 		serverHostname := fmt.Sprintf("tb-%s-server-%s", p.Name(), safeType)
 		clientHostname := fmt.Sprintf("tb-%s-client-%s", p.Name(), safeType)
 
-		var userData string
+		var userData, clientUserData string
 		if isK8sProvider(p.Name()) {
 			userData = *authKey
 		} else {
-			serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname})
+			serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname, EnableSSH: true})
 			if err != nil {
 				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
 				continue
 			}
 			userData = serverUD
-			clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname})
+			clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname, EnableSSH: true})
 			if err != nil {
 				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
 				continue
 			}
-			_ = clientUD // Both VMs get the same user-data; CreatePair handles distribution
+			clientUserData = clientUD
 		}
 
 		log.Printf("%s creating pair for %s", prefix, inst.Type)
 		pair, err := p.CreatePair(ctx, provider.PairOptions{
-			InstanceType: inst.Type,
-			UserData:     userData,
-			Networking:   net,
-			SSHKeyPath:   o.cfg.SSHKeyPath,
-			SSHPubKey:    sshPubKeyForProvider(p.Name(), o.cfg),
-			SSHUser:      sshUserForProvider(p.Name(), o.cfg),
-			BenchImage:   o.cfg.BenchImage,
-			TSImage:      o.cfg.TSImage,
+			InstanceType:   inst.Type,
+			UserData:       userData,
+			ClientUserData: clientUserData,
+			Networking:     net,
+			BenchImage:     o.cfg.BenchImage,
+			TSImage:        o.cfg.TSImage,
 		})
 		if err != nil {
 			if p.IsQuotaError(err) {
@@ -314,7 +309,6 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			continue
 		}
 
-		// Run benchmark and always destroy pair afterwards
 		benchErr := o.runBenchmark(ctx, p, pair, inst, family, prefix, serverHostname, clientHostname, *authKey)
 		log.Printf("%s destroying pair for %s", prefix, inst.Type)
 		if err := p.DestroyPair(ctx, inst.Type); err != nil {
@@ -325,16 +319,6 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			log.Printf("%s benchmark error for %s: %v", prefix, inst.Type, benchErr)
 		}
 
-		// ENA Express check for AWS
-		if p.Name() == "aws" {
-			vcpus, _ := p.GetVCPUs(ctx, inst.Type)
-			if provider.SupportsENAExpress(inst.Type, vcpus) {
-				log.Printf("%s %s supports ENA Express (vcpus=%d)", prefix, inst.Type, vcpus)
-				// TODO: enable ENA Express via AWS SDK and re-run benchmark
-			}
-		}
-
-		// Auth key refresh
 		if o.cfg.CreateTailnet && time.Since(*authKeyCreated) > time.Duration(o.cfg.AuthKeyRefreshSec)*time.Second {
 			log.Printf("%s refreshing auth key", prefix)
 			newKey, err := o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
@@ -347,7 +331,6 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		}
 	}
 
-	// Aggregate results
 	if err := result.Aggregate(o.cfg.RootDir); err != nil {
 		log.Printf("%s warning: aggregation failed: %v", prefix, err)
 	}
@@ -366,39 +349,19 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		return o.runK8sBenchmark(ctx, p, pair, inst, family, prefix, serverHostname, clientHostname, authKey)
 	}
 
-	sshUser := sshUserForProvider(p.Name(), o.cfg)
-
-	// Connect SSH to both VMs
-	var serverSSH, clientSSH *sshclient.Client
-	var err error
-
-	if p.Name() == "gcp" {
-		// GCP injects the SSH key via instance metadata; use the private key directly
-		keyData, err := os.ReadFile(strings.TrimSuffix(o.cfg.SSHPubKeyPath, ".pub"))
-		if err != nil {
-			return fmt.Errorf("read SSH private key: %w", err)
-		}
-		serverSSH, err = sshclient.Dial(pair.ServerIP, sshUser, keyData, o.cfg.SSHTimeout)
-		if err != nil {
-			return fmt.Errorf("ssh dial server: %w", err)
-		}
-		clientSSH, err = sshclient.Dial(pair.ClientIP, sshUser, keyData, o.cfg.SSHTimeout)
-		if err != nil {
-			serverSSH.Close()
-			return fmt.Errorf("ssh dial client: %w", err)
-		}
-	} else {
-		serverSSH, err = sshclient.DialWithKeyFile(pair.ServerIP, sshUser, o.cfg.SSHKeyPath, o.cfg.SSHTimeout)
-		if err != nil {
-			return fmt.Errorf("ssh dial server: %w", err)
-		}
-		clientSSH, err = sshclient.DialWithKeyFile(pair.ClientIP, sshUser, o.cfg.SSHKeyPath, o.cfg.SSHTimeout)
-		if err != nil {
-			serverSSH.Close()
-			return fmt.Errorf("ssh dial client: %w", err)
-		}
+	// SSH into VMs over the Tailscale network via tsnet
+	log.Printf("%s dialing server via tsnet (%s)", prefix, serverHostname)
+	serverSSH, err := sshclient.Dial(o.tsnetSrv, serverHostname, "root", o.cfg.SSHTimeout)
+	if err != nil {
+		return fmt.Errorf("ssh dial server: %w", err)
 	}
 	defer serverSSH.Close()
+
+	log.Printf("%s dialing client via tsnet (%s)", prefix, clientHostname)
+	clientSSH, err := sshclient.Dial(o.tsnetSrv, clientHostname, "root", o.cfg.SSHTimeout)
+	if err != nil {
+		return fmt.Errorf("ssh dial client: %w", err)
+	}
 	defer clientSSH.Close()
 
 	log.Printf("%s waiting for server ready", prefix)
@@ -416,15 +379,16 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		ServerTailscale: serverSSH,
 		ClientTailscale: clientSSH,
 		Config: benchmark.RunConfig{
-			IPerfDuration:   o.cfg.IPerfDuration,
-			IPerfParallel:   o.cfg.IPerfParallel,
-			IPerfIterations: o.cfg.IPerfIterations,
-			MTRCycles:       o.cfg.MTRCycles,
-			CooldownSec:     o.cfg.CooldownSec,
-			CreditRetrySec:  o.cfg.CreditRetrySec,
-			AuthKey:         authKey,
-			ServerHostname:  serverHostname,
-			ClientHostname:  clientHostname,
+			IPerfDuration:      o.cfg.IPerfDuration,
+			IPerfParallel:      o.cfg.IPerfParallel,
+			IPerfIterations:    o.cfg.IPerfIterations,
+			MTRCycles:          o.cfg.MTRCycles,
+			CooldownSec:        o.cfg.CooldownSec,
+			CreditRetrySec:     o.cfg.CreditRetrySec,
+			AuthKey:            authKey,
+			ServerHostname:     serverHostname,
+			ClientHostname:     clientHostname,
+			SkipTailscaleSetup: true,
 		},
 	}
 
@@ -434,7 +398,6 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
 	}
 
-	// Fill in metadata fields
 	benchResult.CloudProvider = p.Name()
 	benchResult.InstanceFamily = family
 	benchResult.InstanceType = inst.Type
@@ -453,11 +416,7 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		benchResult.Zone = o.cfg.AzureLocation
 	}
 
-	if pair.Namespace != "" {
-		benchResult.Environment = "container"
-	} else {
-		benchResult.Environment = "vm"
-	}
+	benchResult.Environment = "vm"
 
 	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
 		return fmt.Errorf("write result: %w", err)
@@ -466,35 +425,10 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	return nil
 }
 
-// safeHostname converts an instance type string into a valid hostname component.
 func safeHostname(instanceType string) string {
 	s := strings.ToLower(instanceType)
 	s = strings.NewReplacer(".", "-", "_", "-").Replace(s)
 	return s
-}
-
-func sshUserForProvider(name string, cfg *config.Config) string {
-	switch name {
-	case "gcp":
-		return "ubuntu"
-	case "azure":
-		return "azureuser"
-	default:
-		return cfg.SSHUser
-	}
-}
-
-func sshPubKeyForProvider(name string, cfg *config.Config) string {
-	switch name {
-	case "gcp", "azure":
-		data, err := os.ReadFile(cfg.SSHPubKeyPath)
-		if err != nil {
-			return ""
-		}
-		return strings.TrimSpace(string(data))
-	default:
-		return ""
-	}
 }
 
 func isK8sProvider(name string) bool {

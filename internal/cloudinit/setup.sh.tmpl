@@ -32,6 +32,9 @@ ethtool -k "$NETDEV" | grep -E "rx-udp-gro-forwarding|rx-gro-list" || true
 
 {{- if .AuthKey }}
 tailscale up --authkey={{ .AuthKey }} --hostname={{ .Hostname }}
+{{- if .EnableSSH }}
+tailscale set --ssh
+{{- end }}
 {{- end }}
 
 touch /tmp/tailbench-ready

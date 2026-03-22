@@ -4,66 +4,62 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
+	"log"
 	"time"
 
 	"golang.org/x/crypto/ssh"
+	"tailscale.com/tsnet"
 )
 
 type Client struct {
 	conn *ssh.Client
 }
 
-// Dial connects to host:22 via SSH with exponential backoff retries.
-// Uses 1s initial backoff capped at 5s, defaulting to 60 retries if maxRetries <= 0.
-func Dial(host, user string, privateKey []byte, maxRetries int) (*Client, error) {
-	signer, err := ssh.ParsePrivateKey(privateKey)
-	if err != nil {
-		return nil, fmt.Errorf("parse private key: %w", err)
-	}
-
+// Dial connects to a host over the Tailscale network using tsnet.
+// Tailscale SSH handles auth via node identity — the dummy password
+// satisfies Go's SSH client handshake while Tailscale's PasswordCallback
+// authenticates based on the source node's identity.
+func Dial(srv *tsnet.Server, host, user string, maxRetries int) (*Client, error) {
 	if maxRetries <= 0 {
-		maxRetries = 60
+		maxRetries = 120
 	}
 
 	cfg := &ssh.ClientConfig{
 		User:            user,
-		Auth:            []ssh.AuthMethod{ssh.PublicKeys(signer)},
+		Auth:            []ssh.AuthMethod{ssh.Password("tailscale")},
 		HostKeyCallback: ssh.InsecureIgnoreHostKey(),
 		Timeout:         10 * time.Second,
 	}
 
 	addr := host + ":22"
-	var conn *ssh.Client
+	var lastErr error
 	for attempt := range maxRetries {
-		conn, err = ssh.Dial("tcp", addr, cfg)
-		if err == nil {
-			return &Client{conn: conn}, nil
+		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+		conn, err := srv.Dial(ctx, "tcp", addr)
+		cancel()
+		if err != nil {
+			lastErr = err
+			if attempt%10 == 0 {
+				log.Printf("tsnet dial %s attempt %d: %v", addr, attempt, err)
+			}
+		} else {
+			sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
+			if err != nil {
+				conn.Close()
+				lastErr = err
+				log.Printf("tsnet ssh handshake %s attempt %d: %v", addr, attempt, err)
+			} else {
+				log.Printf("tsnet ssh connected to %s after %d attempts", addr, attempt)
+				return &Client{conn: ssh.NewClient(sshConn, chans, reqs)}, nil
+			}
 		}
-		shift := uint(attempt)
-		if shift > 4 {
-			shift = 4
-		}
-		backoff := time.Second * time.Duration(1<<shift)
-		if backoff > 5*time.Second {
-			backoff = 5 * time.Second
-		}
+		backoff := min(time.Second*time.Duration(1<<min(uint(attempt), 4)), 5*time.Second)
 		time.Sleep(backoff)
 	}
-	return nil, fmt.Errorf("ssh dial %s after %d attempts: %w", addr, maxRetries, err)
-}
-
-// DialWithKeyFile reads a PEM private key from disk and calls Dial.
-func DialWithKeyFile(host, user, keyPath string, maxRetries int) (*Client, error) {
-	key, err := os.ReadFile(keyPath)
-	if err != nil {
-		return nil, fmt.Errorf("read key file %s: %w", keyPath, err)
-	}
-	return Dial(host, user, key, maxRetries)
+	return nil, fmt.Errorf("tsnet ssh dial %s after %d attempts: %w", addr, maxRetries, lastErr)
 }
 
 // Run executes cmd on the remote host, returning stdout and stderr.
-// Respects context cancellation.
 func (c *Client) Run(ctx context.Context, cmd string) (string, string, error) {
 	sess, err := c.conn.NewSession()
 	if err != nil {

@@ -72,6 +72,10 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 	program := func(pCtx *pulumi.Context) error {
 		for _, name := range []string{serverName, clientName} {
+			ud := opts.UserData
+			if name == clientName {
+				ud = opts.ClientUD()
+			}
 			inst, err := compute.NewInstance(pCtx, name, &compute.InstanceArgs{
 				MachineType: pulumi.String(opts.InstanceType),
 				Zone:        pulumi.String(p.Zone),
@@ -91,7 +95,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 						},
 					},
 				},
-				MetadataStartupScript: pulumi.StringPtr(opts.UserData),
+				MetadataStartupScript: pulumi.StringPtr(ud),
 				Metadata: pulumi.StringMap{
 					"ssh-keys": pulumi.Sprintf("%s:%s", p.SSHUser, p.SSHPubKey),
 				},

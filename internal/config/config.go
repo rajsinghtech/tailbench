@@ -26,9 +26,6 @@ type Config struct {
 	MTRCycles          int
 	CooldownSec        int
 	CreditRetrySec     int
-	SSHKeyPath         string
-	SSHPubKeyPath      string
-	SSHUser            string
 	SSHTimeout         int
 	ReadyTimeout       int
 	AWSRegion          string
@@ -69,11 +66,8 @@ type yamlConfig struct {
 	} `yaml:"benchmark"`
 
 	SSH struct {
-		KeyPath      string `yaml:"key_path"`
-		PubKeyPath   string `yaml:"pub_key_path"`
-		User         string `yaml:"user"`
-		Timeout      int    `yaml:"timeout"`
-		ReadyTimeout int    `yaml:"ready_timeout"`
+		Timeout      int `yaml:"timeout"`
+		ReadyTimeout int `yaml:"ready_timeout"`
 	} `yaml:"ssh"`
 
 	AWS struct {
@@ -130,14 +124,6 @@ func loadEnvFile(path string) error {
 		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
 	}
 	return scanner.Err()
-}
-
-func expandHome(path string) string {
-	if strings.HasPrefix(path, "~") {
-		home, _ := os.UserHomeDir()
-		return filepath.Join(home, path[1:])
-	}
-	return path
 }
 
 func or(vals ...string) string {
@@ -199,19 +185,16 @@ func Parse() (*Config, error) {
 		OAuthClientSecret: expandEnvVars(yc.Tailscale.OAuthClientSecret),
 		Tag:               or(yc.Tailscale.Tag, "tag:bench"),
 
-		IPerfDuration:   orInt(yc.Benchmark.IPerfDuration, 30),
-		IPerfParallel:   orInt(yc.Benchmark.IPerfParallel, 4),
-		IPerfIterations: orInt(yc.Benchmark.IPerfIterations, 3),
-		MTRCycles:       orInt(yc.Benchmark.MTRCycles, 100),
-		CooldownSec:     orInt(yc.Benchmark.CooldownSec, 30),
-		CreditRetrySec:  60,
+		IPerfDuration:     orInt(yc.Benchmark.IPerfDuration, 30),
+		IPerfParallel:     orInt(yc.Benchmark.IPerfParallel, 4),
+		IPerfIterations:   orInt(yc.Benchmark.IPerfIterations, 3),
+		MTRCycles:         orInt(yc.Benchmark.MTRCycles, 100),
+		CooldownSec:       orInt(yc.Benchmark.CooldownSec, 30),
+		CreditRetrySec:    60,
 		AuthKeyRefreshSec: 1800,
 
-		SSHKeyPath:    expandHome(yc.SSH.KeyPath),
-		SSHPubKeyPath: expandHome(yc.SSH.PubKeyPath),
-		SSHUser:       or(yc.SSH.User, "ubuntu"),
-		SSHTimeout:    orInt(yc.SSH.Timeout, 60),
-		ReadyTimeout:  orInt(yc.SSH.ReadyTimeout, 300),
+		SSHTimeout:   orInt(yc.SSH.Timeout, 120),
+		ReadyTimeout: orInt(yc.SSH.ReadyTimeout, 300),
 
 		AWSRegion:          or(yc.AWS.Region, "us-west-2"),
 		AWSAZ:              or(yc.AWS.AZ, "us-west-2a"),

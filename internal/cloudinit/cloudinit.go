@@ -10,8 +10,9 @@ import (
 var tmplFS embed.FS
 
 type Config struct {
-	AuthKey  string
-	Hostname string
+	AuthKey   string
+	Hostname  string
+	EnableSSH bool
 }
 
 func Render(cfg Config) (string, error) {

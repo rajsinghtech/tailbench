@@ -17,14 +17,20 @@ type Provider interface {
 
 // PairOptions configures a server/client VM pair.
 type PairOptions struct {
-	InstanceType string
-	UserData     string
-	Networking   *NetworkingOutput
-	SSHKeyPath   string
-	SSHPubKey    string
-	SSHUser      string
-	BenchImage   string // K8s benchmark container image (empty = provider default)
-	TSImage      string // K8s tailscale sidecar image (empty = provider default)
+	InstanceType   string
+	UserData       string // server user-data (also used for client if ClientUserData is empty)
+	ClientUserData string // client-specific user-data; if empty, UserData is used for both
+	Networking     *NetworkingOutput
+	BenchImage     string // K8s benchmark container image (empty = provider default)
+	TSImage        string // K8s tailscale sidecar image (empty = provider default)
+}
+
+// ClientUD returns the user-data to use for the client VM.
+func (o PairOptions) ClientUD() string {
+	if o.ClientUserData != "" {
+		return o.ClientUserData
+	}
+	return o.UserData
 }
 
 // PairOutput holds provisioned pair metadata.
