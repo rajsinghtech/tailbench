@@ -5,6 +5,7 @@ go 1.26.1
 require (
 	github.com/pulumi/pulumi-aws/sdk/v7 v7.23.0
 	github.com/pulumi/pulumi-azure-native-sdk/compute/v3 v3.16.0
+	github.com/pulumi/pulumi-azure-native-sdk/containerservice/v3 v3.16.0
 	github.com/pulumi/pulumi-azure-native-sdk/network/v3 v3.16.0
 	github.com/pulumi/pulumi-gcp/sdk/v9 v9.16.0
 	github.com/pulumi/pulumi/sdk/v3 v3.227.0
@@ -100,7 +101,6 @@ require (
 	github.com/pmezard/go-difflib v1.0.0 // indirect
 	github.com/pulumi/appdash v0.0.0-20231130102222-75f619a67231 // indirect
 	github.com/pulumi/esc v0.17.0 // indirect
-	github.com/pulumi/pulumi-azure-native-sdk/containerservice/v3 v3.16.0 // indirect
 	github.com/pulumi/pulumi-azure-native-sdk/v3 v3.16.0 // indirect
 	github.com/rivo/uniseg v0.4.7 // indirect
 	github.com/rogpeppe/go-internal v1.14.1 // indirect

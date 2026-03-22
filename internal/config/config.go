@@ -1,10 +1,15 @@
 package config
 
 import (
+	"bufio"
 	"flag"
+	"fmt"
 	"os"
-	"strconv"
+	"path/filepath"
+	"regexp"
 	"strings"
+
+	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
@@ -42,88 +47,196 @@ type Config struct {
 	TSImage            string
 }
 
-func envOrDefault(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
+type yamlConfig struct {
+	EnvFile   string   `yaml:"env_file"`
+	Providers []string `yaml:"providers"`
+	Family    string   `yaml:"family"`
+	Filter    string   `yaml:"filter"`
+
+	Tailscale struct {
+		CreateTailnet     bool   `yaml:"create_tailnet"`
+		OAuthClientID     string `yaml:"oauth_client_id"`
+		OAuthClientSecret string `yaml:"oauth_client_secret"`
+		Tag               string `yaml:"tag"`
+	} `yaml:"tailscale"`
+
+	Benchmark struct {
+		IPerfDuration   int `yaml:"iperf_duration"`
+		IPerfParallel   int `yaml:"iperf_parallel"`
+		IPerfIterations int `yaml:"iperf_iterations"`
+		MTRCycles       int `yaml:"mtr_cycles"`
+		CooldownSec     int `yaml:"cooldown_sec"`
+	} `yaml:"benchmark"`
+
+	SSH struct {
+		KeyPath      string `yaml:"key_path"`
+		PubKeyPath   string `yaml:"pub_key_path"`
+		User         string `yaml:"user"`
+		Timeout      int    `yaml:"timeout"`
+		ReadyTimeout int    `yaml:"ready_timeout"`
+	} `yaml:"ssh"`
+
+	AWS struct {
+		Region  string `yaml:"region"`
+		AZ      string `yaml:"az"`
+		KeyName string `yaml:"key_name"`
+	} `yaml:"aws"`
+
+	GCP struct {
+		Project string `yaml:"project"`
+		Zone    string `yaml:"zone"`
+	} `yaml:"gcp"`
+
+	Azure struct {
+		Location      string `yaml:"location"`
+		ResourceGroup string `yaml:"resource_group"`
+	} `yaml:"azure"`
+
+	Images struct {
+		Bench     string `yaml:"bench"`
+		Tailscale string `yaml:"tailscale"`
+	} `yaml:"images"`
+
+	CleanupNetworking bool `yaml:"cleanup_networking"`
+	DryRun            bool `yaml:"dry_run"`
 }
 
-func envIntOrDefault(key string, fallback int) int {
-	if v := os.Getenv(key); v != "" {
-		if i, err := strconv.Atoi(v); err == nil {
-			return i
+var envVarRe = regexp.MustCompile(`\$\{(\w+)\}`)
+
+func expandEnvVars(s string) string {
+	return envVarRe.ReplaceAllStringFunc(s, func(match string) string {
+		key := envVarRe.FindStringSubmatch(match)[1]
+		return os.Getenv(key)
+	})
+}
+
+func loadEnvFile(path string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	scanner := bufio.NewScanner(f)
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if line == "" || strings.HasPrefix(line, "#") {
+			continue
+		}
+		k, v, ok := strings.Cut(line, "=")
+		if !ok {
+			continue
+		}
+		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
+	}
+	return scanner.Err()
+}
+
+func expandHome(path string) string {
+	if strings.HasPrefix(path, "~") {
+		home, _ := os.UserHomeDir()
+		return filepath.Join(home, path[1:])
+	}
+	return path
+}
+
+func or(vals ...string) string {
+	for _, v := range vals {
+		if v != "" {
+			return v
 		}
 	}
-	return fallback
+	return ""
+}
+
+func orInt(vals ...int) int {
+	for _, v := range vals {
+		if v != 0 {
+			return v
+		}
+	}
+	return 0
 }
 
 func Parse() (*Config, error) {
-	cfg := &Config{}
-
-	// Defaults from config/defaults.sh and provider configs
-	provider := flag.String("provider", envOrDefault("CLOUD_PROVIDER", "gcp"), "Cloud provider: aws, gcp, azure")
-	providers := flag.String("providers", "", "Comma-separated providers for parallel runs")
-	flag.StringVar(&cfg.Family, "family", envOrDefault("FAMILY", "all"), "Instance family or 'all'")
-	flag.StringVar(&cfg.Filter, "filter", "", "Regex filter for instance types")
-	createTailnet := flag.Bool("create-tailnet", true, "Create ephemeral tailnet")
-	noCreateTailnet := flag.Bool("no-create-tailnet", false, "Use existing tailnet credentials")
-	flag.BoolVar(&cfg.CleanupNetworking, "cleanup-networking", false, "Tear down networking after run")
-	flag.BoolVar(&cfg.DryRun, "dry-run", false, "Preview what would run")
-
+	configFile := flag.String("config", "config.yaml", "Path to config.yaml")
+	providerFlag := flag.String("provider", "", "Provider override (comma-separated)")
+	familyFlag := flag.String("family", "", "Instance family override")
+	filterFlag := flag.String("filter", "", "Regex filter for instance types")
+	dryRun := flag.Bool("dry-run", false, "Preview what would run")
+	cleanup := flag.Bool("cleanup-networking", false, "Tear down clusters after run")
 	flag.Parse()
 
-	// Provider list
-	if *providers != "" {
-		cfg.Providers = strings.Split(*providers, ",")
-	} else if strings.Contains(*provider, ",") {
-		cfg.Providers = strings.Split(*provider, ",")
-	} else {
-		cfg.Providers = []string{*provider}
+	data, err := os.ReadFile(*configFile)
+	if err != nil {
+		return nil, fmt.Errorf("read %s: %w", *configFile, err)
 	}
 
-	// Tailnet
-	cfg.CreateTailnet = *createTailnet && !*noCreateTailnet
-	cfg.OAuthClientID = envOrDefault("TS_OAUTH_CLIENT_ID", "")
-	cfg.OAuthClientSecret = envOrDefault("TS_OAUTH_CLIENT_SECRET", "")
-	cfg.Tag = envOrDefault("TS_TAG", "tag:bench")
+	var yc yamlConfig
+	if err := yaml.Unmarshal(data, &yc); err != nil {
+		return nil, fmt.Errorf("parse %s: %w", *configFile, err)
+	}
 
-	// Benchmark params (match config/defaults.sh)
-	cfg.IPerfDuration = envIntOrDefault("IPERF_DURATION", 30)
-	cfg.IPerfParallel = envIntOrDefault("IPERF_PARALLEL", 4)
-	cfg.IPerfIterations = envIntOrDefault("IPERF_ITERATIONS", 3)
-	cfg.MTRCycles = envIntOrDefault("MTR_CYCLES", 100)
-	cfg.CooldownSec = 30
-	cfg.CreditRetrySec = 60
+	// Load env file for ${VAR} expansion
+	if yc.EnvFile != "" {
+		envPath := yc.EnvFile
+		if !filepath.IsAbs(envPath) {
+			envPath = filepath.Join(filepath.Dir(*configFile), envPath)
+		}
+		if err := loadEnvFile(envPath); err != nil {
+			return nil, fmt.Errorf("load env file %s: %w", envPath, err)
+		}
+	}
 
-	// SSH
-	cfg.SSHTimeout = envIntOrDefault("SSH_TIMEOUT", 60)
-	cfg.ReadyTimeout = envIntOrDefault("READY_TIMEOUT", 300)
-	cfg.AuthKeyRefreshSec = envIntOrDefault("AUTHKEY_REFRESH_INTERVAL", 1800)
+	rootDir, _ := os.Getwd()
 
-	// AWS (match config/aws.sh)
-	cfg.AWSRegion = envOrDefault("AWS_REGION", "us-east-1")
-	cfg.AWSAZ = envOrDefault("AWS_AZ", "us-east-1a")
-	cfg.AWSKeyName = envOrDefault("AWS_KEY_NAME", "raj_macbook")
-	cfg.SSHKeyPath = envOrDefault("AWS_SSH_KEY_PATH", os.Getenv("HOME")+"/.ssh/raj_macbook.pem")
-	cfg.SSHUser = envOrDefault("AWS_SSH_USER", "ubuntu")
+	cfg := &Config{
+		Providers:         yc.Providers,
+		Family:            or(*familyFlag, yc.Family, "all"),
+		Filter:            or(*filterFlag, yc.Filter),
+		CreateTailnet:     yc.Tailscale.CreateTailnet,
+		OAuthClientID:     expandEnvVars(yc.Tailscale.OAuthClientID),
+		OAuthClientSecret: expandEnvVars(yc.Tailscale.OAuthClientSecret),
+		Tag:               or(yc.Tailscale.Tag, "tag:bench"),
 
-	// GCP (match config/gcp.sh)
-	cfg.GCPProject = envOrDefault("GCP_PROJECT", "tailscale-sandbox")
-	cfg.GCPZone = envOrDefault("GCP_ZONE", "us-central1-a")
-	cfg.SSHPubKeyPath = envOrDefault("SSH_PUB_KEY_PATH", os.Getenv("HOME")+"/.ssh/id_ed25519.pub")
+		IPerfDuration:   orInt(yc.Benchmark.IPerfDuration, 30),
+		IPerfParallel:   orInt(yc.Benchmark.IPerfParallel, 4),
+		IPerfIterations: orInt(yc.Benchmark.IPerfIterations, 3),
+		MTRCycles:       orInt(yc.Benchmark.MTRCycles, 100),
+		CooldownSec:     orInt(yc.Benchmark.CooldownSec, 30),
+		CreditRetrySec:  60,
+		AuthKeyRefreshSec: 1800,
 
-	// Azure (match config/azure.sh)
-	cfg.AzureLocation = envOrDefault("AZURE_LOCATION", "eastus")
-	cfg.AzureResourceGroup = envOrDefault("AZURE_RESOURCE_GROUP", "tailbench-rg")
+		SSHKeyPath:    expandHome(yc.SSH.KeyPath),
+		SSHPubKeyPath: expandHome(yc.SSH.PubKeyPath),
+		SSHUser:       or(yc.SSH.User, "ubuntu"),
+		SSHTimeout:    orInt(yc.SSH.Timeout, 60),
+		ReadyTimeout:  orInt(yc.SSH.ReadyTimeout, 300),
 
-	// Container images (for K8s providers)
-	cfg.BenchImage = envOrDefault("BENCH_IMAGE", "ghcr.io/rajsinghtech/tailbench-tools:latest")
-	cfg.TSImage = envOrDefault("TS_IMAGE", "ghcr.io/tailscale/tailscale:latest")
+		AWSRegion:          or(yc.AWS.Region, "us-west-2"),
+		AWSAZ:              or(yc.AWS.AZ, "us-west-2a"),
+		AWSKeyName:         yc.AWS.KeyName,
+		GCPProject:         or(yc.GCP.Project, "tailscale-sandbox"),
+		GCPZone:            or(yc.GCP.Zone, "us-central1-a"),
+		AzureLocation:      or(yc.Azure.Location, "eastus"),
+		AzureResourceGroup: or(yc.Azure.ResourceGroup, "tailbench-rg"),
 
-	// Paths
-	cfg.RootDir, _ = os.Getwd()
-	cfg.StateDir = "file://" + cfg.RootDir + "/state"
+		BenchImage: or(yc.Images.Bench, "ghcr.io/rajsinghtech/tailbench-tools:latest"),
+		TSImage:    or(yc.Images.Tailscale, "ghcr.io/tailscale/tailscale:latest"),
+
+		CleanupNetworking: yc.CleanupNetworking || *cleanup,
+		DryRun:            yc.DryRun || *dryRun,
+		RootDir:           rootDir,
+		StateDir:          "file://" + rootDir + "/state",
+	}
+
+	// CLI flag overrides
+	if *providerFlag != "" {
+		cfg.Providers = strings.Split(*providerFlag, ",")
+	}
+	if len(cfg.Providers) == 0 {
+		cfg.Providers = []string{"gcp"}
+	}
 
 	return cfg, nil
 }
