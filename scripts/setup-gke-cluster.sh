@@ -47,6 +47,19 @@ gcloud container clusters get-credentials "$GKE_CLUSTER_NAME" \
 kubectl create namespace "$GKE_NAMESPACE" 2>/dev/null || true
 kubectl wait node --all --for=condition=Ready --timeout=120s >/dev/null
 
+# Firewall rules for pod↔VM iperf3 traffic on port 15201
+# GKE pods use 10.72.0.0/14, GCP VMs use 10.128.0.0/9
+gcloud compute firewall-rules create tailbench-gke-to-vm \
+  --project "$GCP_PROJECT" --direction INGRESS --action ALLOW \
+  --rules tcp:15201 --source-ranges 10.72.0.0/14 \
+  --network "$GCP_NETWORK" \
+  --description "Allow GKE pods to reach tailbench VM iperf3 port" 2>/dev/null || true
+gcloud compute firewall-rules create tailbench-vm-to-gke \
+  --project "$GCP_PROJECT" --direction INGRESS --action ALLOW \
+  --rules tcp:15201 --source-ranges 10.128.0.0/9 \
+  --network "$GCP_NETWORK" \
+  --description "Allow tailbench VMs to reach GKE pod iperf3 port" 2>/dev/null || true
+
 log_info "=== GKE Setup Complete ==="
 log_info "cluster:   $GKE_CLUSTER_NAME"
 log_info "namespace: $GKE_NAMESPACE"
