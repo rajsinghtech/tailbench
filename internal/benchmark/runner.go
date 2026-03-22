@@ -225,7 +225,7 @@ func startIPerfServer(ctx context.Context, server Executor) error {
 	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
 	time.Sleep(1 * time.Second)
 
-	_, _, err := server.Run(ctx, fmt.Sprintf("setsid iperf3 -s -p %d &>/dev/null &", IPerfPort))
+	_, _, err := server.Run(ctx, fmt.Sprintf("nohup iperf3 -s -p %d </dev/null >/dev/null 2>&1 & disown", IPerfPort))
 	if err != nil {
 		return fmt.Errorf("starting iperf3 server: %w", err)
 	}
