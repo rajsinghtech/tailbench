@@ -72,6 +72,54 @@ k8s_exec() {
     -- "$@"
 }
 
+_k8s_run_iperf_test() {
+  local exec_fn="$1" label="$2" target_ip="$3" duration="$4" parallel="$5" iterations="$6"
+  local results="[]"
+  for (( i=1; i<=iterations; i++ )); do
+    log_info "iperf3 iteration $i/$iterations: $label -> $target_ip (P$parallel)"
+    local raw="" attempt=0
+    while (( attempt < 3 )); do
+      raw=$("$exec_fn" iperf3 -c "$target_ip" -p "$IPERF_PORT" -t "$duration" -P "$parallel" -J 2>/dev/null) || true
+      local err="" bps=""
+      err=$(echo "$raw" | jq -r '.error // empty' 2>/dev/null) || true
+      bps=$(echo "$raw" | jq '.end.sum_sent.bits_per_second // empty' 2>/dev/null) || true
+      if [[ -n "$err" ]]; then
+        log_warn "iperf3 error (attempt $((attempt+1))/3): $err"
+        attempt=$(( attempt + 1 )); sleep 60; continue
+      fi
+      if [[ -z "$bps" ]]; then
+        log_warn "iperf3 missing fields (attempt $((attempt+1))/3): ${raw:0:200}"
+        attempt=$(( attempt + 1 )); sleep 60; continue
+      fi
+      break
+    done
+    if (( attempt >= 3 )); then
+      log_error "iperf3 failed after 3 retries ($label -> $target_ip)"; return 1
+    fi
+    local entry
+    entry=$(echo "$raw" | jq '{
+      bandwidth_mbps: (.end.sum_sent.bits_per_second / 1000000),
+      retransmits: .end.sum_sent.retransmits,
+      duration_sec: .end.sum_sent.seconds,
+      bytes_transferred: .end.sum_sent.bytes
+    }')
+    results=$(echo "$results" | jq --argjson e "$entry" '. + [$e]')
+    if (( i < iterations )); then
+      log_info "Cooldown between iterations (30s)..."
+      sleep 30
+    fi
+  done
+  echo "$results"
+}
+
+k8s_iperf_run_test() {
+  _k8s_run_iperf_test k8s_exec "pod" "$@"
+}
+
+k8s_ts_iperf_run_test() {
+  _k8s_run_iperf_test k8s_ts_exec "sidecar" "$@"
+}
+
 k8s_cleanup_pod() {
   log_info "cleaning up pod $K8S_POD_NAME"
   kubectl delete pod "$K8S_POD_NAME" \

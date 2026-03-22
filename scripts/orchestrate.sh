@@ -209,7 +209,7 @@ _run_provider() {
     fi
     local k8s_needs_run=false
     if [[ "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp" || "$provider" == "azure") ]]; then
-      if ! jq -e '.k8s_pod_to_ec2_tcp and .k8s_tailscale_pod_to_ec2_tcp' "$existing_result" &>/dev/null; then
+      if ! jq -e '.k8s_pod_to_vm_tcp and .k8s_tailscale_pod_to_vm_tcp' "$existing_result" &>/dev/null; then
         k8s_needs_run=true
       fi
     fi
