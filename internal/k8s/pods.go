@@ -125,6 +125,17 @@ func CreateAuthSecret(ctx context.Context, cs *kubernetes.Clientset, authKey str
 }
 
 func DeployPod(ctx context.Context, cs *kubernetes.Clientset, pod *corev1.Pod, timeout time.Duration) error {
+	// Delete any leftover pod from a previous run
+	_ = cs.CoreV1().Pods(Namespace).Delete(ctx, pod.Name, metav1.DeleteOptions{})
+	// Wait for deletion to complete
+	for range 30 {
+		_, err := cs.CoreV1().Pods(Namespace).Get(ctx, pod.Name, metav1.GetOptions{})
+		if err != nil {
+			break
+		}
+		time.Sleep(2 * time.Second)
+	}
+
 	_, err := cs.CoreV1().Pods(Namespace).Create(ctx, pod, metav1.CreateOptions{})
 	if err != nil {
 		return fmt.Errorf("create pod %s: %w", pod.Name, err)
