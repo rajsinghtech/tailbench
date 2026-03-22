@@ -50,7 +50,7 @@ aks_get_node_vm_size() {
 aks_family_to_vm_size() {
   local family="$1"
   case "$family" in
-    dsv5)  echo "Standard_D4s_v5" ;;
+    dsv5)  echo "Standard_D4s_v4" ;;  # v5 not available in sandbox, use v4
     dasv5) echo "Standard_D4as_v5" ;;
     dpsv6) echo "Standard_D4ps_v6" ;;
     dsv4)  echo "Standard_D4s_v4" ;;
