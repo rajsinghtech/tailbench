@@ -14,6 +14,7 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/benchmark"
 	"github.com/rajsinghtech/tailbench/internal/cloudinit"
 	"github.com/rajsinghtech/tailbench/internal/config"
+	"github.com/rajsinghtech/tailbench/internal/k8s"
 	"github.com/rajsinghtech/tailbench/internal/provider"
 	"github.com/rajsinghtech/tailbench/internal/result"
 	"github.com/rajsinghtech/tailbench/internal/sshclient"
@@ -491,5 +492,73 @@ func isK8sProvider(name string) bool {
 }
 
 func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
-	return fmt.Errorf("k8s benchmark not yet implemented")
+	log.Printf("%s constructing kubectl exec transport", prefix)
+
+	serverBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
+	if err != nil {
+		return fmt.Errorf("server bench executor: %w", err)
+	}
+	clientBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
+	if err != nil {
+		return fmt.Errorf("client bench executor: %w", err)
+	}
+
+	serverTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
+	if err != nil {
+		return fmt.Errorf("server tailscale executor: %w", err)
+	}
+	clientTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
+	if err != nil {
+		return fmt.Errorf("client tailscale executor: %w", err)
+	}
+
+	runner := &benchmark.Runner{
+		Server:          serverBench,
+		Client:          clientBench,
+		ServerTailscale: serverTS,
+		ClientTailscale: clientTS,
+		Config: benchmark.RunConfig{
+			IPerfDuration:      o.cfg.IPerfDuration,
+			IPerfParallel:      o.cfg.IPerfParallel,
+			IPerfIterations:    o.cfg.IPerfIterations,
+			MTRCycles:          o.cfg.MTRCycles,
+			CooldownSec:        o.cfg.CooldownSec,
+			CreditRetrySec:     o.cfg.CreditRetrySec,
+			AuthKey:            authKey,
+			ServerHostname:     serverHostname,
+			ClientHostname:     clientHostname,
+			SkipTailscaleSetup: true,
+		},
+	}
+
+	log.Printf("%s running K8s benchmark for %s", prefix, inst.Type)
+	benchResult, err := runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
+	if err != nil {
+		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
+	}
+
+	benchResult.CloudProvider = p.Name()
+	benchResult.InstanceFamily = family
+	benchResult.InstanceType = inst.Type
+	benchResult.VCPUs = inst.VCPUs
+	benchResult.Date = time.Now().UTC().Format("2006-01-02")
+	benchResult.Environment = "container"
+
+	switch p.Name() {
+	case "gke":
+		benchResult.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
+		benchResult.Zone = o.cfg.GCPZone
+	case "eks":
+		benchResult.Region = o.cfg.AWSRegion
+		benchResult.Zone = o.cfg.AWSAZ
+	case "aks":
+		benchResult.Region = o.cfg.AzureLocation
+		benchResult.Zone = o.cfg.AzureLocation
+	}
+
+	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
+		return fmt.Errorf("write result: %w", err)
+	}
+	log.Printf("%s K8s result written for %s", prefix, inst.Type)
+	return nil
 }
