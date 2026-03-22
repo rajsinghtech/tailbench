@@ -9,27 +9,29 @@ import (
 	"time"
 
 	"github.com/rajsinghtech/tailbench/internal/result"
-	"github.com/rajsinghtech/tailbench/internal/sshclient"
 )
 
 // Runner orchestrates the full benchmark sequence over SSH.
 type Runner struct {
-	Server *sshclient.Client
-	Client *sshclient.Client
-	Config RunConfig
+	Server          Executor
+	Client          Executor
+	ServerTailscale Executor
+	ClientTailscale Executor
+	Config          RunConfig
 }
 
 // RunConfig holds tuning parameters for the benchmark run.
 type RunConfig struct {
-	IPerfDuration   int // seconds per iperf run, default 30
-	IPerfParallel   int // parallel streams, default 4
-	IPerfIterations int // number of iperf iterations, default 3
-	MTRCycles       int // mtr report cycles, default 100
-	CooldownSec     int // cooldown between iterations, default 30
-	CreditRetrySec  int // retry wait on iperf error (e.g. Azure credits), default 60
-	AuthKey         string
-	ServerHostname  string
-	ClientHostname  string
+	IPerfDuration      int // seconds per iperf run, default 30
+	IPerfParallel      int // parallel streams, default 4
+	IPerfIterations    int // number of iperf iterations, default 3
+	MTRCycles          int // mtr report cycles, default 100
+	CooldownSec        int // cooldown between iterations, default 30
+	CreditRetrySec     int // retry wait on iperf error (e.g. Azure credits), default 60
+	AuthKey            string
+	ServerHostname     string
+	ClientHostname     string
+	SkipTailscaleSetup bool
 }
 
 func (c *RunConfig) defaults() {
@@ -89,29 +91,31 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	stopIPerfServer(ctx, r.Server)
 
 	// --- Tailscale setup ---
-	log.Println("bringing up tailscale on server")
-	if err := TailscaleUp(ctx, r.Server, cfg.AuthKey, cfg.ServerHostname); err != nil {
-		return nil, err
-	}
-	log.Println("bringing up tailscale on client")
-	if err := TailscaleUp(ctx, r.Client, cfg.AuthKey, cfg.ClientHostname); err != nil {
-		return nil, err
+	if !cfg.SkipTailscaleSetup {
+		log.Println("bringing up tailscale on server")
+		if err := TailscaleUp(ctx, r.ServerTailscale, cfg.AuthKey, cfg.ServerHostname); err != nil {
+			return nil, err
+		}
+		log.Println("bringing up tailscale on client")
+		if err := TailscaleUp(ctx, r.ClientTailscale, cfg.AuthKey, cfg.ClientHostname); err != nil {
+			return nil, err
+		}
 	}
 
-	serverTSIP, err := GetTailscaleIP(ctx, r.Server)
+	serverTSIP, err := GetTailscaleIP(ctx, r.ServerTailscale)
 	if err != nil {
 		return nil, fmt.Errorf("server tailscale IP: %w", err)
 	}
-	clientTSIP, err := GetTailscaleIP(ctx, r.Client)
+	clientTSIP, err := GetTailscaleIP(ctx, r.ClientTailscale)
 	if err != nil {
 		return nil, fmt.Errorf("client tailscale IP: %w", err)
 	}
 	log.Printf("tailscale IPs: server=%s client=%s", serverTSIP, clientTSIP)
 
-	if err := WaitForPeer(ctx, r.Client, serverTSIP); err != nil {
+	if err := WaitForPeer(ctx, r.ClientTailscale, serverTSIP); err != nil {
 		return nil, err
 	}
-	connType, err := WaitForDirect(ctx, r.Client, serverTSIP)
+	connType, err := WaitForDirect(ctx, r.ClientTailscale, serverTSIP)
 	if err != nil {
 		log.Printf("warning: direct connection check error: %v", err)
 	}
@@ -174,7 +178,7 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 			kernelVersion = parts[2]
 		}
 	}
-	stdout, _, _ := r.Server.Run(ctx, "tailscale version | head -1")
+	stdout, _, _ := r.ServerTailscale.Run(ctx, "tailscale version | head -1")
 	tsVersion = strings.TrimSpace(stdout)
 
 	return &result.BenchmarkResult{
@@ -199,10 +203,10 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	}, nil
 }
 
-// verifyLAN checks that the client can reach the server's SSH port over LAN.
-func verifyLAN(ctx context.Context, c *sshclient.Client, targetIP string) error {
+// verifyLAN checks that the client can reach the server over LAN.
+func verifyLAN(ctx context.Context, c Executor, targetIP string) error {
 	for attempt := range 20 {
-		_, _, err := c.Run(ctx, fmt.Sprintf("nc -z -w 2 %s 22", targetIP))
+		_, _, err := c.Run(ctx, fmt.Sprintf("ping -c 1 -W 2 %s", targetIP))
 		if err == nil {
 			return nil
 		}
@@ -213,11 +217,11 @@ func verifyLAN(ctx context.Context, c *sshclient.Client, targetIP string) error 
 		case <-time.After(3 * time.Second):
 		}
 	}
-	return fmt.Errorf("cannot reach %s:22 after 20 attempts", targetIP)
+	return fmt.Errorf("cannot reach %s after 20 attempts", targetIP)
 }
 
 // startIPerfServer kills any existing iperf3 and starts a fresh server on IPerfPort.
-func startIPerfServer(ctx context.Context, server *sshclient.Client) error {
+func startIPerfServer(ctx context.Context, server Executor) error {
 	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
 	time.Sleep(1 * time.Second)
 
@@ -235,12 +239,12 @@ func startIPerfServer(ctx context.Context, server *sshclient.Client) error {
 }
 
 // stopIPerfServer kills iperf3 on the server.
-func stopIPerfServer(ctx context.Context, server *sshclient.Client) {
+func stopIPerfServer(ctx context.Context, server Executor) {
 	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
 }
 
 // runIPerfTest runs iperf3 for the given number of iterations with cooldown and retry on error.
-func runIPerfTest(ctx context.Context, c *sshclient.Client, targetIP string, parallel, iterations, duration, cooldownSec, creditRetrySec int) ([]result.IPerfRun, error) {
+func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, iterations, duration, cooldownSec, creditRetrySec int) ([]result.IPerfRun, error) {
 	var runs []result.IPerfRun
 	for i := range iterations {
 		if i > 0 {
@@ -301,7 +305,7 @@ func runIPerfTest(ctx context.Context, c *sshclient.Client, targetIP string, par
 }
 
 // runMTR executes mtr and parses the output.
-func runMTR(ctx context.Context, c *sshclient.Client, targetIP string, cycles int) (*result.MTRResult, error) {
+func runMTR(ctx context.Context, c Executor, targetIP string, cycles int) (*result.MTRResult, error) {
 	cmd := fmt.Sprintf("mtr --report --report-cycles %d --no-dns %s", cycles, targetIP)
 	stdout, _, err := c.Run(ctx, cmd)
 	if err != nil {
@@ -311,7 +315,7 @@ func runMTR(ctx context.Context, c *sshclient.Client, targetIP string, cycles in
 }
 
 // collectSystemConfig gathers system and network configuration from the server.
-func collectSystemConfig(ctx context.Context, server *sshclient.Client) (*result.SystemConfig, error) {
+func collectSystemConfig(ctx context.Context, server Executor) (*result.SystemConfig, error) {
 	cfg := &result.SystemConfig{}
 
 	// Kernel info

@@ -380,8 +380,10 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	}
 
 	runner := &benchmark.Runner{
-		Server: serverSSH,
-		Client: clientSSH,
+		Server:          serverSSH,
+		Client:          clientSSH,
+		ServerTailscale: serverSSH,
+		ClientTailscale: clientSSH,
 		Config: benchmark.RunConfig{
 			IPerfDuration:   o.cfg.IPerfDuration,
 			IPerfParallel:   o.cfg.IPerfParallel,

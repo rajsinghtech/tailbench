@@ -5,12 +5,10 @@ import (
 	"fmt"
 	"strings"
 	"time"
-
-	"github.com/rajsinghtech/tailbench/internal/sshclient"
 )
 
 // TailscaleUp brings up tailscale on a remote host with the given auth key and hostname.
-func TailscaleUp(ctx context.Context, c *sshclient.Client, authKey, hostname string) error {
+func TailscaleUp(ctx context.Context, c Executor, authKey, hostname string) error {
 	_, _, err := c.Run(ctx, fmt.Sprintf("sudo tailscale up --authkey=%s --hostname=%s", authKey, hostname))
 	if err != nil {
 		return fmt.Errorf("tailscale up on %s: %w", hostname, err)
@@ -20,7 +18,7 @@ func TailscaleUp(ctx context.Context, c *sshclient.Client, authKey, hostname str
 }
 
 // GetTailscaleIP polls for the tailscale IPv4 address, retrying up to 15 times.
-func GetTailscaleIP(ctx context.Context, c *sshclient.Client) (string, error) {
+func GetTailscaleIP(ctx context.Context, c Executor) (string, error) {
 	for range 15 {
 		stdout, _, _ := c.Run(ctx, "tailscale ip -4")
 		ip := strings.TrimSpace(stdout)
@@ -37,7 +35,7 @@ func GetTailscaleIP(ctx context.Context, c *sshclient.Client) (string, error) {
 }
 
 // WaitForPeer polls tailscale ping until the peer responds, up to 45 attempts.
-func WaitForPeer(ctx context.Context, c *sshclient.Client, peerIP string) error {
+func WaitForPeer(ctx context.Context, c Executor, peerIP string) error {
 	for range 45 {
 		stdout, _, _ := c.Run(ctx, fmt.Sprintf("tailscale ping -c 1 --timeout 5s %s", peerIP))
 		if strings.Contains(stdout, "pong") {
@@ -54,7 +52,7 @@ func WaitForPeer(ctx context.Context, c *sshclient.Client, peerIP string) error 
 
 // WaitForDirect polls tailscale ping until a direct (non-DERP) connection is established.
 // Returns "direct" or "relayed".
-func WaitForDirect(ctx context.Context, c *sshclient.Client, peerIP string) (string, error) {
+func WaitForDirect(ctx context.Context, c Executor, peerIP string) (string, error) {
 	for range 30 {
 		stdout, _, _ := c.Run(ctx, fmt.Sprintf("tailscale ping -c 1 %s", peerIP))
 		if stdout != "" && !strings.Contains(strings.ToLower(stdout), "derp") {
