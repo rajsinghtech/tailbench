@@ -220,11 +220,17 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		nodeRoleArn := opts.Networking.Values["nodeRoleArn"]
 		subnetId := opts.Networking.Values["subnetId"]
 
+		amiType := "AL2023_x86_64_STANDARD"
+		if IsGraviton(opts.InstanceType) {
+			amiType = "AL2023_ARM_64_STANDARD"
+		}
+
 		ng, err := awseks.NewNodeGroup(pCtx, "bench-nodes", &awseks.NodeGroupArgs{
 			ClusterName:   pulumi.String(clusterName),
 			NodeRoleArn:   pulumi.String(nodeRoleArn),
 			SubnetIds:     pulumi.StringArray{pulumi.String(subnetId)},
 			InstanceTypes: pulumi.StringArray{pulumi.String(opts.InstanceType)},
+			AmiType:       pulumi.String(amiType),
 			ScalingConfig: &awseks.NodeGroupScalingConfigArgs{
 				DesiredSize: pulumi.Int(2),
 				MinSize:     pulumi.Int(2),
