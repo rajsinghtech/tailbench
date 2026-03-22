@@ -76,6 +76,8 @@ func Parse() (*Config, error) {
 	// Provider list
 	if *providers != "" {
 		cfg.Providers = strings.Split(*providers, ",")
+	} else if strings.Contains(*provider, ",") {
+		cfg.Providers = strings.Split(*provider, ",")
 	} else {
 		cfg.Providers = []string{*provider}
 	}

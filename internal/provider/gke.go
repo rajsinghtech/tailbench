@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/compute"
 	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/container"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto/optdestroy"
@@ -46,9 +47,30 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	stackName := "tailbench-gke-cluster"
 
 	program := func(pCtx *pulumi.Context) error {
+		// Create a VPC + subnet (default network may use manual subnet mode)
+		network, err := compute.NewNetwork(pCtx, "tailbench-gke-vpc", &compute.NetworkArgs{
+			Project:                pulumi.String(p.Project),
+			AutoCreateSubnetworks: pulumi.Bool(false),
+		})
+		if err != nil {
+			return err
+		}
+		region := p.Zone[:strings.LastIndex(p.Zone, "-")]
+		subnet, err := compute.NewSubnetwork(pCtx, "tailbench-gke-subnet", &compute.SubnetworkArgs{
+			Project:     pulumi.String(p.Project),
+			Region:      pulumi.String(region),
+			Network:     network.ID(),
+			IpCidrRange: pulumi.String("10.0.0.0/20"),
+		})
+		if err != nil {
+			return err
+		}
+
 		cluster, err := container.NewCluster(pCtx, "tailbench-gke", &container.ClusterArgs{
 			Project:          pulumi.String(p.Project),
 			Location:         pulumi.String(p.Zone),
+			Network:          network.Name,
+			Subnetwork:       subnet.Name,
 			InitialNodeCount: pulumi.Int(1),
 			NodeConfig: &container.ClusterNodeConfigArgs{
 				MachineType: pulumi.String("e2-small"),
