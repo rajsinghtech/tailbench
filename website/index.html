@@ -533,8 +533,21 @@ footer a:hover { text-decoration: underline; }
 
 <script src="data.generated.js"></script>
 <script>
+// Normalize field names: old _ec2_ naming → new _vm_ naming
 (function() {
-  'use strict';
+  var renames = [
+    ['k8s_pod_to_ec2_tcp',            'k8s_pod_to_vm_tcp'],
+    ['k8s_ec2_to_pod_tcp',            'k8s_vm_to_pod_tcp'],
+    ['k8s_tailscale_pod_to_ec2_tcp',  'k8s_tailscale_pod_to_vm_tcp'],
+    ['k8s_tailscale_ec2_to_pod_tcp',  'k8s_tailscale_vm_to_pod_tcp'],
+  ];
+  TAILBENCH_DATA.forEach(function(d) {
+    renames.forEach(function(pair) {
+      if (d[pair[0]] && !d[pair[1]]) d[pair[1]] = d[pair[0]];
+    });
+  });
+})();
+
 
   // --- vCPU resolver: use JSON field with fallback parsing ---
   function getVCPUs(d) {
