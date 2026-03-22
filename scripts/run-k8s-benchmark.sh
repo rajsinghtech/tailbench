@@ -38,7 +38,11 @@ result_file="$4"
 log_info "=== K8s benchmark for $instance_type ==="
 
 # Deploy iperf3 pod — use the right AZ/zone depending on provider
-K8S_AZ="${GCP_ZONE:-${AWS_AZ:-}}"
+if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
+  K8S_AZ="$GCP_ZONE"
+else
+  K8S_AZ="$AWS_AZ"
+fi
 k8s_deploy_iperf_pod "$K8S_AZ"
 k8s_wait_for_pod 180
 
@@ -176,6 +180,11 @@ log_info "EC2 Tailscale IP: $server_ts_ip"
 
 # Create secret and deploy sidecar pod
 k8s_create_ts_secret "$TS_AUTHKEY"
+if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
+  K8S_AZ="$GCP_ZONE"
+else
+  K8S_AZ="$AWS_AZ"
+fi
 k8s_deploy_ts_iperf_pod "$K8S_AZ"
 k8s_wait_for_ts_pod 240
 
