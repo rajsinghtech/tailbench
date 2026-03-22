@@ -11,6 +11,12 @@ azure/*/results/*.json
 *.pem
 .env
 
+# Go binary
+tailbench
+
+# Pulumi state
+state/
+
 # Runtime artifacts
 .run/
 
