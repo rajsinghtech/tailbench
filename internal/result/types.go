@@ -12,6 +12,7 @@ type BenchmarkResult struct {
 	KernelVersion      string        `json:"kernel_version"`
 	ConnectionType     string        `json:"connection_type"`
 	ENAExpress         bool          `json:"ena_express"`
+	Environment        string        `json:"environment"` // "vm" or "container"
 	SystemConfig       *SystemConfig `json:"system_config"`
 	TestConfig         *TestConfig   `json:"test_config"`
 	BaselineTCP        *TCPResult    `json:"baseline_tcp"`
@@ -33,6 +34,7 @@ type SystemConfig struct {
 	TCPRmem              string `json:"tcp_rmem"`
 	TCPWmem              string `json:"tcp_wmem"`
 	KernelFull           string `json:"kernel_full"`
+	ContainerRuntime     string `json:"container_runtime,omitempty"`
 }
 
 type TestConfig struct {

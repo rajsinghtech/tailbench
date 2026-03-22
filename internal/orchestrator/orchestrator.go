@@ -422,6 +422,12 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		benchResult.Zone = o.cfg.AzureLocation
 	}
 
+	if pair.Namespace != "" {
+		benchResult.Environment = "container"
+	} else {
+		benchResult.Environment = "vm"
+	}
+
 	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
 		return fmt.Errorf("write result: %w", err)
 	}

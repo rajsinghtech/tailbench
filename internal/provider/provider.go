@@ -38,6 +38,9 @@ type PairOutput struct {
 	ClientInstanceID string
 	ServerENIID      string
 	ClientENIID      string
+	// K8s-specific (empty for VM providers)
+	Namespace  string
+	Kubeconfig string
 }
 
 // NetworkingOutput carries provider-specific networking references.
