@@ -23,6 +23,8 @@ type PairOptions struct {
 	SSHKeyPath   string
 	SSHPubKey    string
 	SSHUser      string
+	BenchImage   string // K8s benchmark container image (empty = provider default)
+	TSImage      string // K8s tailscale sidecar image (empty = provider default)
 }
 
 // PairOutput holds provisioned pair metadata.

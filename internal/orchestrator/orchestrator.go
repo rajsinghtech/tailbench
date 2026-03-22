@@ -83,7 +83,11 @@ func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 			StateDir:      cfg.StateDir,
 		}, nil
 	case "eks":
-		return nil, fmt.Errorf("eks provider not yet implemented")
+		return &provider.EKSProvider{
+			Region:   cfg.AWSRegion,
+			AZ:       cfg.AWSAZ,
+			StateDir: cfg.StateDir,
+		}, nil
 	case "gke":
 		return &provider.GKEProvider{
 			Project:  cfg.GCPProject,
