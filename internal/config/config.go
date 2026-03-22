@@ -118,7 +118,7 @@ func Parse() (*Config, error) {
 	cfg.AzureResourceGroup = envOrDefault("AZURE_RESOURCE_GROUP", "tailbench-rg")
 
 	// Container images (for K8s providers)
-	cfg.BenchImage = envOrDefault("BENCH_IMAGE", "tailbench-tools:latest")
+	cfg.BenchImage = envOrDefault("BENCH_IMAGE", "ghcr.io/rajsinghtech/tailbench-tools:latest")
 	cfg.TSImage = envOrDefault("TS_IMAGE", "ghcr.io/tailscale/tailscale:latest")
 
 	// Paths

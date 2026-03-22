@@ -158,8 +158,14 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	serverName := fmt.Sprintf("tb-aks-server-%s", safeType)
 	clientName := fmt.Sprintf("tb-aks-client-%s", safeType)
 
-	benchImage := "tailbench-tools:latest"
-	tsImage := "ghcr.io/tailscale/tailscale:latest"
+	benchImage := opts.BenchImage
+	if benchImage == "" {
+		benchImage = "ghcr.io/rajsinghtech/tailbench-tools:latest"
+	}
+	tsImage := opts.TSImage
+	if tsImage == "" {
+		tsImage = "ghcr.io/tailscale/tailscale:latest"
+	}
 
 	serverPod := k8s.BuildPod(serverName, k8s.PodConfig{
 		BenchImage: benchImage,

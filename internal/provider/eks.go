@@ -21,7 +21,7 @@ import (
 )
 
 const (
-	defaultBenchImage = "tailbench-tools:latest"
+	defaultBenchImage = "ghcr.io/rajsinghtech/tailbench-tools:latest"
 	defaultTSImage    = "ghcr.io/tailscale/tailscale:latest"
 )
 
@@ -269,8 +269,14 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	serverName := fmt.Sprintf("tb-eks-server-%s", safeType)
 	clientName := fmt.Sprintf("tb-eks-client-%s", safeType)
 
-	benchImage := defaultBenchImage
-	tsImage := defaultTSImage
+	benchImage := opts.BenchImage
+	if benchImage == "" {
+		benchImage = defaultBenchImage
+	}
+	tsImage := opts.TSImage
+	if tsImage == "" {
+		tsImage = defaultTSImage
+	}
 
 	serverPod := k8s.BuildPod(serverName, k8s.PodConfig{
 		BenchImage: benchImage,
