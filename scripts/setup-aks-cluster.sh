@@ -51,6 +51,8 @@ AKS_CREATE_ARGS=(
   --no-ssh-key
   --tags project=tailbench
   --network-plugin azure
+  --service-cidr 172.16.0.0/16
+  --dns-service-ip 172.16.0.10
 )
 
 if [[ -n "$local_subnet" ]]; then
