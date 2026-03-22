@@ -124,9 +124,6 @@ initContainers:
       fi
   securityContext:
     privileged: true
-  resources:
-    requests: { cpu: 50m, memory: 64Mi }
-    limits: { memory: 256Mi }
 ```
 
 ### Containers
@@ -161,9 +158,6 @@ containers:
       value: "--advertise-tags=tag:bench --accept-routes"
     - name: TS_ACCEPT_DNS
       value: "true"
-  resources:
-    requests: { cpu: 50m, memory: 128Mi }
-    limits: { memory: 512Mi }
 ```
 
 Key decisions:
