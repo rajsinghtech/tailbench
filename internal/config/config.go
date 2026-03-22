@@ -38,6 +38,8 @@ type Config struct {
 	AuthKeyRefreshSec  int
 	RootDir            string
 	StateDir           string
+	BenchImage         string
+	TSImage            string
 }
 
 func envOrDefault(key, fallback string) string {
@@ -112,6 +114,10 @@ func Parse() (*Config, error) {
 	// Azure (match config/azure.sh)
 	cfg.AzureLocation = envOrDefault("AZURE_LOCATION", "eastus")
 	cfg.AzureResourceGroup = envOrDefault("AZURE_RESOURCE_GROUP", "tailbench-rg")
+
+	// Container images (for K8s providers)
+	cfg.BenchImage = envOrDefault("BENCH_IMAGE", "tailbench-tools:latest")
+	cfg.TSImage = envOrDefault("TS_IMAGE", "ghcr.io/tailscale/tailscale:latest")
 
 	// Paths
 	cfg.RootDir, _ = os.Getwd()

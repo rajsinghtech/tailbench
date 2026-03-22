@@ -81,6 +81,12 @@ func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 			SSHPubKey:     strings.TrimSpace(string(pubKey)),
 			StateDir:      cfg.StateDir,
 		}, nil
+	case "eks":
+		return nil, fmt.Errorf("eks provider not yet implemented")
+	case "gke":
+		return nil, fmt.Errorf("gke provider not yet implemented")
+	case "aks":
+		return nil, fmt.Errorf("aks provider not yet implemented")
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
 	}
@@ -256,22 +262,28 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		serverHostname := fmt.Sprintf("tb-%s-server-%s", p.Name(), safeType)
 		clientHostname := fmt.Sprintf("tb-%s-client-%s", p.Name(), safeType)
 
-		serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname})
-		if err != nil {
-			log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
-			continue
+		var userData string
+		if isK8sProvider(p.Name()) {
+			userData = *authKey
+		} else {
+			serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname})
+			if err != nil {
+				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
+				continue
+			}
+			userData = serverUD
+			clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname})
+			if err != nil {
+				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
+				continue
+			}
+			_ = clientUD // Both VMs get the same user-data; CreatePair handles distribution
 		}
-		clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname})
-		if err != nil {
-			log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
-			continue
-		}
-		_ = clientUD // Both VMs get the same user-data; CreatePair handles distribution
 
 		log.Printf("%s creating pair for %s", prefix, inst.Type)
 		pair, err := p.CreatePair(ctx, provider.PairOptions{
 			InstanceType: inst.Type,
-			UserData:     serverUD,
+			UserData:     userData,
 			Networking:   net,
 			SSHKeyPath:   o.cfg.SSHKeyPath,
 			SSHPubKey:    sshPubKeyForProvider(p.Name(), o.cfg),
@@ -335,6 +347,10 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 }
 
 func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
+	if pair.Namespace != "" {
+		return o.runK8sBenchmark(ctx, p, pair, inst, family, prefix, serverHostname, clientHostname, authKey)
+	}
+
 	sshUser := sshUserForProvider(p.Name(), o.cfg)
 
 	// Connect SSH to both VMs
@@ -464,4 +480,16 @@ func sshPubKeyForProvider(name string, cfg *config.Config) string {
 	default:
 		return ""
 	}
+}
+
+func isK8sProvider(name string) bool {
+	switch name {
+	case "eks", "gke", "aks":
+		return true
+	}
+	return false
+}
+
+func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
+	return fmt.Errorf("k8s benchmark not yet implemented")
 }
