@@ -3,6 +3,7 @@ package k8s
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"fmt"
 
 	corev1 "k8s.io/api/core/v1"
@@ -24,7 +25,11 @@ type KubeExecExecutor struct {
 
 // NewKubeExecExecutor creates an executor targeting a specific container in a pod.
 func NewKubeExecExecutor(kubeconfigData, namespace, podName, container string) (*KubeExecExecutor, error) {
-	config, err := clientcmd.RESTConfigFromKubeConfig([]byte(kubeconfigData))
+	data, err := base64.StdEncoding.DecodeString(kubeconfigData)
+	if err != nil {
+		data = []byte(kubeconfigData) // try as raw
+	}
+	config, err := clientcmd.RESTConfigFromKubeConfig(data)
 	if err != nil {
 		return nil, fmt.Errorf("parse kubeconfig: %w", err)
 	}
