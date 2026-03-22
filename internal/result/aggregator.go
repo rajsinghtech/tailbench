@@ -11,7 +11,7 @@ import (
 // Aggregate reads all result JSON files under {rootDir}/{gcp,aws,azure}/**/results/*.json
 // and writes a combined website/data.generated.js file.
 func Aggregate(rootDir string) error {
-	providers := []string{"gcp", "aws", "azure"}
+	providers := []string{"gcp", "aws", "azure", "gke", "eks", "aks"}
 	var results []json.RawMessage
 
 	for _, provider := range providers {

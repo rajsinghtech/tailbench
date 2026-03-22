@@ -9,69 +9,84 @@
 
 :root {
   --bg-primary: #ffffff;
-  --bg-secondary: #f8f9fb;
-  --bg-tertiary: #f0f1f4;
+  --bg-secondary: #faf9f8;
+  --bg-tertiary: #f7f5f4;
   --bg-card: #ffffff;
-  --bg-hover: #f3f4f7;
-  --bg-bar: #e8eaef;
-  --text-primary: #111827;
-  --text-secondary: #4b5563;
-  --text-muted: #9ca3af;
-  --border: #e5e7eb;
-  --border-subtle: #f0f1f4;
-  --accent: #2563eb;
-  --accent-soft: rgba(37, 99, 235, 0.08);
-  --accent-bar: rgba(37, 99, 235, 0.15);
-  --green: #059669;
-  --green-bg: rgba(5, 150, 105, 0.1);
-  --yellow: #d97706;
-  --yellow-bg: rgba(217, 119, 6, 0.1);
-  --red: #dc2626;
-  --red-bg: rgba(220, 38, 38, 0.1);
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.04);
-  --shadow-md: 0 2px 8px rgba(0,0,0,0.06);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.08);
+  --bg-hover: #f7f5f4;
+  --bg-bar: #eeebea;
+  --text-primary: #2e2d2d;
+  --text-secondary: #706e6d;
+  --text-muted: #afacab;
+  --border: #dad6d5;
+  --border-subtle: #eeebea;
+  --accent: #4b70cc;
+  --accent-soft: rgba(75, 112, 204, 0.08);
+  --accent-bar: rgba(75, 112, 204, 0.15);
+  --green: #09825d;
+  --green-bg: rgba(9, 130, 93, 0.1);
+  --yellow: #bb5504;
+  --yellow-bg: rgba(187, 85, 4, 0.1);
+  --red: #d04841;
+  --red-bg: rgba(208, 72, 65, 0.1);
+  --purple: #995fc3;
+  --purple-bg: rgba(153, 95, 195, 0.1);
+  --shadow-sm: 0 4px 8px 0 rgba(24, 23, 23, 0.02);
+  --shadow-md: 0 4px 8px 0 rgba(24, 23, 23, 0.08);
+  --shadow-lg: 0 4px 16px 0 rgba(24, 23, 23, 0.16);
   --radius: 8px;
-  --radius-lg: 12px;
-  --font-sans: -apple-system, BlinkMacSystemFont, 'Inter', 'Segoe UI', sans-serif;
-  --font-mono: 'SF Mono', 'Cascadia Code', 'Fira Code', 'JetBrains Mono', 'Consolas', monospace;
+  --radius-lg: 16px;
+  --font-sans: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'SF Mono', SFMono-Regular, ui-monospace, Menlo, Monaco, Consolas, monospace;
   --transition: 200ms ease;
+  --indigo: #5a82de;
+  --indigo-soft: rgba(90, 130, 222, 0.13);
+  --amber: #d97917;
+  --emerald: #1ea672;
 }
 
 [data-theme="dark"] {
-  --bg-primary: #0f1117;
-  --bg-secondary: #161820;
-  --bg-tertiary: #1e2028;
-  --bg-card: #1a1c24;
-  --bg-hover: #22242e;
-  --bg-bar: #2a2d38;
-  --text-primary: #f0f1f4;
-  --text-secondary: #9ca3af;
-  --text-muted: #6b7280;
-  --border: #2a2d38;
-  --border-subtle: #22242e;
-  --accent: #3b82f6;
-  --accent-soft: rgba(59, 130, 246, 0.1);
-  --accent-bar: rgba(59, 130, 246, 0.18);
-  --green: #34d399;
-  --green-bg: rgba(52, 211, 153, 0.12);
-  --yellow: #fbbf24;
-  --yellow-bg: rgba(251, 191, 36, 0.12);
-  --red: #f87171;
-  --red-bg: rgba(248, 113, 113, 0.12);
-  --shadow-sm: 0 1px 2px rgba(0,0,0,0.2);
-  --shadow-md: 0 2px 8px rgba(0,0,0,0.3);
-  --shadow-lg: 0 4px 16px rgba(0,0,0,0.4);
+  --bg-primary: #1f1e1e;
+  --bg-secondary: #232222;
+  --bg-tertiary: #2e2d2d;
+  --bg-card: #232222;
+  --bg-hover: #2e2d2d;
+  --bg-bar: #444342;
+  --text-primary: #f7f5f4;
+  --text-secondary: #afacab;
+  --text-muted: #706e6d;
+  --border: #444342;
+  --border-subtle: #2e2d2d;
+  --accent: #85aaf5;
+  --accent-soft: rgba(133, 170, 245, 0.1);
+  --accent-bar: rgba(133, 170, 245, 0.18);
+  --green: #85d996;
+  --green-bg: rgba(133, 217, 150, 0.12);
+  --yellow: #efc078;
+  --yellow-bg: rgba(239, 192, 120, 0.12);
+  --red: #ffb1ab;
+  --red-bg: rgba(255, 177, 171, 0.12);
+  --purple: #e3c3fa;
+  --purple-bg: rgba(227, 195, 250, 0.12);
+  --shadow-sm: 0 4px 8px 0 rgba(0, 0, 0, 0.15);
+  --shadow-md: 0 4px 8px 0 rgba(0, 0, 0, 0.25);
+  --shadow-lg: 0 4px 16px 0 rgba(0, 0, 0, 0.35);
+  --indigo: #adc7fc;
+  --indigo-soft: rgba(173, 199, 252, 0.18);
+  --amber: #efc078;
+  --emerald: #85d996;
 }
 
-html { font-size: 15px; }
+html { font-size: 16px; }
 body {
   font-family: var(--font-sans);
   background: var(--bg-primary);
   color: var(--text-primary);
   line-height: 1.5;
+  letter-spacing: -0.01em;
   transition: background var(--transition), color var(--transition);
   min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 /* Layout */
@@ -86,30 +101,32 @@ header {
 }
 .header-inner { display: flex; justify-content: space-between; align-items: flex-start; }
 .header-text h1 {
-  font-size: 1.65rem;
+  font-size: 1.5rem;
   font-weight: 700;
   letter-spacing: -0.03em;
   color: var(--text-primary);
 }
 .header-text h1 span { color: var(--accent); }
 .header-text p {
-  font-size: 0.9rem;
+  font-size: 0.875rem;
   color: var(--text-secondary);
   margin-top: 4px;
+  letter-spacing: -0.01em;
 }
 .theme-toggle {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: var(--radius);
-  padding: 7px 12px;
+  padding: 8px 14px;
   cursor: pointer;
-  font-size: 0.82rem;
+  font-size: 0.8125rem;
+  font-weight: 500;
   color: var(--text-secondary);
   transition: all var(--transition);
   display: flex; align-items: center; gap: 6px;
   white-space: nowrap;
 }
-.theme-toggle:hover { border-color: var(--accent); color: var(--accent); }
+.theme-toggle:hover { border-color: var(--accent); color: var(--accent); box-shadow: var(--shadow-sm); }
 .theme-toggle svg { width: 15px; height: 15px; }
 
 /* Stats row */
@@ -123,8 +140,9 @@ header {
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 18px 20px;
+  padding: 20px 24px;
   transition: all var(--transition);
+  box-shadow: var(--shadow-sm);
 }
 .stat-card:hover { box-shadow: var(--shadow-md); }
 .stat-label {
@@ -151,6 +169,110 @@ header {
   font-size: 0.75rem;
   color: var(--text-secondary);
   margin-top: 2px;
+}
+
+/* Insights panel */
+.insights-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  margin-bottom: 24px;
+  overflow: hidden;
+  box-shadow: var(--shadow-sm);
+}
+.insights-tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-secondary);
+  overflow-x: auto;
+}
+.insights-tab {
+  padding: 12px 20px;
+  font-size: 0.8125rem;
+  font-weight: 500;
+  color: var(--text-muted);
+  cursor: pointer;
+  border: none;
+  background: none;
+  border-bottom: 2px solid transparent;
+  transition: all var(--transition);
+  white-space: nowrap;
+  font-family: var(--font-sans);
+  letter-spacing: -0.01em;
+}
+.insights-tab:hover { color: var(--text-primary); }
+.insights-tab.active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.insights-canvas-wrap {
+  position: relative;
+  padding: 20px;
+  height: 380px;
+}
+.insights-canvas-wrap canvas {
+  width: 100% !important;
+  height: 100% !important;
+}
+/* Heatmap container (not a canvas chart) */
+#heatmapContainer {
+  width: 100%;
+  height: 100%;
+  overflow: auto;
+}
+.heatmap-grid {
+  display: grid;
+  gap: 3px;
+  width: 100%;
+  height: 100%;
+  align-content: start;
+}
+.heatmap-cell {
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 100ms ease, box-shadow 100ms ease;
+  min-height: 36px;
+}
+.heatmap-cell:hover {
+  transform: scale(1.05);
+  box-shadow: var(--shadow-md);
+  z-index: 1;
+}
+.heatmap-cell.header-cell {
+  background: none;
+  cursor: default;
+  font-size: 0.68rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+}
+.heatmap-cell.header-cell:hover {
+  transform: none;
+  box-shadow: none;
+}
+.heatmap-cell.empty-cell {
+  background: var(--bg-tertiary);
+  color: var(--text-muted);
+  cursor: default;
+  opacity: 0.4;
+}
+.heatmap-cell.empty-cell:hover { transform: none; box-shadow: none; }
+
+/* Row highlight for chart click */
+.data-row.chart-highlight {
+  animation: chartPulse 1.5s ease;
+}
+@keyframes chartPulse {
+  0% { background: var(--accent-soft); }
+  100% { background: transparent; }
 }
 
 /* Filters */
@@ -195,6 +317,7 @@ header {
   overflow-x: auto;
   box-shadow: var(--shadow-sm);
 }
+.table-wrap:hover { box-shadow: var(--shadow-md); }
 table { width: 100%; border-collapse: collapse; }
 thead th {
   padding: 10px 10px;
@@ -288,12 +411,38 @@ td.mono {
   padding: 2px 5px;
   border-radius: 4px;
   margin-left: 6px;
-  background: rgba(230, 126, 34, 0.12);
-  color: #e67e22;
+  background: var(--yellow-bg);
+  color: var(--yellow);
 }
 [data-theme="dark"] .k8s-tag {
-  background: rgba(230, 126, 34, 0.15);
-  color: #f0a050;
+  background: var(--yellow-bg);
+  color: var(--yellow);
+}
+.env-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+.env-tag.vm {
+  background: rgba(75, 112, 204, 0.1);
+  color: var(--accent);
+}
+.env-tag.container {
+  background: var(--purple-bg);
+  color: var(--purple);
+}
+[data-theme="dark"] .env-tag.vm {
+  background: rgba(133, 170, 245, 0.15);
+  color: var(--accent);
+}
+[data-theme="dark"] .env-tag.container {
+  background: var(--purple-bg);
+  color: var(--purple);
 }
 
 /* BW bar cell */
@@ -305,7 +454,7 @@ td.mono {
   transition: width 400ms ease;
 }
 .bw-bar.baseline { background: var(--accent-bar); }
-.bw-bar.tailscale { background: rgba(99, 102, 241, 0.13); }
+.bw-bar.tailscale { background: var(--indigo-soft); }
 .bw-val { position: relative; z-index: 1; }
 
 /* Overhead badge */
@@ -439,7 +588,7 @@ td.mono {
   transition: width 400ms ease;
 }
 .mtr-hop-bar.baseline-bar { background: var(--accent); opacity: 0.6; }
-.mtr-hop-bar.ts-bar { background: #818cf8; opacity: 0.6; }
+.mtr-hop-bar.ts-bar { background: var(--indigo); opacity: 0.6; }
 .mtr-hop-val {
   font-family: var(--font-mono);
   font-size: 0.7rem;
@@ -468,6 +617,7 @@ footer a:hover { text-decoration: underline; }
   .stats-row { grid-template-columns: repeat(2, 1fr); }
   .detail-grid { grid-template-columns: 1fr; }
   .mtr-comparison { grid-template-columns: 1fr; }
+  .insights-canvas-wrap { height: 300px; }
 }
 @media (max-width: 600px) {
   html { font-size: 14px; }
@@ -477,6 +627,8 @@ footer a:hover { text-decoration: underline; }
   .header-inner { flex-direction: column; gap: 12px; }
   .table-wrap { overflow-x: auto; }
   table { min-width: 700px; }
+  .insights-canvas-wrap { height: 250px; }
+  .insights-tab { padding: 8px 14px; font-size: 0.75rem; }
 }
 </style>
 </head>
@@ -499,6 +651,14 @@ footer a:hover { text-decoration: underline; }
 <main class="container">
   <div class="stats-row" id="statsRow"></div>
 
+  <div class="insights-panel" id="insightsPanel">
+    <div class="insights-tabs" id="insightsTabs"></div>
+    <div class="insights-canvas-wrap" id="insightsBody">
+      <canvas id="insightsCanvas"></canvas>
+      <div id="heatmapContainer" style="display:none"></div>
+    </div>
+  </div>
+
   <div class="filter-bar" id="providerFilterBar">
     <label>Provider</label>
     <div class="pill-group" id="providerFilter"></div>
@@ -507,6 +667,11 @@ footer a:hover { text-decoration: underline; }
   <div class="filter-bar">
     <label>Family</label>
     <div class="pill-group" id="familyFilter"></div>
+  </div>
+
+  <div class="filter-bar" id="envFilterBar" style="display:none">
+    <label>Environment</label>
+    <div class="pill-group" id="envFilter"></div>
   </div>
 
   <div class="filter-bar" id="k8sFilterBar" style="display:none">
@@ -531,26 +696,40 @@ footer a:hover { text-decoration: underline; }
   </div>
 </footer>
 
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4/dist/chart.umd.min.js"></script>
 <script src="data.generated.js"></script>
 <script>
 (function() {
-  // --- vCPU resolver: use JSON field with fallback parsing ---
+  // --- CSS variable reader ---
+  function cssVar(name) {
+    return getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+  }
+
+  // --- vCPU resolver ---
   function getVCPUs(d) {
     if (d.vcpus) return d.vcpus;
     var type = d.instance_type;
-    // GCP: c3-standard-4 -> 4
     var m = type.match(/(\d+)$/);
     if (m) return parseInt(m[1], 10);
-    // AWS: c6i.xlarge -> 4
     var awsSize = type.split('.')[1];
     if (awsSize) {
       var awsMap = {xlarge:4,'2xlarge':8,'4xlarge':16,'8xlarge':32,'12xlarge':48,'16xlarge':64,'24xlarge':96};
       if (awsMap[awsSize]) return awsMap[awsSize];
     }
-    // Azure: Standard_D4_v5 -> 4
     var azNum = type.match(/_[A-Z](\d+)/);
     if (azNum) return parseInt(azNum[1], 10);
     return 0;
+  }
+
+  // --- Provider colors ---
+  var providerColors = {
+    gcp: function() { return cssVar('--accent'); },
+    aws: function() { return cssVar('--amber'); },
+    azure: function() { return cssVar('--emerald'); }
+  };
+  function getProviderColor(d) {
+    var p = (d.cloud_provider || 'gcp').toLowerCase();
+    return providerColors[p] ? providerColors[p]() : cssVar('--accent');
   }
 
   // --- State ---
@@ -560,10 +739,12 @@ footer a:hover { text-decoration: underline; }
     sortKey: 'ts_bw',
     sortDir: 'desc',
     expanded: null,
-    filterK8s: false
+    filterK8s: false,
+    filterEnv: 'all',
+    activeTab: 'throughput'
   };
 
-  // --- Detect providers present in data ---
+  // --- Detect providers ---
   function getProviders() {
     var p = {};
     TAILBENCH_DATA.forEach(function(d) { p[(d.cloud_provider || 'gcp').toUpperCase()] = true; });
@@ -572,14 +753,13 @@ footer a:hover { text-decoration: underline; }
 
   var allProviders = getProviders();
   var multiProvider = allProviders.length > 1;
-
-  // --- Detect single-stream data ---
   var hasSingle = TAILBENCH_DATA.some(function(d) { return d.baseline_tcp_single; });
-
-  // --- Detect K8s data ---
   var hasK8s = TAILBENCH_DATA.some(function(d) { return d.k8s_pod_to_vm_tcp; });
+  var hasContainer = TAILBENCH_DATA.some(function(d) { return d.environment === 'container'; });
+  var hasVM = TAILBENCH_DATA.some(function(d) { return !d.environment || d.environment === 'vm'; });
+  var hasMultiEnv = hasContainer && hasVM;
 
-  // --- Max BW for bar scaling ---
+  // --- Max BW ---
   var maxBW = 0;
   TAILBENCH_DATA.forEach(function(d) {
     var b = d.baseline_tcp.summary.bandwidth_mbps_avg;
@@ -622,6 +802,7 @@ footer a:hover { text-decoration: underline; }
     var next = current === 'dark' ? 'light' : 'dark';
     localStorage.setItem('tailbench-theme', next);
     applyTheme(next);
+    renderChart();
   });
 
   // --- Hash state ---
@@ -638,6 +819,8 @@ footer a:hover { text-decoration: underline; }
     if (params.sort) state.sortKey = params.sort;
     if (params.dir) state.sortDir = params.dir;
     if (params.k8s) state.filterK8s = params.k8s === '1';
+    if (params.env) state.filterEnv = params.env;
+    if (params.tab) state.activeTab = params.tab;
   }
   function writeHash() {
     var parts = [];
@@ -646,11 +829,13 @@ footer a:hover { text-decoration: underline; }
     if (state.sortKey !== 'ts_bw') parts.push('sort=' + encodeURIComponent(state.sortKey));
     if (state.sortDir !== 'desc') parts.push('dir=' + encodeURIComponent(state.sortDir));
     if (state.filterK8s) parts.push('k8s=1');
+    if (state.filterEnv !== 'all') parts.push('env=' + encodeURIComponent(state.filterEnv));
+    if (state.activeTab !== 'throughput') parts.push('tab=' + encodeURIComponent(state.activeTab));
     location.hash = parts.length ? parts.join('&') : '';
   }
   readHash();
 
-  // --- Provider-filtered data ---
+  // --- Data filters ---
   function getProviderData() {
     if (state.provider === 'all') return TAILBENCH_DATA.slice();
     return TAILBENCH_DATA.filter(function(d) {
@@ -658,13 +843,686 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
-  // --- Family-filtered data (after provider filter) ---
   function getFilteredData() {
     var data = getProviderData();
     if (state.family !== 'all') data = data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
     if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_vm_tcp; });
+    if (state.filterEnv !== 'all') {
+      data = data.filter(function(d) {
+        var env = d.environment || 'vm';
+        return env === state.filterEnv;
+      });
+    }
     return data;
   }
+
+  // --- Highlight table row from chart click ---
+  function highlightInstance(instanceKey) {
+    var row = document.querySelector('.data-row[data-instance="' + instanceKey + '"]');
+    if (!row) return;
+    row.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    row.classList.remove('chart-highlight');
+    void row.offsetWidth;
+    row.classList.add('chart-highlight');
+    // expand the detail row
+    state.expanded = instanceKey;
+    renderTable();
+    // re-scroll after re-render
+    var row2 = document.querySelector('.data-row[data-instance="' + instanceKey + '"]');
+    if (row2) {
+      row2.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      row2.classList.add('chart-highlight');
+    }
+  }
+
+  // ===== CHART SYSTEM =====
+  var activeChart = null;
+  var chartTabs = [
+    { id: 'throughput', label: 'Throughput vs vCPU' },
+    { id: 'heatmap', label: 'Overhead Heatmap' },
+    { id: 'efficiency', label: 'Efficiency (Gbps/vCPU)' }
+  ];
+  if (hasMultiEnv) {
+    chartTabs.push({ id: 'environment', label: 'Container vs VM' });
+  }
+  if (multiProvider) {
+    chartTabs.push({ id: 'radar', label: 'Provider Comparison' });
+  }
+
+  function renderInsightsTabs() {
+    var html = '';
+    chartTabs.forEach(function(t) {
+      html += '<button class="insights-tab' + (state.activeTab === t.id ? ' active' : '') + '" data-tab="' + t.id + '">' + t.label + '</button>';
+    });
+    document.getElementById('insightsTabs').innerHTML = html;
+    document.querySelectorAll('.insights-tab').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        state.activeTab = this.getAttribute('data-tab');
+        writeHash();
+        renderInsightsTabs();
+        renderChart();
+      });
+    });
+  }
+
+  function renderChart() {
+    if (activeChart) { activeChart.destroy(); activeChart = null; }
+    var canvas = document.getElementById('insightsCanvas');
+    var heatmapEl = document.getElementById('heatmapContainer');
+
+    if (state.activeTab === 'heatmap') {
+      canvas.style.display = 'none';
+      heatmapEl.style.display = '';
+      renderHeatmap();
+    } else {
+      canvas.style.display = '';
+      heatmapEl.style.display = 'none';
+      if (state.activeTab === 'throughput') renderThroughputChart();
+      else if (state.activeTab === 'efficiency') renderEfficiencyChart();
+      else if (state.activeTab === 'environment') renderEnvironmentChart();
+      else if (state.activeTab === 'radar') renderRadarChart();
+    }
+  }
+
+  // --- Chart 1: Throughput vs vCPU ---
+  function renderThroughputChart() {
+    var data = getFilteredData();
+    var canvas = document.getElementById('insightsCanvas');
+    var ctx = canvas.getContext('2d');
+
+    var baselinePoints = [];
+    var tailscalePoints = [];
+    data.forEach(function(d) {
+      var vcpus = getVCPUs(d);
+      var bBW = d.baseline_tcp.summary.bandwidth_mbps_avg / 1000;
+      var tBW = d.tailscale_tcp.summary.bandwidth_mbps_avg / 1000;
+      var key = d.instance_type + (d.ena_express ? '-ena' : '');
+      baselinePoints.push({ x: vcpus, y: bBW, instanceKey: key, label: d.instance_type, provider: (d.cloud_provider || 'gcp').toUpperCase() });
+      tailscalePoints.push({ x: vcpus, y: tBW, instanceKey: key, label: d.instance_type, provider: (d.cloud_provider || 'gcp').toUpperCase() });
+    });
+
+    activeChart = new Chart(ctx, {
+      type: 'scatter',
+      data: {
+        datasets: [
+          {
+            label: 'Baseline',
+            data: baselinePoints,
+            backgroundColor: cssVar('--accent'),
+            borderColor: cssVar('--accent'),
+            pointRadius: 6,
+            pointHoverRadius: 9,
+            pointStyle: 'circle'
+          },
+          {
+            label: 'Tailscale',
+            data: tailscalePoints,
+            backgroundColor: cssVar('--indigo'),
+            borderColor: cssVar('--indigo'),
+            pointRadius: 6,
+            pointHoverRadius: 9,
+            pointStyle: 'triangle'
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        interaction: { mode: 'nearest', intersect: true },
+        onClick: function(evt, elements) {
+          if (elements.length > 0) {
+            var el = elements[0];
+            var pt = activeChart.data.datasets[el.datasetIndex].data[el.index];
+            if (pt && pt.instanceKey) highlightInstance(pt.instanceKey);
+          }
+        },
+        scales: {
+          x: {
+            type: 'logarithmic',
+            title: { display: true, text: 'vCPUs', color: cssVar('--text-secondary'), font: { size: 12 } },
+            ticks: { color: cssVar('--text-muted'), callback: function(v) { return v; } },
+            grid: { color: cssVar('--border-subtle') }
+          },
+          y: {
+            title: { display: true, text: 'Throughput (Gbps)', color: cssVar('--text-secondary'), font: { size: 12 } },
+            ticks: { color: cssVar('--text-muted') },
+            grid: { color: cssVar('--border-subtle') },
+            beginAtZero: true
+          }
+        },
+        plugins: {
+          legend: {
+            labels: { color: cssVar('--text-secondary'), usePointStyle: true, pointStyle: 'circle', padding: 16 }
+          },
+          tooltip: {
+            backgroundColor: cssVar('--bg-card'),
+            titleColor: cssVar('--text-primary'),
+            bodyColor: cssVar('--text-secondary'),
+            borderColor: cssVar('--border'),
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              title: function(items) {
+                var pt = items[0].raw;
+                return pt.label + ' (' + pt.provider + ')';
+              },
+              label: function(item) {
+                return item.dataset.label + ': ' + item.raw.y.toFixed(2) + ' Gbps @ ' + item.raw.x + ' vCPUs';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Chart 2: Overhead Heatmap ---
+  function renderHeatmap() {
+    var data = getFilteredData();
+    var container = document.getElementById('heatmapContainer');
+
+    // Build grid: rows=families, cols=vcpu counts
+    var familyMap = {};
+    var vcpuSet = {};
+    data.forEach(function(d) {
+      var fam = d.instance_family.toUpperCase();
+      var vcpus = getVCPUs(d);
+      if (!familyMap[fam]) familyMap[fam] = {};
+      familyMap[fam][vcpus] = d;
+      vcpuSet[vcpus] = true;
+    });
+
+    var families = Object.keys(familyMap).sort();
+    var vcpuCols = Object.keys(vcpuSet).map(Number).sort(function(a, b) { return a - b; });
+
+    if (families.length === 0 || vcpuCols.length === 0) {
+      container.innerHTML = '<div style="display:flex;align-items:center;justify-content:center;height:100%;color:var(--text-muted)">No data for current filters</div>';
+      return;
+    }
+
+    var cols = vcpuCols.length + 1;
+    var html = '<div class="heatmap-grid" style="grid-template-columns: 80px repeat(' + vcpuCols.length + ', 1fr)">';
+
+    // Header row
+    html += '<div class="heatmap-cell header-cell"></div>';
+    vcpuCols.forEach(function(v) {
+      html += '<div class="heatmap-cell header-cell">' + v + ' vCPU</div>';
+    });
+
+    // Data rows
+    families.forEach(function(fam) {
+      html += '<div class="heatmap-cell header-cell">' + fam + '</div>';
+      vcpuCols.forEach(function(v) {
+        var d = familyMap[fam][v];
+        if (!d) {
+          html += '<div class="heatmap-cell empty-cell">—</div>';
+          return;
+        }
+        var pct = d.overhead.bandwidth_pct;
+        var key = d.instance_type + (d.ena_express ? '-ena' : '');
+        var bg, color;
+        if (pct < 5) {
+          bg = cssVar('--green-bg');
+          color = cssVar('--green');
+        } else if (pct <= 15) {
+          bg = cssVar('--yellow-bg');
+          color = cssVar('--yellow');
+        } else {
+          bg = cssVar('--red-bg');
+          color = cssVar('--red');
+        }
+        // Increase opacity based on magnitude
+        var opacity = Math.min(0.3 + (pct / 30), 1);
+        html += '<div class="heatmap-cell" data-instance="' + key + '" style="background:' + bg + ';color:' + color + ';opacity:' + opacity.toFixed(2) + '" title="' + d.instance_type + ': ' + pct.toFixed(1) + '% overhead">' + pct.toFixed(1) + '%</div>';
+      });
+    });
+
+    html += '</div>';
+    container.innerHTML = html;
+
+    // Click handlers
+    container.querySelectorAll('.heatmap-cell[data-instance]').forEach(function(cell) {
+      cell.addEventListener('click', function() {
+        highlightInstance(this.getAttribute('data-instance'));
+      });
+    });
+  }
+
+  // --- Chart 3: Efficiency (Gbps per vCPU) ---
+  function renderEfficiencyChart() {
+    var data = getFilteredData();
+    var canvas = document.getElementById('insightsCanvas');
+    var ctx = canvas.getContext('2d');
+
+    var entries = data.map(function(d) {
+      var vcpus = getVCPUs(d);
+      var bGbps = d.baseline_tcp.summary.bandwidth_mbps_avg / 1000;
+      var tGbps = d.tailscale_tcp.summary.bandwidth_mbps_avg / 1000;
+      return {
+        label: d.instance_type,
+        instanceKey: d.instance_type + (d.ena_express ? '-ena' : ''),
+        baselineEff: vcpus > 0 ? bGbps / vcpus : 0,
+        tailscaleEff: vcpus > 0 ? tGbps / vcpus : 0,
+        vcpus: vcpus
+      };
+    }).sort(function(a, b) { return b.tailscaleEff - a.tailscaleEff; });
+
+    var labels = entries.map(function(e) { return e.label; });
+
+    activeChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: labels,
+        datasets: [
+          {
+            label: 'Baseline Gbps/vCPU',
+            data: entries.map(function(e) { return e.baselineEff; }),
+            backgroundColor: cssVar('--accent') + '99',
+            borderColor: cssVar('--accent'),
+            borderWidth: 1,
+            borderRadius: 3
+          },
+          {
+            label: 'Tailscale Gbps/vCPU',
+            data: entries.map(function(e) { return e.tailscaleEff; }),
+            backgroundColor: cssVar('--indigo') + '99',
+            borderColor: cssVar('--indigo'),
+            borderWidth: 1,
+            borderRadius: 3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        onClick: function(evt, elements) {
+          if (elements.length > 0) {
+            var idx = elements[0].index;
+            highlightInstance(entries[idx].instanceKey);
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Gbps per vCPU', color: cssVar('--text-secondary'), font: { size: 12 } },
+            ticks: { color: cssVar('--text-muted') },
+            grid: { color: cssVar('--border-subtle') },
+            beginAtZero: true
+          },
+          y: {
+            ticks: {
+              color: cssVar('--text-muted'),
+              font: { family: cssVar('--font-mono'), size: 11 }
+            },
+            grid: { display: false }
+          }
+        },
+        plugins: {
+          legend: {
+            labels: { color: cssVar('--text-secondary'), padding: 16 }
+          },
+          tooltip: {
+            backgroundColor: cssVar('--bg-card'),
+            titleColor: cssVar('--text-primary'),
+            bodyColor: cssVar('--text-secondary'),
+            borderColor: cssVar('--border'),
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              afterBody: function(items) {
+                var idx = items[0].dataIndex;
+                return 'vCPUs: ' + entries[idx].vcpus;
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Chart: Container vs VM ---
+  function renderEnvironmentChart() {
+    var canvas = document.getElementById('insightsCanvas');
+    var ctx = canvas.getContext('2d');
+
+    // Group data by instance type, pairing VM and container results
+    var byType = {};
+    TAILBENCH_DATA.forEach(function(d) {
+      var type = d.instance_type;
+      if (!byType[type]) byType[type] = {};
+      var env = d.environment || 'vm';
+      byType[type][env] = d;
+    });
+
+    // Only include instances that have both environments
+    var paired = Object.keys(byType).filter(function(t) {
+      return byType[t].vm && byType[t].container;
+    }).sort(function(a, b) {
+      var aVM = byType[a].vm.tailscale_tcp.summary.bandwidth_mbps_avg;
+      var bVM = byType[b].vm.tailscale_tcp.summary.bandwidth_mbps_avg;
+      return bVM - aVM;
+    });
+
+    if (paired.length === 0) {
+      // Fallback: compare aggregate stats
+      var vmData = TAILBENCH_DATA.filter(function(d) { return !d.environment || d.environment === 'vm'; });
+      var containerData = TAILBENCH_DATA.filter(function(d) { return d.environment === 'container'; });
+
+      var labels = [];
+      var vmBWs = [];
+      var containerBWs = [];
+
+      vmData.forEach(function(d) {
+        labels.push(d.instance_type + ' (VM)');
+        vmBWs.push(d.tailscale_tcp.summary.bandwidth_mbps_avg / 1000);
+        containerBWs.push(0);
+      });
+      containerData.forEach(function(d) {
+        labels.push(d.instance_type + ' (Container)');
+        vmBWs.push(0);
+        containerBWs.push(d.tailscale_tcp.summary.bandwidth_mbps_avg / 1000);
+      });
+
+      activeChart = new Chart(ctx, {
+        type: 'bar',
+        data: {
+          labels: labels,
+          datasets: [
+            {
+              label: 'VM Tailscale BW',
+              data: vmBWs,
+              backgroundColor: cssVar('--accent') + '99',
+              borderColor: cssVar('--accent'),
+              borderWidth: 1,
+              borderRadius: 3
+            },
+            {
+              label: 'Container Tailscale BW',
+              data: containerBWs,
+              backgroundColor: 'rgba(153,95,195,0.6)',
+              borderColor: '#995fc3',
+              borderWidth: 1,
+              borderRadius: 3
+            }
+          ]
+        },
+        options: {
+          responsive: true,
+          maintainAspectRatio: false,
+          indexAxis: 'y',
+          scales: {
+            x: {
+              title: { display: true, text: 'Tailscale Throughput (Gbps)', color: cssVar('--text-secondary'), font: { size: 12 } },
+              ticks: { color: cssVar('--text-muted') },
+              grid: { color: cssVar('--border-subtle') },
+              beginAtZero: true
+            },
+            y: {
+              ticks: { color: cssVar('--text-muted'), font: { family: cssVar('--font-mono'), size: 11 } },
+              grid: { display: false }
+            }
+          },
+          plugins: {
+            legend: { labels: { color: cssVar('--text-secondary'), padding: 16 } },
+            tooltip: {
+              backgroundColor: cssVar('--bg-card'),
+              titleColor: cssVar('--text-primary'),
+              bodyColor: cssVar('--text-secondary'),
+              borderColor: cssVar('--border'),
+              borderWidth: 1,
+              padding: 10
+            }
+          }
+        }
+      });
+      return;
+    }
+
+    // Paired comparison chart
+    activeChart = new Chart(ctx, {
+      type: 'bar',
+      data: {
+        labels: paired,
+        datasets: [
+          {
+            label: 'VM Tailscale BW',
+            data: paired.map(function(t) { return byType[t].vm.tailscale_tcp.summary.bandwidth_mbps_avg / 1000; }),
+            backgroundColor: cssVar('--accent') + '99',
+            borderColor: cssVar('--accent'),
+            borderWidth: 1,
+            borderRadius: 3
+          },
+          {
+            label: 'Container Tailscale BW',
+            data: paired.map(function(t) { return byType[t].container.tailscale_tcp.summary.bandwidth_mbps_avg / 1000; }),
+            backgroundColor: 'rgba(14,165,233,0.6)',
+            borderColor: '#0ea5e9',
+            borderWidth: 1,
+            borderRadius: 3
+          },
+          {
+            label: 'VM Baseline BW',
+            data: paired.map(function(t) { return byType[t].vm.baseline_tcp.summary.bandwidth_mbps_avg / 1000; }),
+            backgroundColor: cssVar('--accent') + '33',
+            borderColor: cssVar('--accent') + '66',
+            borderWidth: 1,
+            borderRadius: 3
+          },
+          {
+            label: 'Container Baseline BW',
+            data: paired.map(function(t) { return byType[t].container.baseline_tcp.summary.bandwidth_mbps_avg / 1000; }),
+            backgroundColor: 'rgba(153,95,195,0.2)',
+            borderColor: 'rgba(153,95,195,0.4)',
+            borderWidth: 1,
+            borderRadius: 3
+          }
+        ]
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        indexAxis: 'y',
+        onClick: function(evt, elements) {
+          if (elements.length > 0) {
+            var idx = elements[0].index;
+            var type = paired[idx];
+            var dsIdx = elements[0].datasetIndex;
+            var env = dsIdx < 2 ? 'vm' : 'container';
+            if (dsIdx === 1 || dsIdx === 3) env = 'container';
+            else env = 'vm';
+            var d = byType[type][env];
+            if (d) highlightInstance(d.instance_type + (d.ena_express ? '-ena' : ''));
+          }
+        },
+        scales: {
+          x: {
+            title: { display: true, text: 'Throughput (Gbps)', color: cssVar('--text-secondary'), font: { size: 12 } },
+            ticks: { color: cssVar('--text-muted') },
+            grid: { color: cssVar('--border-subtle') },
+            beginAtZero: true
+          },
+          y: {
+            ticks: { color: cssVar('--text-muted'), font: { family: cssVar('--font-mono'), size: 11 } },
+            grid: { display: false }
+          }
+        },
+        plugins: {
+          legend: { labels: { color: cssVar('--text-secondary'), padding: 16 } },
+          tooltip: {
+            backgroundColor: cssVar('--bg-card'),
+            titleColor: cssVar('--text-primary'),
+            bodyColor: cssVar('--text-secondary'),
+            borderColor: cssVar('--border'),
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              afterBody: function(items) {
+                var idx = items[0].dataIndex;
+                var type = paired[idx];
+                var vm = byType[type].vm;
+                var ctr = byType[type].container;
+                return 'VM overhead: ' + vm.overhead.bandwidth_pct.toFixed(1) + '% | Container overhead: ' + ctr.overhead.bandwidth_pct.toFixed(1) + '%';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // --- Chart 4: Provider Radar ---
+  function renderRadarChart() {
+    var canvas = document.getElementById('insightsCanvas');
+    var ctx = canvas.getContext('2d');
+
+    // Aggregate per provider using filtered data
+    var data = getFilteredData();
+    var providerAgg = {};
+    data.forEach(function(d) {
+      var p = (d.cloud_provider || 'gcp').toLowerCase();
+      if (!providerAgg[p]) providerAgg[p] = { maxBW: 0, overheads: [], latencies: [], effs: [], bws: [], count: 0 };
+      var agg = providerAgg[p];
+      var bw = d.tailscale_tcp.summary.bandwidth_mbps_avg / 1000;
+      var vcpus = getVCPUs(d);
+      agg.count++;
+      agg.bws.push(bw);
+      if (bw > agg.maxBW) agg.maxBW = bw;
+      agg.overheads.push(d.overhead.bandwidth_pct);
+      // Only include real latency measurements
+      if (d.tailscale_mtr && d.tailscale_mtr.hops && d.tailscale_mtr.hops.length > 0) {
+        var lastHop = d.tailscale_mtr.hops[d.tailscale_mtr.hops.length - 1];
+        if (lastHop.avg_ms > 0) agg.latencies.push(lastHop.avg_ms);
+      }
+      if (vcpus > 0) agg.effs.push(bw / vcpus);
+    });
+
+    var providers = Object.keys(providerAgg);
+    if (providers.length === 0) return;
+
+    // Compute aggregates
+    providers.forEach(function(p) {
+      var a = providerAgg[p];
+      a.avgOH = a.overheads.reduce(function(s, v) { return s + v; }, 0) / a.overheads.length;
+      a.avgLat = a.latencies.length > 0 ? a.latencies.reduce(function(s, v) { return s + v; }, 0) / a.latencies.length : null;
+      a.avgEff = a.effs.length > 0 ? a.effs.reduce(function(s, v) { return s + v; }, 0) / a.effs.length : 0;
+      var mean = a.bws.reduce(function(s, v) { return s + v; }, 0) / a.bws.length;
+      a.stddev = a.bws.length > 1
+        ? Math.sqrt(a.bws.reduce(function(s, v) { return s + (v - mean) * (v - mean); }, 0) / a.bws.length)
+        : 0;
+    });
+
+    // Min-max normalize with floor at 20 so no axis collapses to 0
+    function normalize(vals, higherIsBetter) {
+      var min = Math.min.apply(null, vals);
+      var max = Math.max.apply(null, vals);
+      if (max === min) return vals.map(function() { return 75; }); // equal = all good
+      return vals.map(function(v) {
+        var pct = (v - min) / (max - min);
+        if (!higherIsBetter) pct = 1 - pct;
+        return 20 + pct * 80; // range [20, 100]
+      });
+    }
+
+    var bwScores = normalize(providers.map(function(p) { return providerAgg[p].maxBW; }), true);
+    var ohScores = normalize(providers.map(function(p) { return providerAgg[p].avgOH; }), false);
+    // For latency, exclude providers with no data (null) — give them score 50
+    var latVals = providers.map(function(p) { return providerAgg[p].avgLat; });
+    var latHasData = latVals.filter(function(v) { return v !== null; });
+    var latScores;
+    if (latHasData.length >= 2) {
+      var latMin = Math.min.apply(null, latHasData);
+      var latMax = Math.max.apply(null, latHasData);
+      latScores = latVals.map(function(v) {
+        if (v === null) return 50;
+        if (latMax === latMin) return 75;
+        return 20 + (1 - (v - latMin) / (latMax - latMin)) * 80;
+      });
+    } else {
+      latScores = providers.map(function() { return 75; });
+    }
+    var effScores = normalize(providers.map(function(p) { return providerAgg[p].avgEff; }), true);
+    var stdScores = normalize(providers.map(function(p) { return providerAgg[p].stddev; }), false);
+
+    var colorMap = {
+      gcp: { bg: 'rgba(59,130,246,0.15)', border: cssVar('--accent') },
+      aws: { bg: 'rgba(245,158,11,0.15)', border: cssVar('--amber') },
+      azure: { bg: 'rgba(16,185,129,0.15)', border: cssVar('--emerald') }
+    };
+
+    var datasets = providers.map(function(p, i) {
+      var a = providerAgg[p];
+      var scores = [bwScores[i], ohScores[i], latScores[i], effScores[i], stdScores[i]];
+      var c = colorMap[p] || { bg: 'rgba(156,163,175,0.15)', border: cssVar('--text-muted') };
+      return {
+        label: p.toUpperCase() + ' (' + a.count + ' tests)',
+        data: scores,
+        backgroundColor: c.bg,
+        borderColor: c.border,
+        borderWidth: 2,
+        pointBackgroundColor: c.border,
+        pointRadius: 4,
+        pointHoverRadius: 6
+      };
+    });
+
+    activeChart = new Chart(ctx, {
+      type: 'radar',
+      data: {
+        labels: ['Max Throughput', 'Low Overhead', 'Low Latency', 'Gbps/vCPU', 'Consistency'],
+        datasets: datasets
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        scales: {
+          r: {
+            beginAtZero: true,
+            max: 100,
+            ticks: { display: false },
+            grid: { color: cssVar('--border') },
+            angleLines: { color: cssVar('--border') },
+            pointLabels: {
+              color: cssVar('--text-secondary'),
+              font: { size: 12, weight: 600 }
+            }
+          }
+        },
+        plugins: {
+          legend: {
+            labels: { color: cssVar('--text-secondary'), padding: 16, usePointStyle: true }
+          },
+          tooltip: {
+            backgroundColor: cssVar('--bg-card'),
+            titleColor: cssVar('--text-primary'),
+            bodyColor: cssVar('--text-secondary'),
+            borderColor: cssVar('--border'),
+            borderWidth: 1,
+            padding: 10,
+            callbacks: {
+              label: function(item) {
+                var pIdx = item.datasetIndex;
+                var p = providers[pIdx];
+                var a = providerAgg[p];
+                var axisLabels = ['Max Throughput', 'Low Overhead', 'Low Latency', 'Gbps/vCPU', 'Consistency'];
+                var axisIdx = item.dataIndex;
+                var detail = '';
+                switch (axisIdx) {
+                  case 0: detail = a.maxBW.toFixed(1) + ' Gbps'; break;
+                  case 1: detail = a.avgOH.toFixed(1) + '% avg'; break;
+                  case 2: detail = a.avgLat !== null ? a.avgLat.toFixed(2) + ' ms' : 'no data'; break;
+                  case 3: detail = a.avgEff.toFixed(2) + ' Gbps/vCPU'; break;
+                  case 4: detail = 'stddev ' + a.stddev.toFixed(2) + ' Gbps'; break;
+                }
+                return p.toUpperCase() + ': ' + detail + ' (score ' + item.raw.toFixed(0) + ')';
+              }
+            }
+          }
+        }
+      }
+    });
+  }
+
+  // ===== ORIGINAL TABLE SYSTEM =====
 
   // --- Stats ---
   function renderStats() {
@@ -706,6 +1564,28 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
+  // --- Environment filter ---
+  function renderEnvFilter() {
+    var bar = document.getElementById('envFilterBar');
+    if (!hasMultiEnv) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    var envs = ['all', 'vm', 'container'];
+    var labels = { all: 'All', vm: 'VM', container: 'Container' };
+    var html = '';
+    envs.forEach(function(e) {
+      html += '<button class="pill' + (state.filterEnv === e ? ' active' : '') + '" data-env="' + e + '">' + labels[e] + '</button>';
+    });
+    document.getElementById('envFilter').innerHTML = html;
+    document.querySelectorAll('#envFilter .pill').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        state.filterEnv = this.getAttribute('data-env');
+        state.expanded = null;
+        writeHash();
+        render();
+      });
+    });
+  }
+
   // --- K8s filter ---
   function renderK8sFilter() {
     var bar = document.getElementById('k8sFilterBar');
@@ -721,7 +1601,7 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
-  // --- Family filter (scoped to provider) ---
+  // --- Family filter ---
   function getFamilies() {
     var data = getProviderData();
     var fam = {};
@@ -774,18 +1654,15 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
-  // --- Overhead class ---
   function overheadClass(pct) {
     if (pct < 5) return 'overhead-green';
     if (pct <= 15) return 'overhead-yellow';
     return 'overhead-red';
   }
 
-  // --- Format helpers ---
   function toGbps(mbps) { return (mbps / 1000).toFixed(2); }
   function fmtNum(n, dec) { return Number(n).toFixed(dec !== undefined ? dec : 0); }
 
-  // --- Dynamic table header ---
   var showCloudCol = multiProvider && state.provider === 'all';
 
   function renderTableHead() {
@@ -820,7 +1697,6 @@ footer a:hover { text-decoration: underline; }
     html += '</tr>';
     document.getElementById('tableHead').innerHTML = html;
 
-    // Bind sort click handlers
     document.querySelectorAll('#tableHead th[data-sort]').forEach(function(th) {
       var key = th.getAttribute('data-sort');
       if (!key) return;
@@ -837,7 +1713,6 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
-  // --- Render table ---
   function renderTable() {
     var data = sortData(getFilteredData());
     var tbody = document.getElementById('tableBody');
@@ -855,7 +1730,8 @@ footer a:hover { text-decoration: underline; }
       var isOpen = state.expanded === rowKey;
 
       html += '<tr data-instance="' + rowKey + '" class="data-row">';
-      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span>' + (d.ena_express ? '<span class="ena-tag">ENA Express</span>' : '') + (d.k8s_pod_to_vm_tcp ? '<span class="k8s-tag">K8s</span>' : '') + '</td>';
+      var envLabel = d.environment === 'container' ? '<span class="env-tag container">Container</span>' : (hasMultiEnv ? '<span class="env-tag vm">VM</span>' : '');
+      html += '<td><span class="instance-type">' + d.instance_type + '</span><span class="instance-family-tag">' + d.instance_family.toUpperCase() + '</span>' + envLabel + (d.ena_express ? '<span class="ena-tag">ENA Express</span>' : '') + (d.k8s_pod_to_vm_tcp ? '<span class="k8s-tag">K8s</span>' : '') + '</td>';
       if (showCloudCol) {
         html += '<td><span class="cloud-tag">' + (d.cloud_provider || 'gcp').toUpperCase() + '</span></td>';
       }
@@ -901,7 +1777,6 @@ footer a:hover { text-decoration: underline; }
 
     tbody.innerHTML = html;
 
-    // bind events
     document.querySelectorAll('.data-row').forEach(function(row) {
       row.addEventListener('click', function(e) {
         if (e.target.closest('.btn-details')) return;
@@ -926,21 +1801,25 @@ footer a:hover { text-decoration: underline; }
     var provider = (d.cloud_provider || 'gcp').toUpperCase();
     var sc = d.system_config;
 
-    // Meta
     html += '<div class="detail-meta">';
     html += '<div class="detail-meta-item"><strong>Provider:</strong> ' + provider + '</div>';
     html += '<div class="detail-meta-item"><strong>Date:</strong> ' + d.date + '</div>';
     html += '<div class="detail-meta-item"><strong>Tailscale:</strong> v' + d.tailscale_version + '</div>';
     html += '<div class="detail-meta-item"><strong>Region:</strong> ' + d.region + ' (' + d.zone + ')</div>';
     html += '<div class="detail-meta-item"><strong>vCPUs:</strong> ' + getVCPUs(d) + '</div>';
+    if (d.environment) {
+      html += '<div class="detail-meta-item"><strong>Environment:</strong> ' + d.environment + '</div>';
+    }
     if (d.ena_express) {
       html += '<div class="detail-meta-item"><strong>ENA Express:</strong> enabled</div>';
+    }
+    if (sc && sc.container_runtime) {
+      html += '<div class="detail-meta-item"><strong>Runtime:</strong> ' + sc.container_runtime + '</div>';
     }
     html += '<div class="detail-meta-item"><strong>iperf3:</strong> ' + d.test_config.iperf_parallel_streams + ' streams, ' + d.test_config.iperf_duration_sec + 's, ' + d.test_config.iperf_iterations + ' runs</div>';
     html += '<div class="detail-meta-item"><strong>MTR:</strong> ' + d.test_config.mtr_cycles + ' cycles</div>';
     html += '</div>';
 
-    // System config (if present)
     if (sc) {
       html += '<div class="detail-meta" style="margin-bottom:16px">';
       html += '<div class="detail-meta-item"><strong>TCP CC:</strong> ' + sc.tcp_congestion_control + '</div>';
@@ -958,7 +1837,6 @@ footer a:hover { text-decoration: underline; }
 
     html += '<div class="detail-grid">';
 
-    // iperf runs
     var hasDetailSingle = d.baseline_tcp_single && d.baseline_tcp_single.runs;
     html += '<div class="detail-section">';
     html += '<h4>iperf3 Per-Run Results</h4>';
@@ -981,17 +1859,14 @@ footer a:hover { text-decoration: underline; }
     html += '</tbody></table>';
     html += '</div>';
 
-    // MTR comparison
     html += '<div class="detail-section">';
     html += '<h4>MTR Hop-by-Hop Latency</h4>';
     html += '<div class="mtr-comparison">';
 
-    // find max latency for bar scaling
     var maxLat = 0;
     (d.baseline_mtr.hops || []).forEach(function(h) { if (h.avg_ms > maxLat) maxLat = h.avg_ms; });
     (d.tailscale_mtr.hops || []).forEach(function(h) { if (h.avg_ms > maxLat) maxLat = h.avg_ms; });
 
-    // Baseline column
     html += '<div class="mtr-column"><h5>Baseline &mdash; ' + d.baseline_mtr.target_ip + '</h5>';
     (d.baseline_mtr.hops || []).forEach(function(h) {
       var barW = maxLat ? (h.avg_ms / maxLat * 80).toFixed(1) : 0;
@@ -999,7 +1874,6 @@ footer a:hover { text-decoration: underline; }
     });
     html += '</div>';
 
-    // Tailscale column
     html += '<div class="mtr-column"><h5>Tailscale &mdash; ' + d.tailscale_mtr.target_ip + '</h5>';
     (d.tailscale_mtr.hops || []).forEach(function(h) {
       var barW = maxLat ? (h.avg_ms / maxLat * 80).toFixed(1) : 0;
@@ -1018,7 +1892,6 @@ footer a:hover { text-decoration: underline; }
 
       html += '<div class="detail-grid" style="margin-top:20px">';
 
-      // K8s VPC-native runs
       html += '<div class="detail-section">';
       html += '<h4>K8s Pod \u2194 VM (VPC / ' + k8sCni + ')</h4>';
       html += '<table class="mini-table"><thead><tr><th>#</th><th>Direction</th><th>Streams</th><th>BW (Gbps)</th><th>Retrans</th><th>Overhead</th></tr></thead><tbody>';
@@ -1050,7 +1923,6 @@ footer a:hover { text-decoration: underline; }
       html += '</tbody></table>';
       html += '</div>';
 
-      // K8s Tailscale sidecar runs (if present)
       if (d.k8s_tailscale_pod_to_vm_tcp) {
         html += '<div class="detail-section">';
         html += '<h4>K8s Tailscale Sidecar \u2194 VM</h4>';
@@ -1099,17 +1971,18 @@ footer a:hover { text-decoration: underline; }
   // --- Full render ---
   function render() {
     renderStats();
+    renderInsightsTabs();
+    renderChart();
     renderProviderFilter();
     renderFamilyFilter();
+    renderEnvFilter();
     renderK8sFilter();
     renderTableHead();
     renderTable();
   }
 
-  // Init
   render();
 
-  // Hash change listener
   window.addEventListener('hashchange', function() {
     readHash();
     render();

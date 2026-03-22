@@ -5,7 +5,7 @@ env_file: .env  # sources OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 
 providers: [gcp]
 family: all
-filter: ""
+filter: "c7g.medium|n2-standard-2|Standard_D2s_v5"
 
 tailscale:
   create_tailnet: true
@@ -14,9 +14,9 @@ tailscale:
   tag: tag:bench
 
 benchmark:
-  iperf_duration: 30
+  iperf_duration: 10
   iperf_parallel: 4
-  iperf_iterations: 3
+  iperf_iterations: 1
   mtr_cycles: 100
   cooldown_sec: 30
 
