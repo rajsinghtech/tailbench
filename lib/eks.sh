@@ -99,8 +99,9 @@ eks_ensure_node_group() {
   for stack in $stacks; do
     [[ -z "$stack" || "$stack" == "None" ]] && continue
     aws cloudformation wait stack-delete-complete --region "$AWS_REGION" \
-      --stack-name "$stack" 2>/dev/null || true
+      --stack-name "$stack" 2>/dev/null || true &
   done
+  wait
 
   # Use a unique name per instance type to avoid eksctl name conflicts
   local ng_name="tb-${target_type//\./-}"

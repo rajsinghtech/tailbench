@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
-source /Users/rajsingh/Documents/GitHub/tailbench/.env
-cd /Users/rajsingh/Documents/GitHub/tailbench
+cd "$(dirname "${BASH_SOURCE[0]}")/.."
+[[ -f .env ]] && source .env
 
 families=(c6in c7i c6i c8g c7gn c8gn m6i c7g m7g)
 

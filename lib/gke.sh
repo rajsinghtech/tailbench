@@ -64,7 +64,7 @@ gke_ensure_node_pool() {
     --format "value(name)" 2>/dev/null) || true
 
   for pool in $pools; do
-    [[ -z "$pool" || "$pool" == "default-pool" ]] && continue
+    [[ -z "$pool" ]] && continue
     log_info "deleting node pool $pool"
     gcloud container node-pools delete "$pool" \
       --cluster "$GKE_CLUSTER_NAME" \
@@ -72,16 +72,6 @@ gke_ensure_node_pool() {
       --zone "$GCP_ZONE" \
       --quiet 2>&1 | while IFS= read -r line; do log_info "gcloud: $line"; done || true
   done
-
-  # Also delete default-pool if it exists (we create our own)
-  if echo "$pools" | grep -q "default-pool"; then
-    log_info "deleting default-pool"
-    gcloud container node-pools delete "default-pool" \
-      --cluster "$GKE_CLUSTER_NAME" \
-      --project "$GCP_PROJECT" \
-      --zone "$GCP_ZONE" \
-      --quiet 2>&1 | while IFS= read -r line; do log_info "gcloud: $line"; done || true
-  fi
 
   local pool_name="tb-${target_type//\//-}"
   log_info "creating node pool $pool_name with $target_type"

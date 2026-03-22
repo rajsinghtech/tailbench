@@ -154,6 +154,10 @@ iperf_run_test() {
   echo "$results"
 }
 
+iperf_overhead_pct() {
+  echo "$1 $2" | awk '{printf "%.1f", (1 - $2/$1) * 100}'
+}
+
 iperf_compute_summary() {
   local runs="$1"
   local bw_values

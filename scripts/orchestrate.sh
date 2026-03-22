@@ -104,6 +104,9 @@ _run_provider() {
     elif [[ "$provider" == "gcp" ]]; then
       source "$TAILBENCH_ROOT/config/gke.sh"
       source "$TAILBENCH_ROOT/lib/gke.sh"
+    elif [[ "$provider" == "azure" ]]; then
+      source "$TAILBENCH_ROOT/config/aks.sh"
+      source "$TAILBENCH_ROOT/lib/aks.sh"
     fi
     source "$TAILBENCH_ROOT/lib/k8s.sh"
   fi
@@ -118,30 +121,26 @@ _run_provider() {
   # Setup provider networking (discovers existing or creates new)
   cloud_setup_networking
 
-  if [[ "$K8S" == "true" && "$provider" == "aws" ]]; then
-    if ! eks_discover_cluster 2>/dev/null; then
-      log_info "EKS cluster not found — provisioning via setup-k8s-cluster.sh"
-      "$TAILBENCH_ROOT/scripts/setup-k8s-cluster.sh"
-    fi
-    eks_get_kubeconfig
-    eks_get_cluster_info
+  if [[ "$K8S" == "true" ]]; then
+    case "$provider" in
+      aws)
+        eks_discover_cluster 2>/dev/null || { log_info "EKS cluster not found — provisioning"; "$TAILBENCH_ROOT/scripts/setup-k8s-cluster.sh"; }
+        eks_get_kubeconfig; eks_get_cluster_info
+        [[ -n "$FAMILY" && "$FAMILY" != "all" ]] && eks_ensure_node_group "${FAMILY}.xlarge"
+        ;;
+      gcp)
+        gke_discover_cluster 2>/dev/null || { log_info "GKE cluster not found — provisioning"; "$TAILBENCH_ROOT/scripts/setup-gke-cluster.sh"; }
+        gke_get_kubeconfig; gke_get_cluster_info
+        [[ -n "$FAMILY" && "$FAMILY" != "all" ]] && gke_ensure_node_pool "${FAMILY}-standard-4"
+        ;;
+      azure)
+        aks_discover_cluster 2>/dev/null || { log_info "AKS cluster not found — provisioning"; "$TAILBENCH_ROOT/scripts/setup-aks-cluster.sh"; }
+        aks_get_kubeconfig; aks_get_cluster_info
+        [[ -n "$FAMILY" && "$FAMILY" != "all" ]] && aks_ensure_node_pool "$(aks_family_to_vm_size "$FAMILY")"
+        ;;
+    esac
     k8s_check_prereqs
     k8s_ensure_namespace
-    if [[ -n "$FAMILY" && "$FAMILY" != "all" ]]; then
-      eks_ensure_node_group "${FAMILY}.xlarge"
-    fi
-  elif [[ "$K8S" == "true" && "$provider" == "gcp" ]]; then
-    if ! gke_discover_cluster 2>/dev/null; then
-      log_info "GKE cluster not found — provisioning via setup-gke-cluster.sh"
-      "$TAILBENCH_ROOT/scripts/setup-gke-cluster.sh"
-    fi
-    gke_get_kubeconfig
-    gke_get_cluster_info
-    k8s_check_prereqs
-    k8s_ensure_namespace
-    if [[ -n "$FAMILY" && "$FAMILY" != "all" ]]; then
-      gke_ensure_node_pool "${FAMILY}-standard-4"
-    fi
   fi
 
   # Build instance list
@@ -209,7 +208,7 @@ _run_provider() {
       [[ ! -f "$ena_result_check" ]] && ena_needs_run=true
     fi
     local k8s_needs_run=false
-    if [[ "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp") ]]; then
+    if [[ "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp" || "$provider" == "azure") ]]; then
       if ! jq -e '.k8s_pod_to_ec2_tcp and .k8s_tailscale_pod_to_ec2_tcp' "$existing_result" &>/dev/null; then
         k8s_needs_run=true
       fi
@@ -301,7 +300,7 @@ _run_provider() {
     fi
 
     # --- K8s benchmark phase ---
-    if [[ -z "$step_failed" && "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp") ]]; then
+    if [[ -z "$step_failed" && "$K8S" == "true" && ("$provider" == "aws" || "$provider" == "gcp" || "$provider" == "azure") ]]; then
       local result_file="$TAILBENCH_ROOT/$provider/$family/results/$inst.json"
       if [[ -f "$result_file" ]]; then
         log_info "[$inst] running K8s benchmark"
@@ -480,6 +479,10 @@ if $DRY_RUN; then
           echo "  -> pod↔vm results merged into $p/$family/results/$inst.json"
         elif [[ "$K8S" == "true" && "$p" == "gcp" ]]; then
           echo "  [K8s] deploy iperf3 pod on ${GKE_CLUSTER_NAME:-<gke-cluster>}"
+          echo "  run-k8s-benchmark.sh $inst <server> <s_lan> <result_file>"
+          echo "  -> pod↔vm results merged into $p/$family/results/$inst.json"
+        elif [[ "$K8S" == "true" && "$p" == "azure" ]]; then
+          echo "  [K8s] deploy iperf3 pod on ${AKS_CLUSTER_NAME:-<aks-cluster>}"
           echo "  run-k8s-benchmark.sh $inst <server> <s_lan> <result_file>"
           echo "  -> pod↔vm results merged into $p/$family/results/$inst.json"
         fi

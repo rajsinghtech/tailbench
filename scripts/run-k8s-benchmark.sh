@@ -7,21 +7,17 @@ source "$TAILBENCH_ROOT/lib/common.sh"
 source "$TAILBENCH_ROOT/config/defaults.sh"
 source "$TAILBENCH_ROOT/config/aws.sh"
 source "$TAILBENCH_ROOT/config/gcp.sh"
+source "$TAILBENCH_ROOT/config/azure.sh"
 source "$TAILBENCH_ROOT/config/eks.sh"
 source "$TAILBENCH_ROOT/config/gke.sh"
+source "$TAILBENCH_ROOT/config/aks.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/iperf.sh"
 source "$TAILBENCH_ROOT/lib/tailscale.sh"
 source "$TAILBENCH_ROOT/lib/eks.sh"
 source "$TAILBENCH_ROOT/lib/gke.sh"
+source "$TAILBENCH_ROOT/lib/aks.sh"
 source "$TAILBENCH_ROOT/lib/k8s.sh"
-
-# Ensure kubeconfig points to the right cluster for this provider
-if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
-  gke_get_kubeconfig 2>/dev/null || true
-elif [[ "${CLOUD_PROVIDER:-}" == "aws" ]]; then
-  eks_get_kubeconfig 2>/dev/null || true
-fi
 
 usage() {
   echo "Usage: $0 <instance_type> <server_name> <server_lan_ip> <result_file>"
@@ -35,14 +31,28 @@ server_name="$2"
 server_lan_ip="$3"
 result_file="$4"
 
-log_info "=== K8s benchmark for $instance_type ==="
+# Ensure kubeconfig points to the right cluster for this provider
+case "${CLOUD_PROVIDER:-aws}" in
+  gcp)   gke_get_kubeconfig 2>/dev/null || true ;;
+  azure) aks_get_kubeconfig 2>/dev/null || true ;;
+  *)     eks_get_kubeconfig 2>/dev/null || true ;;
+esac
 
-# Deploy iperf3 pod — use the right AZ/zone depending on provider
-if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
-  K8S_AZ="$GCP_ZONE"
-else
-  K8S_AZ="$AWS_AZ"
-fi
+# AZ/zone for pod node affinity; AKS uses empty (no zone selector)
+case "${CLOUD_PROVIDER:-aws}" in
+  gcp)   K8S_AZ="$GCP_ZONE" ;;
+  azure) K8S_AZ="" ;;
+  *)     K8S_AZ="$AWS_AZ" ;;
+esac
+
+# Provider-agnostic cluster metadata for result JSON
+case "${CLOUD_PROVIDER:-aws}" in
+  gcp)   K8S_CLUSTER_NAME="$GKE_CLUSTER_NAME"; K8S_VERSION="${GKE_K8S_VERSION:-unknown}" ;;
+  azure) K8S_CLUSTER_NAME="$AKS_CLUSTER_NAME"; K8S_VERSION="${AKS_K8S_VERSION:-unknown}" ;;
+  *)     K8S_CLUSTER_NAME="$EKS_CLUSTER_NAME"; K8S_VERSION="${EKS_K8S_VERSION:-unknown}" ;;
+esac
+
+log_info "=== K8s benchmark for $instance_type ==="
 k8s_deploy_iperf_pod "$K8S_AZ"
 k8s_wait_for_pod 180
 
@@ -114,11 +124,10 @@ baseline_avg=$(jq '.baseline_tcp.summary.bandwidth_mbps_avg' "$result_file")
 pod_to_ec2_avg=$(echo "$pod_to_ec2_summary" | jq '.bandwidth_mbps_avg')
 ec2_to_pod_avg=$(echo "$ec2_to_pod_summary" | jq '.bandwidth_mbps_avg')
 
-pod_to_ec2_overhead=$(echo "$baseline_avg $pod_to_ec2_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
-ec2_to_pod_overhead=$(echo "$baseline_avg $ec2_to_pod_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
+pod_to_ec2_overhead=$(iperf_overhead_pct "$baseline_avg" "$pod_to_ec2_avg")
+ec2_to_pod_overhead=$(iperf_overhead_pct "$baseline_avg" "$ec2_to_pod_avg")
 
-# Get cluster info
-node_type=$(eks_get_node_instance_type)
+node_type=$(k8s_get_node_type)
 
 # Merge K8s results into existing result JSON
 k8s_data=$(jq -n \
@@ -126,8 +135,8 @@ k8s_data=$(jq -n \
   --argjson pod_to_ec2_summary "$pod_to_ec2_summary" \
   --argjson ec2_to_pod_runs "$k8s_ec2_to_pod_runs" \
   --argjson ec2_to_pod_summary "$ec2_to_pod_summary" \
-  --arg cluster_name "$EKS_CLUSTER_NAME" \
-  --arg k8s_version "${EKS_K8S_VERSION:-unknown}" \
+  --arg cluster_name "$K8S_CLUSTER_NAME" \
+  --arg k8s_version "$K8S_VERSION" \
   --arg node_type "$node_type" \
   --arg pod_ip "$pod_ip" \
   --argjson pod_to_ec2_overhead "$pod_to_ec2_overhead" \
@@ -136,7 +145,7 @@ k8s_data=$(jq -n \
     k8s_config: {
       cluster_name: $cluster_name,
       k8s_version: $k8s_version,
-      cni: "aws-vpc-cni",
+      cni: (if env.CLOUD_PROVIDER == "gcp" then "gke-vpc-native" elif env.CLOUD_PROVIDER == "azure" then "azure-cni" else "aws-vpc-cni" end),
       node_instance_type: $node_type,
       pod_ip: $pod_ip
     },
@@ -154,10 +163,7 @@ k8s_data=$(jq -n \
     }
   }')
 
-# Merge into existing result file
-tmp_result=$(mktemp)
-jq --argjson k8s "$k8s_data" '. + $k8s' "$result_file" > "$tmp_result"
-mv "$tmp_result" "$result_file"
+tmp=$(mktemp); jq --argjson k8s "$k8s_data" '. + $k8s' "$result_file" > "$tmp" && mv "$tmp" "$result_file"
 
 log_info "K8s results merged into $result_file"
 log_info "pod→ec2: ${pod_to_ec2_avg} Mbps (${pod_to_ec2_overhead}% overhead)"
@@ -178,13 +184,7 @@ log_info "=== K8s Tailscale sidecar benchmark for $instance_type ==="
 server_ts_ip=$(ts_get_ip "$server_name")
 log_info "EC2 Tailscale IP: $server_ts_ip"
 
-# Create secret and deploy sidecar pod
 k8s_create_ts_secret "$TS_AUTHKEY"
-if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
-  K8S_AZ="$GCP_ZONE"
-else
-  K8S_AZ="$AWS_AZ"
-fi
 k8s_deploy_ts_iperf_pod "$K8S_AZ"
 k8s_wait_for_ts_pod 240
 
@@ -194,7 +194,7 @@ log_info "sidecar Tailscale IP: $sidecar_ts_ip"
 
 # Wait for direct peering
 log_info "waiting for direct connection between sidecar and EC2"
-kubectl exec "$K8S_TS_POD_NAME" -n "$EKS_NAMESPACE" -c ts-sidecar \
+kubectl exec "$K8S_TS_POD_NAME" -n "$K8S_NAMESPACE" -c ts-sidecar \
   -- tailscale ping --c 1 "$server_ts_ip" >/dev/null 2>&1 || true
 sleep 5
 
@@ -261,8 +261,8 @@ ts_ec2_to_pod_summary=$(iperf_compute_summary "$k8s_ts_ec2_to_pod_runs")
 ts_pod_to_ec2_avg=$(echo "$ts_pod_to_ec2_summary" | jq '.bandwidth_mbps_avg')
 ts_ec2_to_pod_avg=$(echo "$ts_ec2_to_pod_summary" | jq '.bandwidth_mbps_avg')
 
-ts_pod_overhead=$(echo "$baseline_avg $ts_pod_to_ec2_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
-ts_ec2_overhead=$(echo "$baseline_avg $ts_ec2_to_pod_avg" | awk '{printf "%.1f", (1 - $2/$1) * 100}')
+ts_pod_overhead=$(iperf_overhead_pct "$baseline_avg" "$ts_pod_to_ec2_avg")
+ts_ec2_overhead=$(iperf_overhead_pct "$baseline_avg" "$ts_ec2_to_pod_avg")
 
 # Merge Tailscale sidecar results
 ts_data=$(jq -n \
@@ -292,9 +292,7 @@ ts_data=$(jq -n \
     }
   }')
 
-tmp_result=$(mktemp)
-jq --argjson ts "$ts_data" '. + $ts' "$result_file" > "$tmp_result"
-mv "$tmp_result" "$result_file"
+tmp=$(mktemp); jq --argjson ts "$ts_data" '. + $ts' "$result_file" > "$tmp" && mv "$tmp" "$result_file"
 
 log_info "Tailscale sidecar results merged into $result_file"
 log_info "sidecar→ec2: ${ts_pod_to_ec2_avg} Mbps (${ts_pod_overhead}% overhead)"
