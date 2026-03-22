@@ -8,11 +8,20 @@ source "$TAILBENCH_ROOT/config/defaults.sh"
 source "$TAILBENCH_ROOT/config/aws.sh"
 source "$TAILBENCH_ROOT/config/gcp.sh"
 source "$TAILBENCH_ROOT/config/eks.sh"
+source "$TAILBENCH_ROOT/config/gke.sh"
 source "$TAILBENCH_ROOT/lib/provider.sh"
 source "$TAILBENCH_ROOT/lib/iperf.sh"
 source "$TAILBENCH_ROOT/lib/tailscale.sh"
 source "$TAILBENCH_ROOT/lib/eks.sh"
+source "$TAILBENCH_ROOT/lib/gke.sh"
 source "$TAILBENCH_ROOT/lib/k8s.sh"
+
+# Ensure kubeconfig points to the right cluster for this provider
+if [[ "${CLOUD_PROVIDER:-}" == "gcp" ]]; then
+  gke_get_kubeconfig 2>/dev/null || true
+elif [[ "${CLOUD_PROVIDER:-}" == "aws" ]]; then
+  eks_get_kubeconfig 2>/dev/null || true
+fi
 
 usage() {
   echo "Usage: $0 <instance_type> <server_name> <server_lan_ip> <result_file>"
