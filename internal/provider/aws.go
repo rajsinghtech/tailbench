@@ -237,6 +237,10 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		}
 
 		for _, name := range []string{serverName, clientName} {
+			ud := opts.UserData
+			if name == clientName {
+				ud = opts.ClientUD()
+			}
 			inst, err := ec2.NewInstance(pCtx, name, &ec2.InstanceArgs{
 				Ami:          pulumi.String(ami.Id),
 				InstanceType: pulumi.String(opts.InstanceType),
@@ -246,7 +250,7 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 					pulumi.String(sgID),
 				},
 				PlacementGroup: pulumi.String(pgName),
-				UserData:       pulumi.StringPtr(opts.UserData),
+				UserData:       pulumi.StringPtr(ud),
 				RootBlockDevice: ec2.InstanceRootBlockDeviceArgs{
 					VolumeSize: pulumi.Int(50),
 					VolumeType: pulumi.String("gp3"),

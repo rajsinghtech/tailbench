@@ -3,7 +3,7 @@
 
 env_file: .env  # sources OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 
-providers: [gke, eks, aks]
+providers: [gcp]
 family: all
 filter: ""
 
@@ -21,10 +21,7 @@ benchmark:
   cooldown_sec: 30
 
 ssh:
-  key_path: ~/.ssh/raj_macbook.pem
-  pub_key_path: ~/.ssh/id_ed25519.pub
-  user: ubuntu
-  timeout: 60
+  timeout: 120
   ready_timeout: 300
 
 aws:

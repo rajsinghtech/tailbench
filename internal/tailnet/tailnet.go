@@ -145,16 +145,28 @@ func newTailscaleClient(clientID, clientSecret string) *tailscale.Client {
 }
 
 // SetupACL sets the permissive benchmark ACL policy with tagOwners.
-func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string) error {
+// When tsnetSSH is true, adds SSH rules so tagged nodes can SSH into each other.
+func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, tsnetSSH bool) error {
 	client := newTailscaleClient(clientID, clientSecret)
-	return client.PolicyFile().Set(ctx, tailscale.ACL{
+	acl := tailscale.ACL{
 		ACLs: []tailscale.ACLEntry{
 			{Action: "accept", Source: []string{"*"}, Destination: []string{"*:*"}},
 		},
 		TagOwners: map[string][]string{
 			m.Tag: {m.Tag},
 		},
-	}, "")
+	}
+	if tsnetSSH {
+		acl.SSH = []tailscale.ACLSSH{
+			{
+				Action:      "accept",
+				Source:      []string{m.Tag},
+				Destination: []string{m.Tag},
+				Users:       []string{"root", "autogroup:nonroot"},
+			},
+		}
+	}
+	return client.PolicyFile().Set(ctx, acl, "")
 }
 
 // CreateAuthKey creates a reusable, ephemeral, preauthorized auth key.

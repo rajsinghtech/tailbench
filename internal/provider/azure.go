@@ -173,10 +173,15 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 
 	subnetID := opts.Networking.Values["subnet_id"]
 	nsgID := opts.Networking.Values["nsg_id"]
-	encodedUserData := base64.StdEncoding.EncodeToString([]byte(opts.UserData))
+	serverUserData := base64.StdEncoding.EncodeToString([]byte(opts.UserData))
+	clientUserData := base64.StdEncoding.EncodeToString([]byte(opts.ClientUD()))
 
 	program := func(pCtx *pulumi.Context) error {
 		for _, name := range []string{serverName, clientName} {
+			encodedUserData := serverUserData
+			if name == clientName {
+				encodedUserData = clientUserData
+			}
 			pip, err := aznetwork.NewPublicIPAddress(pCtx, name+"-pip", &aznetwork.PublicIPAddressArgs{
 				ResourceGroupName:        pulumi.String(p.ResourceGroup),
 				PublicIpAddressName:      pulumi.String(name + "-pip"),
