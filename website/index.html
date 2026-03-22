@@ -664,7 +664,7 @@ footer a:hover { text-decoration: underline; }
   function getFilteredData() {
     var data = getProviderData();
     if (state.family !== 'all') data = data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
-    if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_ec2_tcp; });
+    if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_vm_tcp; });
     return data;
   }
 
