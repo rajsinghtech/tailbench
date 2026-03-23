@@ -503,9 +503,13 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 	return nil
 }
 
-// providerStateDir returns a per-provider Pulumi state directory.
+// providerStateDir returns a per-provider Pulumi state directory and ensures it exists.
 func providerStateDir(baseDir, providerName string) string {
-	return baseDir + "/" + providerName
+	url := baseDir + "/" + providerName
+	// Create the filesystem directory (strip file:// prefix)
+	dir := strings.TrimPrefix(url, "file://")
+	os.MkdirAll(dir, 0o755)
+	return url
 }
 
 func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput) (target, baseline string) {

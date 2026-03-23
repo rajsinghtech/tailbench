@@ -198,12 +198,6 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 			IP:          []string{"*"},
 		})
 	}
-	acl.NodeAttrs = []tailscale.NodeAttrGrant{
-		{
-			Target: []string{"tag:k8s"},
-			Attr:   []string{"funnel"},
-		},
-	}
 	return client.PolicyFile().Set(ctx, acl, "")
 }
 
