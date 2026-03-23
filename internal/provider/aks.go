@@ -234,14 +234,37 @@ func (p *AKSProvider) DestroyPair(ctx context.Context, instanceType string) erro
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err != nil {
-		return fmt.Errorf("select stack %s: %w", stackName, err)
+	if err == nil {
+		_ = stack.Cancel(ctx)
+		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
+		_ = stack.Workspace().RemoveStack(ctx, stackName)
 	}
-	// Cancel any incomplete operations, then destroy with ContinueOnError
-	// to handle partial state from previously failed creates.
-	_ = stack.Cancel(ctx)
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-	return err
+
+	// Fallback: delete the bench node pool via az CLI if it still exists
+	p.cleanupNodePool(ctx)
+	return nil
+}
+
+// cleanupNodePool deletes the "bench" agent pool from the AKS cluster if it exists.
+func (p *AKSProvider) cleanupNodePool(ctx context.Context) {
+	if p.clusterName == "" {
+		return
+	}
+	out, _ := exec.CommandContext(ctx, "az", "aks", "nodepool", "show",
+		"--resource-group", p.ResourceGroup,
+		"--cluster-name", p.clusterName,
+		"--name", "bench",
+		"--query", "provisioningState", "-o", "tsv",
+	).Output()
+	if state := strings.TrimSpace(string(out)); state != "" {
+		log.Printf("[aks] cleanup: deleting bench node pool (state: %s)", state)
+		_ = exec.CommandContext(ctx, "az", "aks", "nodepool", "delete",
+			"--resource-group", p.ResourceGroup,
+			"--cluster-name", p.clusterName,
+			"--name", "bench",
+			"--no-wait",
+		).Run()
+	}
 }
 
 func (p *AKSProvider) TeardownNetworking(ctx context.Context) error {
@@ -251,8 +274,10 @@ func (p *AKSProvider) TeardownNetworking(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
-	return err
+	if _, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
+		return fmt.Errorf("destroy cluster stack: %w", err)
+	}
+	return stack.Workspace().RemoveStack(ctx, stackName)
 }
 
 func (p *AKSProvider) ListFamilies() []string {

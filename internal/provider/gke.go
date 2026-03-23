@@ -28,6 +28,7 @@ type GKEProvider struct {
 	StateDir string
 
 	kubeconfig     string // populated after SetupNetworking
+	clusterName    string // populated after SetupNetworking
 	tsnetSrv       *tsnet.Server
 	operatorFQDN   string // populated after InstallOperator
 }
@@ -108,6 +109,7 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	}
 
 	clusterName := res.Outputs["clusterName"].Value.(string)
+	p.clusterName = clusterName
 
 	tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-gke-*.json")
 	if err != nil {
@@ -181,8 +183,12 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	if err != nil {
 		return nil, fmt.Errorf("create node pool stack: %w", err)
 	}
-	stack.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: p.Project})
-	stack.SetConfig(ctx, "gcp:zone", auto.ConfigValue{Value: p.Zone})
+	if err := stack.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: p.Project}); err != nil {
+		return nil, fmt.Errorf("set gcp:project: %w", err)
+	}
+	if err := stack.SetConfig(ctx, "gcp:zone", auto.ConfigValue{Value: p.Zone}); err != nil {
+		return nil, fmt.Errorf("set gcp:zone: %w", err)
+	}
 
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
@@ -275,14 +281,39 @@ func (p *GKEProvider) DestroyPair(ctx context.Context, instanceType string) erro
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err != nil {
-		return fmt.Errorf("select stack %s: %w", stackName, err)
+	if err == nil {
+		_ = stack.Cancel(ctx)
+		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
+		_ = stack.Workspace().RemoveStack(ctx, stackName)
 	}
-	// Cancel any incomplete operations, then destroy with ContinueOnError
-	// to handle partial state from previously failed creates.
-	_ = stack.Cancel(ctx)
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-	return err
+
+	// Fallback: delete any node pools with our label via gcloud CLI
+	p.cleanupNodePools(ctx, safeType)
+	return nil
+}
+
+// cleanupNodePools deletes any GKE node pools labeled with the given instance type.
+func (p *GKEProvider) cleanupNodePools(ctx context.Context, safeType string) {
+	if p.clusterName == "" {
+		return
+	}
+	out, err := exec.CommandContext(ctx, "gcloud", "container", "node-pools", "list",
+		"--cluster", p.clusterName, "--project", p.Project, "--zone", p.Zone,
+		"--format=value(name)", "--filter=nodeConfig.labels.tailbench-pool="+safeType,
+	).Output()
+	if err != nil {
+		return
+	}
+	for _, pool := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		if pool == "" || pool == "default-pool" {
+			continue
+		}
+		log.Printf("[gke] cleanup: deleting node pool %s", pool)
+		_ = exec.CommandContext(ctx, "gcloud", "container", "node-pools", "delete", pool,
+			"--cluster", p.clusterName, "--project", p.Project, "--zone", p.Zone,
+			"--quiet", "--async",
+		).Run()
+	}
 }
 
 func (p *GKEProvider) TeardownNetworking(ctx context.Context) error {
@@ -292,8 +323,10 @@ func (p *GKEProvider) TeardownNetworking(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
-	return err
+	if _, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
+		return fmt.Errorf("destroy cluster stack: %w", err)
+	}
+	return stack.Workspace().RemoveStack(ctx, stackName)
 }
 
 func (p *GKEProvider) ListFamilies() []string {
