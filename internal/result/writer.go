@@ -76,3 +76,23 @@ func WriteResult(rootDir string, r *BenchmarkResult, enaExpress bool) error {
 	}
 	return nil
 }
+
+func ComputeL7Overhead(baseline, tailscale *FortioResult) *L7Overhead {
+	o := &L7Overhead{}
+	o.QPS.Baseline = baseline.QPS
+	o.QPS.Tailscale = tailscale.QPS
+	if baseline.QPS > 0 {
+		o.QPS.DeltaPct = (tailscale.QPS - baseline.QPS) / baseline.QPS * 100
+	}
+	o.P50Latency.BaselineMs = baseline.P50LatencyMs
+	o.P50Latency.TailscaleMs = tailscale.P50LatencyMs
+	if baseline.P50LatencyMs > 0 {
+		o.P50Latency.DeltaPct = (tailscale.P50LatencyMs - baseline.P50LatencyMs) / baseline.P50LatencyMs * 100
+	}
+	o.P99Latency.BaselineMs = baseline.P99LatencyMs
+	o.P99Latency.TailscaleMs = tailscale.P99LatencyMs
+	if baseline.P99LatencyMs > 0 {
+		o.P99Latency.DeltaPct = (tailscale.P99LatencyMs - baseline.P99LatencyMs) / baseline.P99LatencyMs * 100
+	}
+	return o
+}

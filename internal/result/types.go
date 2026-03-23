@@ -23,6 +23,11 @@ type BenchmarkResult struct {
 	OverheadSingle     *Overhead     `json:"overhead_single"`
 	BaselineMTR        *MTRResult    `json:"baseline_mtr"`
 	TailscaleMTR       *MTRResult    `json:"tailscale_mtr"`
+	TransportMode      string        `json:"transport_mode,omitempty"`
+	HTTPVersion        string        `json:"http_version,omitempty"`
+	HAMode             string        `json:"ha_mode,omitempty"`
+	FortioResult       *FortioResult `json:"fortio_result,omitempty"`
+	L7Overhead         *L7Overhead   `json:"l7_overhead,omitempty"`
 }
 
 type SystemConfig struct {
@@ -84,4 +89,34 @@ type MTRHop struct {
 	BestMs  float64 `json:"best_ms"`
 	WorstMs float64 `json:"worst_ms"`
 	StdevMs float64 `json:"stdev_ms"`
+}
+
+type FortioResult struct {
+	QPS            float64     `json:"qps"`
+	AvgLatencyMs   float64     `json:"avg_latency_ms"`
+	P50LatencyMs   float64     `json:"p50_latency_ms"`
+	P90LatencyMs   float64     `json:"p90_latency_ms"`
+	P99LatencyMs   float64     `json:"p99_latency_ms"`
+	P999LatencyMs  float64     `json:"p999_latency_ms"`
+	StatusCodes    map[int]int `json:"status_codes"`
+	BytesPerSec    float64     `json:"bytes_per_sec"`
+	ConnectionErrs int         `json:"connection_errors"`
+}
+
+type L7Overhead struct {
+	QPS struct {
+		Baseline  float64 `json:"baseline"`
+		Tailscale float64 `json:"tailscale"`
+		DeltaPct  float64 `json:"delta_pct"`
+	} `json:"qps"`
+	P50Latency struct {
+		BaselineMs  float64 `json:"baseline_ms"`
+		TailscaleMs float64 `json:"tailscale_ms"`
+		DeltaPct    float64 `json:"delta_pct"`
+	} `json:"p50_latency"`
+	P99Latency struct {
+		BaselineMs  float64 `json:"baseline_ms"`
+		TailscaleMs float64 `json:"tailscale_ms"`
+		DeltaPct    float64 `json:"delta_pct"`
+	} `json:"p99_latency"`
 }
