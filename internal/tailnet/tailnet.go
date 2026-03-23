@@ -146,7 +146,8 @@ func newTailscaleClient(clientID, clientSecret string) *tailscale.Client {
 
 // SetupACL sets the permissive benchmark ACL policy with tagOwners.
 // When tsnetSSH is true, adds SSH rules so tagged nodes can SSH into each other.
-func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, tsnetSSH bool) error {
+// When k8sOperator is true, adds auto-approvers for Tailscale Services (operator API server proxy).
+func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, tsnetSSH, k8sOperator bool) error {
 	client := newTailscaleClient(clientID, clientSecret)
 	acl := tailscale.ACL{
 		ACLs: []tailscale.ACLEntry{
@@ -166,7 +167,42 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 			},
 		}
 	}
+	if k8sOperator {
+		acl.AutoApprovers = &tailscale.ACLAutoApprovers{
+			Routes: map[string][]string{
+				"0.0.0.0/0": {m.Tag},
+			},
+		}
+		// Grant the orchestrator tag the tailscale.com/cap/kubernetes app cap
+		// so the operator API server proxy can impersonate as system:masters.
+		acl.Grants = []tailscale.Grant{
+			{
+				Source:      []string{m.Tag},
+				Destination: []string{m.Tag},
+				IP:          []string{"*"},
+				App: map[string][]map[string]any{
+					"tailscale.com/cap/kubernetes": {
+						{
+							"impersonate": map[string]any{
+								"groups": []string{"system:masters"},
+							},
+						},
+					},
+				},
+			},
+		}
+	}
 	return client.PolicyFile().Set(ctx, acl, "")
+}
+
+// EnableHTTPS enables HTTPS certificates on the tailnet.
+// MagicDNS is already enabled on ephemeral tailnets.
+func (m *Manager) EnableHTTPS(ctx context.Context, clientID, clientSecret string) error {
+	client := newTailscaleClient(clientID, clientSecret)
+	httpsEnabled := true
+	return client.TailnetSettings().Update(ctx, tailscale.UpdateTailnetSettingsRequest{
+		HTTPSEnabled: &httpsEnabled,
+	})
 }
 
 // CreateAuthKey creates a reusable, ephemeral, preauthorized auth key.

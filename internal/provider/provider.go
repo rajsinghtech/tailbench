@@ -1,6 +1,10 @@
 package provider
 
-import "context"
+import (
+	"context"
+
+	"tailscale.com/tsnet"
+)
 
 // Provider abstracts cloud-specific infrastructure provisioning via Pulumi.
 type Provider interface {
@@ -13,6 +17,27 @@ type Provider interface {
 	ListInstances(ctx context.Context, family string) ([]InstanceInfo, error)
 	GetVCPUs(ctx context.Context, instanceType string) (int, error)
 	IsQuotaError(err error) bool
+}
+
+// K8sOperatorProvider is an optional interface that K8s providers can implement
+// to support installing the Tailscale operator and connecting via API server proxy.
+type K8sOperatorProvider interface {
+	Provider
+	// InstallOperator installs the Tailscale operator with API server proxy mode.
+	InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error
+	// OperatorProxyFQDN returns the FQDN of the API server proxy, or empty if not installed.
+	OperatorProxyFQDN() string
+	// SetTsnetServer provides the tsnet server for tailnet-routed K8s API access.
+	SetTsnetServer(srv *tsnet.Server)
+}
+
+// OperatorInstallConfig configures the Tailscale operator installation.
+type OperatorInstallConfig struct {
+	OAuthClientID     string
+	OAuthClientSecret string
+	Tag               string
+	TailnetDNS        string // e.g. "tailXXXX.ts.net"
+	TsnetSrv          *tsnet.Server
 }
 
 // PairOptions configures a server/client VM pair.

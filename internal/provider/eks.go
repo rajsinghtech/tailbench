@@ -18,6 +18,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/rajsinghtech/tailbench/internal/k8s"
+	"tailscale.com/tsnet"
 )
 
 const (
@@ -31,7 +32,9 @@ type EKSProvider struct {
 	AZ       string
 	StateDir string
 
-	kubeconfig string
+	kubeconfig   string
+	tsnetSrv     *tsnet.Server
+	operatorFQDN string
 }
 
 func (p *EKSProvider) Name() string { return "eks" }
@@ -369,4 +372,26 @@ func (p *EKSProvider) IsQuotaError(err error) bool {
 		strings.Contains(s, "InstanceLimitExceeded") ||
 		strings.Contains(s, "insufficient") ||
 		strings.Contains(s, "Unschedulable")
+}
+
+func (p *EKSProvider) SetTsnetServer(srv *tsnet.Server) { p.tsnetSrv = srv }
+func (p *EKSProvider) OperatorProxyFQDN() string        { return p.operatorFQDN }
+
+func (p *EKSProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
+	hostname := "tailbench-eks-operator"
+	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
+		OAuthClientID:     cfg.OAuthClientID,
+		OAuthClientSecret: cfg.OAuthClientSecret,
+		Hostname:          hostname,
+		Tag:               cfg.Tag,
+	}); err != nil {
+		return err
+	}
+	fqdn, err := k8s.WaitForOperatorProxy(ctx, cfg.TsnetSrv, hostname, cfg.TailnetDNS, 10*time.Minute)
+	if err != nil {
+		return err
+	}
+	p.operatorFQDN = fqdn
+	p.tsnetSrv = cfg.TsnetSrv
+	return nil
 }

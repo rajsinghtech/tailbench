@@ -51,7 +51,7 @@ func TestTailnetLifecycleE2E(t *testing.T) {
 
 	// 2. Setup ACL
 	t.Log("Setting up ACL...")
-	err = mgr.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, false)
+	err = mgr.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, false, false)
 	require.NoError(t, err, "SetupACL failed")
 	t.Log("ACL set")
 
