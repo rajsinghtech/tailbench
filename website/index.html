@@ -1084,7 +1084,7 @@ footer a:hover { text-decoration: underline; }
       html += '<div class="heatmap-cell header-cell">' + fam + '</div>';
       vcpuCols.forEach(function(v) {
         var d = familyMap[fam][v];
-        if (!d) {
+        if (!d || !d.overhead) {
           html += '<div class="heatmap-cell empty-cell">—</div>';
           return;
         }
@@ -1224,9 +1224,10 @@ footer a:hover { text-decoration: underline; }
       byType[type][env] = d;
     });
 
-    // Only include instances that have both environments
+    // Only include instances that have both environments with iperf data
     var paired = Object.keys(byType).filter(function(t) {
-      return byType[t].vm && byType[t].container;
+      return byType[t].vm && byType[t].container &&
+             byType[t].vm.tailscale_tcp && byType[t].container.tailscale_tcp;
     }).sort(function(a, b) {
       var aVM = byType[a].vm.tailscale_tcp.summary.bandwidth_mbps_avg;
       var bVM = byType[b].vm.tailscale_tcp.summary.bandwidth_mbps_avg;
@@ -1235,8 +1236,8 @@ footer a:hover { text-decoration: underline; }
 
     if (paired.length === 0) {
       // Fallback: compare aggregate stats
-      var vmData = TAILBENCH_DATA.filter(function(d) { return !d.environment || d.environment === 'vm'; });
-      var containerData = TAILBENCH_DATA.filter(function(d) { return d.environment === 'container'; });
+      var vmData = TAILBENCH_DATA.filter(function(d) { return (!d.environment || d.environment === 'vm') && d.tailscale_tcp; });
+      var containerData = TAILBENCH_DATA.filter(function(d) { return d.environment === 'container' && d.tailscale_tcp; });
 
       var labels = [];
       var vmBWs = [];
@@ -1409,6 +1410,7 @@ footer a:hover { text-decoration: underline; }
     var data = getFilteredData();
     var providerAgg = {};
     data.forEach(function(d) {
+      if (!d.tailscale_tcp || !d.overhead) return;
       var p = (d.cloud_provider || 'gcp').toLowerCase();
       if (!providerAgg[p]) providerAgg[p] = { maxBW: 0, overheads: [], latencies: [], effs: [], bws: [], count: 0 };
       var agg = providerAgg[p];
@@ -1780,7 +1782,7 @@ footer a:hover { text-decoration: underline; }
     var html = '';
 
     data.forEach(function(d) {
-      var rowKey = d.instance_type + (d.ena_express ? '-ena' : '');
+      var rowKey = d.instance_type + (d.ena_express ? '-ena' : '') + (d.transport_mode ? '-' + d.transport_mode : '');
       var vcpus = getVCPUs(d);
       var bBW = d.baseline_tcp ? d.baseline_tcp.summary.bandwidth_mbps_avg : 0;
       var tBW = d.tailscale_tcp ? d.tailscale_tcp.summary.bandwidth_mbps_avg : 0;
@@ -1883,8 +1885,10 @@ footer a:hover { text-decoration: underline; }
     if (sc && sc.container_runtime) {
       html += '<div class="detail-meta-item"><strong>Runtime:</strong> ' + sc.container_runtime + '</div>';
     }
-    html += '<div class="detail-meta-item"><strong>iperf3:</strong> ' + d.test_config.iperf_parallel_streams + ' streams, ' + d.test_config.iperf_duration_sec + 's, ' + d.test_config.iperf_iterations + ' runs</div>';
-    html += '<div class="detail-meta-item"><strong>MTR:</strong> ' + d.test_config.mtr_cycles + ' cycles</div>';
+    if (d.test_config) {
+      html += '<div class="detail-meta-item"><strong>iperf3:</strong> ' + d.test_config.iperf_parallel_streams + ' streams, ' + d.test_config.iperf_duration_sec + 's, ' + d.test_config.iperf_iterations + ' runs</div>';
+      html += '<div class="detail-meta-item"><strong>MTR:</strong> ' + d.test_config.mtr_cycles + ' cycles</div>';
+    }
     html += '</div>';
 
     if (sc) {
