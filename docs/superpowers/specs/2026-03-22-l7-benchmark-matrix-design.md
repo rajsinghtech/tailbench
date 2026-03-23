@@ -415,20 +415,286 @@ tailscale serve --https=443 http://localhost:8080
 - **tsnet dial failures**: Retry with backoff, distinguish between DNS resolution and connection errors.
 - **Mode skip logic**: If a mode's prerequisites aren't met (endpoint not configured, wrong environment), skip gracefully with a log message rather than failing the entire run.
 
+## Frontend Changes (website/index.html)
+
+The existing website is a single-page vanilla JS app (~1120 lines) that renders `TAILBENCH_DATA` from `data.generated.js` as a filterable table with expandable detail rows. Changes needed:
+
+### New Filter: Transport Mode
+
+Add a new filter row between the existing Family and K8s filters:
+
+```html
+<div class="filter-bar" id="modeFilterBar">
+  <label>Mode</label>
+  <div class="pill-group" id="modeFilter">
+    <!-- Dynamically populated from data -->
+    <!-- Pills: All | L4 Kernel | L4 Userspace | L4 LB | L7 Ingress | L7 Serve | tsnet -->
+  </div>
+</div>
+```
+
+Detection logic (mirrors existing pattern for K8s/single-stream):
+```js
+var hasL7 = TAILBENCH_DATA.some(function(d) { return d.transport_mode && d.transport_mode.startsWith('l7-'); });
+var hasFortio = TAILBENCH_DATA.some(function(d) { return d.fortio_result; });
+var modes = {};
+TAILBENCH_DATA.forEach(function(d) { if (d.transport_mode) modes[d.transport_mode] = true; });
+```
+
+Mode filter bar only shown when multiple transport modes exist in data. State persisted in URL hash as `mode=l7-ingress-h1`.
+
+### Table Columns: L7 Metrics
+
+When L7/fortio data is present, add new columns to the main table:
+
+| Column | Sort Key | Content |
+|--------|----------|---------|
+| Transport | `transport_mode` | Mode tag (pill-style, color coded) |
+| QPS | `qps` | Requests/sec from fortio |
+| P50 Latency | `p50` | Median latency (ms) |
+| P99 Latency | `p99` | Tail latency (ms) |
+| HTTP | `http_version` | "1.1" or "2" badge |
+
+These columns are **conditionally shown** (like the existing K8s columns) — only rendered when any entry in filtered data has `fortio_result`:
+
+```js
+var showFortio = filteredData.some(function(d) { return d.fortio_result; });
+```
+
+For entries without fortio data (pure iperf3 L4 tests), these cells show "—".
+
+### Transport Mode Tags (CSS)
+
+```css
+.mode-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+.mode-l4 { background: rgba(37, 99, 235, 0.1); color: var(--accent); }
+.mode-l7 { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
+.mode-tsnet { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+.mode-http2 { background: rgba(236, 72, 153, 0.1); color: #ec4899; }
+```
+
+### Latency Bar Visualization
+
+For L7 results, replace the bandwidth bar with a latency bar in the detail view:
+
+```js
+// Latency bars: lower is better, scale from 0 to maxLatency
+var maxLat = Math.max(...filteredData.map(d => d.fortio_result ? d.fortio_result.p99_latency_ms : 0));
+var barW = maxLat ? (entry.fortio_result.p50_latency_ms / maxLat * 85).toFixed(1) : 0;
+```
+
+Color scheme: green (<10ms), yellow (10-50ms), red (>50ms) — different from BW overhead thresholds.
+
+### Detail Row: Fortio Section
+
+When a result has `fortio_result`, the expandable detail row includes a new section:
+
+```
+┌─────────────────────────────────────────────────────────┐
+│ HTTP Performance (fortio)                               │
+│                                                         │
+│ Transport: L7 Ingress   HTTP: 1.1   HA: single         │
+│ Duration: 30s   Connections: 16   Target QPS: max       │
+│                                                         │
+│ ┌──────────────────────────────────────────────────────┐ │
+│ │ Run  QPS      P50     P90     P99     P999   Errs   │ │
+│ │ #1   12,450   1.2ms   3.4ms   8.1ms   15ms   0     │ │
+│ │ #2   12,380   1.3ms   3.5ms   8.3ms   16ms   0     │ │
+│ │ #3   12,510   1.1ms   3.3ms   7.9ms   14ms   0     │ │
+│ │ Avg  12,447   1.2ms   3.4ms   8.1ms   15ms   0     │ │
+│ └──────────────────────────────────────────────────────┘ │
+│                                                         │
+│ Status Codes: 200: 374,100 | 502: 0                    │
+│                                                         │
+│ Overhead vs Baseline:                                   │
+│  QPS: 15,200 → 12,447 (-18.1%)                         │
+│  P50: 0.8ms → 1.2ms (+50%)                             │
+│  P99: 4.2ms → 8.1ms (+93%)                             │
+└─────────────────────────────────────────────────────────┘
+```
+
+### Stats Row Update
+
+The 4 stat cards adapt based on filtered data:
+
+- **If L7 mode filtered**: Replace "Avg BW Overhead" with "Avg P99 Latency", replace "Best/Highest Overhead" with "Lowest/Highest P99"
+- **Mixed modes**: Show BW overhead stats (existing), add a 5th "L7 Avg QPS" card (grid changes to `repeat(5, 1fr)`)
+
+### Data Generation Pipeline
+
+`cmd/aggregate/main.go` → `result.Aggregate()` already walks all `*.json` files per provider. The new file path convention (`<instanceType>-<mode>.json`) is compatible — the aggregator uses `filepath.WalkDir` and matches `*.json`. No aggregator code changes needed for file discovery.
+
+The `data.generated.js` format remains the same (`const TAILBENCH_DATA = [...]`). New fields (`transport_mode`, `http_version`, `ha_mode`, `fortio_result`) are simply additional JSON keys on each result object. The website JS reads them dynamically.
+
+### URL Hash State Extension
+
+```js
+var state = {
+  provider: 'all',
+  family: 'all',
+  mode: 'all',        // NEW
+  sortKey: 'ts_bw',
+  sortDir: 'desc',
+  expanded: null,
+  filterK8s: false
+};
+```
+
+## Testing Strategy
+
+### Unit Tests
+
+**`internal/benchmark/fortio_test.go`**:
+- Parse sample fortio JSON output (embed test fixtures)
+- Verify `FortioResult` fields are correctly populated
+- Test malformed JSON handling (empty output, truncated, non-JSON)
+- Test fortio command construction for each mode (HTTP/1.1, HTTP/2, different QPS/connection counts)
+
+**`internal/benchmark/modes_test.go`**:
+- Verify mode dispatch routes to correct runner
+- Test mode filtering by environment (L7 Ingress skipped for VMs, L7 Serve skipped for K8s)
+- Test mode prerequisite checking (endpoint configured, etc.)
+
+**`internal/benchmark/tsnet_runner_test.go`**:
+- Test tsnet transport construction
+- Verify fortio Go library integration with custom dialer
+- Mock tsnet.Dial for unit testing without real tailnet
+
+**`internal/result/types_test.go`**:
+- Test `L7Overhead` computation
+- Test `FortioResult` JSON round-trip serialization
+- Verify backward compatibility — old results (no `transport_mode`) still parse correctly
+
+**`internal/k8s/ingress_test.go`**:
+- Test label-based resource discovery (mock K8s clientset)
+- Test FQDN extraction from Ingress status and Service LB status
+- Test missing resource handling (clear error messages)
+
+**`internal/config/config_test.go`**:
+- Test new config fields parse correctly
+- Test mode validation (reject unknown modes)
+- Test `l7_endpoints` optional/required logic per mode
+
+### Integration Tests
+
+**`internal/benchmark/fortio_integration_test.go`** (build tag: `integration`):
+- Spin up a local fortio echo server
+- Run fortio load against it via the FortioRunner
+- Verify result parsing end-to-end
+- Test HTTP/1.1 and HTTP/2 modes
+
+**`internal/benchmark/tsnet_integration_test.go`** (build tag: `integration`):
+- Create two tsnet servers in-process
+- Run fortio load through tsnet.Dial transport
+- Verify connectivity and result collection
+
+### End-to-End Tests
+
+**`e2e/l7_benchmark_test.go`** (build tag: `e2e`):
+- Requires real K8s cluster with Tailscale operator
+- Deploy fortio echo server + Ingress + Service LB
+- Wait for TLS cert provisioning
+- Run full benchmark through orchestrator with all L7 modes
+- Verify result files written with correct transport_mode
+- Verify aggregation includes new results
+- Tear down test resources
+
+**`e2e/website_test.go`** (build tag: `e2e`):
+- Generate `data.generated.js` from test fixture results (mix of L4 and L7)
+- Serve index.html via httptest server
+- Use chromedp (headless Chrome) to verify:
+  - Mode filter pills render correctly
+  - Fortio columns appear when L7 data present
+  - Fortio columns hidden when only L4 data
+  - Detail row shows fortio section for L7 entries
+  - Sort by QPS/P99 works
+  - URL hash persistence for mode filter
+
+### Test Fixtures
+
+Create `testdata/` directory with:
+
+```
+testdata/
+├── fortio_output_h1.json      # Sample fortio HTTP/1.1 JSON output
+├── fortio_output_h2.json      # Sample fortio HTTP/2 JSON output
+├── fortio_output_error.json   # Fortio output with connection errors
+├── result_l4_kernel.json      # Complete L4 kernel result
+├── result_l7_ingress_h1.json  # Complete L7 Ingress HTTP/1.1 result
+├── result_l7_serve_h2.json    # Complete L7 Serve HTTP/2 result
+├── result_tsnet.json          # Complete tsnet result
+└── result_legacy.json         # Old-format result (no transport_mode) for backward compat
+```
+
+### CI Pipeline
+
+Add to existing CI (if present) or create `.github/workflows/test.yml`:
+
+```yaml
+jobs:
+  unit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+        with: { go-version: '1.22' }
+      - run: go test ./internal/...
+
+  integration:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+      - run: |
+          # Install fortio for integration tests
+          go install fortio.org/fortio@latest
+      - run: go test -tags=integration ./internal/...
+
+  website:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/setup-go@v5
+      - run: |
+          # Generate test data and validate website renders
+          go run cmd/aggregate/main.go
+          # Basic HTML validation
+          npx html-validate website/index.html
+```
+
+### Test Coverage Targets
+
+| Package | Target | Key Coverage Areas |
+|---------|--------|--------------------|
+| `benchmark/fortio` | 90% | JSON parsing, command construction, error paths |
+| `benchmark/modes` | 85% | Mode dispatch, filtering, prerequisite checks |
+| `benchmark/tsnet_runner` | 75% | Transport setup (mocked), integration with fortio lib |
+| `k8s/ingress` | 85% | Discovery, FQDN extraction, error handling |
+| `result/types` | 90% | Serialization, overhead computation, backward compat |
+| `config` | 85% | New field parsing, validation |
+
 ## Implementation Order
 
-1. Fortio runner (`fortio.go`) — parse JSON output, run load tests via Executor
-2. Result schema extension — `TransportMode`, `FortioResult`, `L7Overhead`
-3. Config extension — modes list, fortio settings, l7_endpoints
-4. Mode dispatcher (`modes.go`) — route modes to appropriate runner, inner loop in orchestrator
+1. Fortio runner (`fortio.go`) + unit tests — parse JSON output, run load tests via Executor
+2. Result schema extension — `TransportMode`, `FortioResult`, `L7Overhead` + serialization tests
+3. Config extension — modes list, fortio settings, l7_endpoints + validation tests
+4. Mode dispatcher (`modes.go`) + unit tests — route modes to appropriate runner, inner loop in orchestrator
 5. K8s manifests for long-lived resources (Ingress, Service LB, fortio echo)
 6. Update tailbench-tools Docker image to include fortio binary
-7. L7 Ingress benchmark flow (K8s) with TLS warm-up
+7. L7 Ingress benchmark flow (K8s) with TLS warm-up + integration test
 8. L4 LB benchmark flow (K8s)
 9. L7 Serve benchmark flow (VM) with TLS warm-up
-10. tsnet runner (`tsnet_runner.go`) — in-process Go library approach
+10. tsnet runner (`tsnet_runner.go`) + integration test — in-process Go library approach
 11. L4 userspace mode toggle (pod rebuild / tailscaled restart)
 12. HA ProxyGroup testing — scale replicas, wait for ready, benchmark
 13. ACL extension in tailnet manager
 14. Result file path convention and aggregator updates
-15. Website updates for new result types
+15. Website frontend changes — mode filter, fortio columns, detail section, latency bars
+16. Website e2e tests — chromedp validation of new UI elements
+17. Test fixtures and CI pipeline updates
