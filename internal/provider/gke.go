@@ -193,7 +193,7 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
 
-	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer())); err != nil {
+	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh()); err != nil {
 		return nil, fmt.Errorf("create node pool %s: %w", opts.InstanceType, err)
 	}
 
@@ -364,6 +364,7 @@ func (p *GKEProvider) InstallOperator(ctx context.Context, cfg OperatorInstallCo
 		OAuthClientSecret: cfg.OAuthClientSecret,
 		Hostname:          hostname,
 		Tag:               cfg.Tag,
+		ForceReinstall:    cfg.ForceReinstall,
 	}); err != nil {
 		return err
 	}

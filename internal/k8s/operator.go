@@ -32,15 +32,42 @@ type OperatorConfig struct {
 	OAuthClientSecret string
 	Hostname          string // operator hostname on the tailnet
 	Tag               string // e.g. "tag:bench"
+	ForceReinstall    bool   // tear down and reinstall even if already running
+}
+
+// IsOperatorRunning checks if the Tailscale operator is already installed and has
+// a running pod in the operator namespace.
+func IsOperatorRunning(ctx context.Context, kubeconfigData string) bool {
+	cs, err := ClientsetFromKubeconfig(kubeconfigData)
+	if err != nil {
+		return false
+	}
+	pods, err := cs.CoreV1().Pods(OperatorNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=tailscale-operator",
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return false
+	}
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodRunning {
+			return true
+		}
+	}
+	return false
 }
 
 // InstallOperator installs the Tailscale Kubernetes operator via Helm with
-// API server proxy mode enabled. It cleans up any previous operator state
-// first so reused clusters work cleanly.
+// API server proxy mode enabled. If forceReinstall is false and the operator
+// is already running, this is a no-op.
 func InstallOperator(ctx context.Context, kubeconfigData string, cfg OperatorConfig) error {
 	cs, err := ClientsetFromKubeconfig(kubeconfigData)
 	if err != nil {
 		return fmt.Errorf("create clientset: %w", err)
+	}
+
+	if !cfg.ForceReinstall && IsOperatorRunning(ctx, kubeconfigData) {
+		log.Printf("operator already running, skipping install")
+		return nil
 	}
 
 	// Clean up any previous operator installation (stale Helm release, secrets, etc.)

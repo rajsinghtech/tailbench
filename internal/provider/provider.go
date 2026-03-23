@@ -38,6 +38,7 @@ type OperatorInstallConfig struct {
 	Tag               string
 	TailnetDNS        string // e.g. "tailXXXX.ts.net"
 	TsnetSrv          *tsnet.Server
+	ForceReinstall    bool // tear down and reinstall even if already running
 }
 
 // PairOptions configures a server/client VM pair.

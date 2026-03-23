@@ -153,7 +153,7 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
 
-	_, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()))
+	_, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("create agent pool %s: %w", opts.InstanceType, err)
 	}
@@ -310,6 +310,7 @@ func (p *AKSProvider) InstallOperator(ctx context.Context, cfg OperatorInstallCo
 		OAuthClientSecret: cfg.OAuthClientSecret,
 		Hostname:          hostname,
 		Tag:               cfg.Tag,
+		ForceReinstall:    cfg.ForceReinstall,
 	}); err != nil {
 		return err
 	}

@@ -253,6 +253,29 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		return fmt.Errorf("setup networking: %w", err)
 	}
 
+	// Install Tailscale operator on K8s clusters for L7 ingress/LB
+	if kop, ok := p.(provider.K8sOperatorProvider); ok {
+		lg.Step("setup", "Tailscale operator")
+		if err := kop.InstallOperator(ctx, provider.OperatorInstallConfig{
+			OAuthClientID:     o.cfg.OAuthClientID,
+			OAuthClientSecret: o.cfg.OAuthClientSecret,
+			Tag:               o.cfg.Tag,
+			TailnetDNS:        o.tailnetDNS,
+			TsnetSrv:          o.tsnetSrv,
+			ForceReinstall:    o.cfg.CleanupNetworking,
+		}); err != nil {
+			lg.Warnf("operator install: %v (L7 modes may not work)", err)
+		}
+	}
+
+	// Deploy L7 bench manifests to K8s clusters (fortio echo + ingress + LB)
+	if kubeconfig := net.Values["kubeconfig"]; kubeconfig != "" && hasL7Modes(o.cfg.Modes) {
+		lg.Step("setup", "L7 bench manifests")
+		if err := k8s.DeployL7Bench(ctx, kubeconfig, o.cfg.RootDir); err != nil {
+			lg.Warnf("L7 bench deploy: %v (L7 modes may not work)", err)
+		}
+	}
+
 	instances, err := o.listInstancesCached(ctx, p, lg)
 	if err != nil {
 		return fmt.Errorf("listing instances: %w", err)
@@ -329,6 +352,12 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 				continue
 			}
 			clientUserData = clientUD
+		}
+
+		// Pre-cleanup: destroy any leftover resources from a previous run.
+		// This is a no-op if nothing exists, but ensures CreatePair starts clean.
+		if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
+			lg.Infof("pre-cleanup %s: %v (continuing)", inst.Type, dErr)
 		}
 
 		lg.Step("provision", inst.Type)
@@ -463,7 +492,8 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 			var err error
 			br, err = runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
 			if err != nil {
-				return fmt.Errorf("mode %s: %w", mode, err)
+				log.Printf("%s iperf mode %s failed: %v (continuing to next mode)", prefix, mode, err)
+				continue
 			}
 		case benchmark.ModeUsesFortio(mode):
 			target, baselineTarget := o.resolveEndpoints(ctx, mode, pair, mc)
@@ -471,11 +501,9 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
 				continue
 			}
-			if strings.HasPrefix(target, "https://") {
-				if err := o.warmUpTLS(ctx, runner.Client, target); err != nil {
-					log.Printf("%s skipping mode %s: TLS warm-up failed: %v", prefix, mode, err)
-					continue
-				}
+			if err := o.warmUpEndpoint(ctx, runner.Client, target); err != nil {
+				log.Printf("%s skipping mode %s: endpoint warm-up failed: %v", prefix, mode, err)
+				continue
 			}
 			h2 := benchmark.ModeIsH2(mode)
 			log.Printf("%s running fortio benchmark for %s mode %s", prefix, inst.Type, mode)
@@ -579,26 +607,35 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 	return
 }
 
-func (o *Orchestrator) warmUpTLS(ctx context.Context, executor benchmark.Executor, target string) error {
-	for attempt := 0; attempt < 5; attempt++ {
-		backoff := time.Duration(1<<attempt) * time.Second
+func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Executor, target string) error {
+	for attempt := 0; attempt < 10; attempt++ {
+		backoff := time.Duration(1<<min(attempt, 4)) * time.Second
 		_, _, err := executor.Run(ctx, fmt.Sprintf("curl -sf --max-time 15 -o /dev/null %s", target))
 		if err == nil {
 			return nil
 		}
-		log.Printf("TLS warm-up attempt %d/5 failed: %v, retrying in %v", attempt+1, err, backoff)
+		log.Printf("endpoint warm-up attempt %d/10 for %s failed: %v, retrying in %v", attempt+1, target, err, backoff)
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
 		case <-time.After(backoff):
 		}
 	}
-	return fmt.Errorf("TLS cert not ready after 5 attempts for %s", target)
+	return fmt.Errorf("endpoint not reachable after 10 attempts: %s", target)
 }
 
 func hasL7ServeMode(modes []string) bool {
 	for _, m := range modes {
 		if strings.HasPrefix(m, "l7-serve") {
+			return true
+		}
+	}
+	return false
+}
+
+func hasL7Modes(modes []string) bool {
+	for _, m := range modes {
+		if strings.HasPrefix(m, "l7-") || m == "l4-lb" {
 			return true
 		}
 	}
