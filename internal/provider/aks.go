@@ -16,6 +16,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/rajsinghtech/tailbench/internal/k8s"
+	"tailscale.com/tsnet"
 )
 
 type AKSProvider struct {
@@ -23,8 +24,10 @@ type AKSProvider struct {
 	ResourceGroup string
 	StateDir      string
 
-	kubeconfig  string
-	clusterName string
+	kubeconfig   string
+	clusterName  string
+	tsnetSrv     *tsnet.Server
+	operatorFQDN string
 }
 
 func (p *AKSProvider) Name() string { return "aks" }
@@ -252,4 +255,26 @@ func (p *AKSProvider) IsQuotaError(err error) bool {
 		strings.Contains(s, "SkuNotAvailable") ||
 		strings.Contains(s, "AllocationFailed") ||
 		strings.Contains(s, "Unschedulable")
+}
+
+func (p *AKSProvider) SetTsnetServer(srv *tsnet.Server) { p.tsnetSrv = srv }
+func (p *AKSProvider) OperatorProxyFQDN() string        { return p.operatorFQDN }
+
+func (p *AKSProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
+	hostname := "tailbench-aks-operator"
+	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
+		OAuthClientID:     cfg.OAuthClientID,
+		OAuthClientSecret: cfg.OAuthClientSecret,
+		Hostname:          hostname,
+		Tag:               cfg.Tag,
+	}); err != nil {
+		return err
+	}
+	fqdn, err := k8s.WaitForOperatorProxy(ctx, cfg.TsnetSrv, hostname, cfg.TailnetDNS, 10*time.Minute)
+	if err != nil {
+		return err
+	}
+	p.operatorFQDN = fqdn
+	p.tsnetSrv = cfg.TsnetSrv
+	return nil
 }

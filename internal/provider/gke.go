@@ -17,6 +17,7 @@ import (
 	"github.com/pulumi/pulumi/sdk/v3/go/common/workspace"
 	"github.com/pulumi/pulumi/sdk/v3/go/pulumi"
 	"github.com/rajsinghtech/tailbench/internal/k8s"
+	"tailscale.com/tsnet"
 )
 
 // GKEProvider provisions GKE clusters and node pools via Pulumi.
@@ -25,7 +26,9 @@ type GKEProvider struct {
 	Zone     string
 	StateDir string
 
-	kubeconfig string // populated after SetupNetworking
+	kubeconfig     string // populated after SetupNetworking
+	tsnetSrv       *tsnet.Server
+	operatorFQDN   string // populated after InstallOperator
 }
 
 func (p *GKEProvider) Name() string { return "gke" }
@@ -293,4 +296,32 @@ func (p *GKEProvider) IsQuotaError(err error) bool {
 		strings.Contains(s, "ZONE_RESOURCE_POOL_EXHAUSTED") ||
 		strings.Contains(s, "insufficient") ||
 		strings.Contains(s, "Unschedulable")
+}
+
+func (p *GKEProvider) SetTsnetServer(srv *tsnet.Server) {
+	p.tsnetSrv = srv
+}
+
+func (p *GKEProvider) OperatorProxyFQDN() string {
+	return p.operatorFQDN
+}
+
+func (p *GKEProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
+	hostname := fmt.Sprintf("tailbench-gke-operator")
+	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
+		OAuthClientID:     cfg.OAuthClientID,
+		OAuthClientSecret: cfg.OAuthClientSecret,
+		Hostname:          hostname,
+		Tag:               cfg.Tag,
+	}); err != nil {
+		return err
+	}
+
+	fqdn, err := k8s.WaitForOperatorProxy(ctx, cfg.TsnetSrv, hostname, cfg.TailnetDNS, 10*time.Minute)
+	if err != nil {
+		return err
+	}
+	p.operatorFQDN = fqdn
+	p.tsnetSrv = cfg.TsnetSrv
+	return nil
 }

@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -23,10 +24,11 @@ import (
 )
 
 type Orchestrator struct {
-	cfg       *config.Config
-	providers []provider.Provider
-	tailnet   *tailnet.Manager
-	tsnetSrv  *tsnet.Server
+	cfg        *config.Config
+	providers  []provider.Provider
+	tailnet    *tailnet.Manager
+	tsnetSrv   *tsnet.Server
+	tailnetDNS string // e.g. "tailXXXX.ts.net"
 }
 
 func New(cfg *config.Config) (*Orchestrator, error) {
@@ -120,6 +122,7 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			return fmt.Errorf("create tailnet: %w", err)
 		}
 		log.Printf("tailnet created: %s", info.DNSName)
+		o.tailnetDNS = info.DNSName
 
 		defer func() {
 			log.Printf("deleting tailnet %s", info.DNSName)
@@ -131,8 +134,15 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}()
 
 		log.Println("setting up ACL")
-		if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true); err != nil {
+		if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
 			return fmt.Errorf("setup ACL: %w", err)
+		}
+
+		if o.hasK8sProviders() {
+			log.Println("enabling HTTPS on tailnet for operator API server proxy")
+			if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+				return fmt.Errorf("enable HTTPS: %w", err)
+			}
 		}
 
 		log.Println("creating auth key")
@@ -214,6 +224,23 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	net, err := p.SetupNetworking(ctx)
 	if err != nil {
 		return fmt.Errorf("setup networking: %w", err)
+	}
+
+	// Install Tailscale operator on K8s providers for API server proxy
+	if kp, ok := p.(provider.K8sOperatorProvider); ok && o.tsnetSrv != nil && o.tailnetDNS != "" {
+		kp.SetTsnetServer(o.tsnetSrv)
+		log.Printf("%s installing Tailscale operator", prefix)
+		if err := kp.InstallOperator(ctx, provider.OperatorInstallConfig{
+			OAuthClientID:     o.cfg.OAuthClientID,
+			OAuthClientSecret: o.cfg.OAuthClientSecret,
+			Tag:               o.cfg.Tag,
+			TailnetDNS:        o.tailnetDNS,
+			TsnetSrv:          o.tsnetSrv,
+		}); err != nil {
+			log.Printf("%s warning: operator install failed, falling back to direct kubeconfig: %v", prefix, err)
+		} else {
+			log.Printf("%s operator API proxy at %s", prefix, kp.OperatorProxyFQDN())
+		}
 	}
 
 	var families []string
@@ -439,25 +466,52 @@ func isK8sProvider(name string) bool {
 	return false
 }
 
+func (o *Orchestrator) hasK8sProviders() bool {
+	for _, p := range o.providers {
+		if isK8sProvider(p.Name()) {
+			return true
+		}
+	}
+	return false
+}
+
 func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
 	log.Printf("%s constructing kubectl exec transport", prefix)
 
-	serverBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
-	if err != nil {
-		return fmt.Errorf("server bench executor: %w", err)
-	}
-	clientBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
-	if err != nil {
-		return fmt.Errorf("client bench executor: %w", err)
-	}
+	var serverBench, clientBench, serverTS, clientTS *k8s.KubeExecExecutor
 
-	serverTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
-	if err != nil {
-		return fmt.Errorf("server tailscale executor: %w", err)
-	}
-	clientTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
-	if err != nil {
-		return fmt.Errorf("client tailscale executor: %w", err)
+	// Use operator API server proxy if available (routes through tailnet via tsnet)
+	if kp, ok := p.(provider.K8sOperatorProvider); ok && kp.OperatorProxyFQDN() != "" {
+		log.Printf("%s using operator API proxy at %s", prefix, kp.OperatorProxyFQDN())
+		cs, cfg, err := k8s.ClientsetViaTsnet(o.tsnetSrv, kp.OperatorProxyFQDN())
+		if err != nil {
+			return fmt.Errorf("tsnet clientset: %w", err)
+		}
+		dialer := func(ctx context.Context, network, addr string) (net.Conn, error) {
+			return o.tsnetSrv.Dial(ctx, network, addr)
+		}
+		serverBench = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ServerName, k8s.BenchContainer)
+		clientBench = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ClientName, k8s.BenchContainer)
+		serverTS = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ServerName, k8s.TSContainer)
+		clientTS = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ClientName, k8s.TSContainer)
+	} else {
+		var err error
+		serverBench, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
+		if err != nil {
+			return fmt.Errorf("server bench executor: %w", err)
+		}
+		clientBench, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
+		if err != nil {
+			return fmt.Errorf("client bench executor: %w", err)
+		}
+		serverTS, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
+		if err != nil {
+			return fmt.Errorf("server tailscale executor: %w", err)
+		}
+		clientTS, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
+		if err != nil {
+			return fmt.Errorf("client tailscale executor: %w", err)
+		}
 	}
 
 	runner := &benchmark.Runner{
