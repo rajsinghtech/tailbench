@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/base64"
 	"fmt"
+	"log"
 	"os/exec"
 	"regexp"
 	"sort"
@@ -143,7 +144,7 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 		return nil, fmt.Errorf("set azure-native:location: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()))
 	if err != nil {
 		return nil, fmt.Errorf("networking stack up: %w", err)
 	}
@@ -293,7 +294,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 		return nil, fmt.Errorf("set azure-native:location: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()))
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -328,7 +329,7 @@ func (p *AzureProvider) DestroyPair(ctx context.Context, instanceType string) er
 	if err != nil {
 		return fmt.Errorf("select stack %s: %w", stackName, err)
 	}
-	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams()); err != nil {
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
 		return fmt.Errorf("destroy stack %s: %w", stackName, err)
 	}
 	return stack.Workspace().RemoveStack(ctx, stackName)
@@ -341,7 +342,7 @@ func (p *AzureProvider) TeardownNetworking(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("select networking stack: %w", err)
 	}
-	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams()); err != nil {
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
 		return fmt.Errorf("destroy networking stack: %w", err)
 	}
 	return stack.Workspace().RemoveStack(ctx, "tailbench-azure-networking")

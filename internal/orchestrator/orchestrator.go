@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"log"
 	"net"
@@ -115,45 +116,64 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			Tag:             o.cfg.Tag,
 		}
 
-		tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
-		log.Printf("creating tailnet %s", tailnetName)
-		info, err := o.tailnet.CreateTailnet(ctx, tailnetName)
-		if err != nil {
-			return fmt.Errorf("create tailnet: %w", err)
-		}
-		log.Printf("tailnet created: %s", info.DNSName)
-		o.tailnetDNS = info.DNSName
-
-		defer func() {
-			log.Printf("deleting tailnet %s", info.DNSName)
-			delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-			defer cancel()
-			if err := o.tailnet.DeleteTailnet(delCtx, info.DNSName); err != nil {
-				log.Printf("warning: tailnet deletion failed: %v", err)
+		// Try to reuse an existing tailnet from a previous run
+		tailnetStateFile := filepath.Join(".tailbench", "tailnet.json")
+		info, err := loadTailnetState(tailnetStateFile)
+		if err == nil {
+			log.Printf("reusing existing tailnet: %s", info.DNSName)
+			o.tailnetDNS = info.DNSName
+			o.cfg.OAuthClientID = info.OAuthClientID
+			o.cfg.OAuthClientSecret = info.OAuthClientSecret
+		} else {
+			// Create a new tailnet
+			tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
+			log.Printf("creating tailnet %s", tailnetName)
+			info, err = o.tailnet.CreateTailnet(ctx, tailnetName)
+			if err != nil {
+				return fmt.Errorf("create tailnet: %w", err)
 			}
-		}()
+			log.Printf("tailnet created: %s", info.DNSName)
+			o.tailnetDNS = info.DNSName
+			o.cfg.OAuthClientID = info.OAuthClientID
+			o.cfg.OAuthClientSecret = info.OAuthClientSecret
 
-		log.Println("setting up ACL")
-		if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
-			return fmt.Errorf("setup ACL: %w", err)
+			// Save state for reuse in future runs
+			if err := saveTailnetState(tailnetStateFile, info); err != nil {
+				log.Printf("warning: could not save tailnet state: %v", err)
+			}
+
+			log.Println("setting up ACL")
+			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
+				return fmt.Errorf("setup ACL: %w", err)
+			}
+
+			if o.hasK8sProviders() {
+				log.Println("enabling HTTPS on tailnet for operator API server proxy")
+				if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+					return fmt.Errorf("enable HTTPS: %w", err)
+				}
+			}
 		}
 
-		if o.hasK8sProviders() {
-			log.Println("enabling HTTPS on tailnet for operator API server proxy")
-			if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
-				return fmt.Errorf("enable HTTPS: %w", err)
-			}
+		// Delete tailnet only on cleanup
+		if o.cfg.CleanupNetworking {
+			defer func() {
+				log.Printf("deleting tailnet %s", o.tailnetDNS)
+				delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
+					log.Printf("warning: tailnet deletion failed: %v", err)
+				}
+				os.Remove(tailnetStateFile)
+			}()
 		}
 
 		log.Println("creating auth key")
-		authKey, err = o.tailnet.CreateAuthKey(ctx, info.OAuthClientID, info.OAuthClientSecret)
+		authKey, err = o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
 		if err != nil {
 			return fmt.Errorf("create auth key: %w", err)
 		}
 		authKeyCreated = time.Now()
-
-		o.cfg.OAuthClientID = info.OAuthClientID
-		o.cfg.OAuthClientSecret = info.OAuthClientSecret
 
 		// Join the tailnet as the orchestrator node
 		o.tsnetSrv = &tsnet.Server{
@@ -432,13 +452,13 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	benchResult.Date = time.Now().UTC().Format("2006-01-02")
 
 	switch p.Name() {
-	case "gcp":
+	case "gcp", "gke":
 		benchResult.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
 		benchResult.Zone = o.cfg.GCPZone
-	case "aws":
+	case "aws", "eks":
 		benchResult.Region = o.cfg.AWSRegion
 		benchResult.Zone = o.cfg.AWSAZ
-	case "azure":
+	case "azure", "aks":
 		benchResult.Region = o.cfg.AzureLocation
 		benchResult.Zone = o.cfg.AzureLocation
 	}
@@ -563,4 +583,45 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 	}
 	log.Printf("%s K8s result written for %s", prefix, inst.Type)
 	return nil
+}
+
+// tailnetState is persisted between runs to reuse infrastructure.
+type tailnetState struct {
+	DNSName           string `json:"dns_name"`
+	OAuthClientID     string `json:"oauth_client_id"`
+	OAuthClientSecret string `json:"oauth_client_secret"`
+}
+
+func loadTailnetState(path string) (*tailnet.TailnetInfo, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	var state tailnetState
+	if err := json.Unmarshal(data, &state); err != nil {
+		return nil, err
+	}
+	if state.DNSName == "" || state.OAuthClientID == "" {
+		return nil, fmt.Errorf("incomplete tailnet state")
+	}
+	return &tailnet.TailnetInfo{
+		DNSName:           state.DNSName,
+		OAuthClientID:     state.OAuthClientID,
+		OAuthClientSecret: state.OAuthClientSecret,
+	}, nil
+}
+
+func saveTailnetState(path string, info *tailnet.TailnetInfo) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	data, err := json.MarshalIndent(tailnetState{
+		DNSName:           info.DNSName,
+		OAuthClientID:     info.OAuthClientID,
+		OAuthClientSecret: info.OAuthClientSecret,
+	}, "", "  ")
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(path, data, 0o600)
 }

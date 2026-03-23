@@ -5,15 +5,15 @@ import "strings"
 // GetInstanceFamily extracts the family prefix from a cloud instance type.
 func GetInstanceFamily(providerName, instanceType string) string {
 	switch providerName {
-	case "gcp":
+	case "gcp", "gke":
 		// c4-standard-4 -> c4
 		parts := strings.SplitN(instanceType, "-", 2)
 		return parts[0]
-	case "aws":
+	case "aws", "eks":
 		// c6in.xlarge -> c6in
 		parts := strings.SplitN(instanceType, ".", 2)
 		return parts[0]
-	case "azure":
+	case "azure", "aks":
 		// Standard_D4s_v4 -> dsv4
 		name := strings.TrimPrefix(instanceType, "Standard_")
 		var result []rune

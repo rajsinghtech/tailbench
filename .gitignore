@@ -10,7 +10,7 @@ azure/*/results/*.json
 *.key
 *.pem
 .env
-
+.tailbench/
 # Go binary
 tailbench
 

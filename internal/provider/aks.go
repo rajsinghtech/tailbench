@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -85,18 +86,28 @@ func (p *AKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 
 	p.clusterName = res.Outputs["clusterName"].Value.(string)
 
-	out, err := exec.CommandContext(ctx, "az", "aks", "get-credentials",
+	tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-aks-*.json")
+	if err != nil {
+		return nil, fmt.Errorf("create temp kubeconfig: %w", err)
+	}
+	tmpKubeconfig.Close()
+
+	credCmd := exec.CommandContext(ctx, "az", "aks", "get-credentials",
 		"--resource-group", p.ResourceGroup,
 		"--name", p.clusterName,
 		"--overwrite-existing",
-	).CombinedOutput()
+		"--file", tmpKubeconfig.Name(),
+	)
+	out, err := credCmd.CombinedOutput()
 	if err != nil {
+		os.Remove(tmpKubeconfig.Name())
 		return nil, fmt.Errorf("get-credentials: %s: %w", out, err)
 	}
 
-	kubeconfigOut, err := exec.CommandContext(ctx, "kubectl", "config", "view", "--raw", "-o", "json").Output()
+	kubeconfigOut, err := os.ReadFile(tmpKubeconfig.Name())
+	os.Remove(tmpKubeconfig.Name())
 	if err != nil {
-		return nil, fmt.Errorf("get kubeconfig: %w", err)
+		return nil, fmt.Errorf("read kubeconfig: %w", err)
 	}
 	p.kubeconfig = base64.StdEncoding.EncodeToString(kubeconfigOut)
 

@@ -5,6 +5,7 @@ import (
 	"encoding/base64"
 	"fmt"
 	"log"
+	"os"
 	"os/exec"
 	"strings"
 	"time"
@@ -185,16 +186,25 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 
 	clusterName := res.Outputs["clusterName"].Value.(string)
 
-	out, err := exec.CommandContext(ctx, "aws", "eks", "update-kubeconfig",
-		"--name", clusterName, "--region", p.Region,
-	).CombinedOutput()
+	tmpKubeconfig, err := os.CreateTemp("", "kubeconfig-eks-*.json")
 	if err != nil {
+		return nil, fmt.Errorf("create temp kubeconfig: %w", err)
+	}
+	tmpKubeconfig.Close()
+
+	credCmd := exec.CommandContext(ctx, "aws", "eks", "update-kubeconfig",
+		"--name", clusterName, "--region", p.Region, "--kubeconfig", tmpKubeconfig.Name(),
+	)
+	out, err := credCmd.CombinedOutput()
+	if err != nil {
+		os.Remove(tmpKubeconfig.Name())
 		return nil, fmt.Errorf("update-kubeconfig: %s: %w", out, err)
 	}
 
-	kubeconfigOut, err := exec.CommandContext(ctx, "kubectl", "config", "view", "--raw", "-o", "json").Output()
+	kubeconfigOut, err := os.ReadFile(tmpKubeconfig.Name())
+	os.Remove(tmpKubeconfig.Name())
 	if err != nil {
-		return nil, fmt.Errorf("get kubeconfig: %w", err)
+		return nil, fmt.Errorf("read kubeconfig: %w", err)
 	}
 	p.kubeconfig = base64.StdEncoding.EncodeToString(kubeconfigOut)
 
