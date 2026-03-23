@@ -137,6 +137,12 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 			o.tailnetDNS = info.DNSName
 			o.cfg.OAuthClientID = info.OAuthClientID
 			o.cfg.OAuthClientSecret = info.OAuthClientSecret
+
+			// Always update ACL to pick up any tag/rule changes
+			log.Println("updating ACL")
+			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
+				log.Printf("warning: ACL update failed: %v", err)
+			}
 		} else {
 			// Create a new tailnet
 			tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
@@ -251,6 +257,20 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	net, err := p.SetupNetworking(ctx)
 	if err != nil {
 		return fmt.Errorf("setup networking: %w", err)
+	}
+
+	// Clean up stale tailnet devices from previous crashed runs
+	if o.cfg.CreateTailnet {
+		for _, prefix := range []string{
+			fmt.Sprintf("tb-%s-", p.Name()),           // benchmark VMs/pods
+			fmt.Sprintf("tailbench-%s-operator", p.Name()), // operator node
+		} {
+			if n, err := o.tailnet.CleanupStaleDevices(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret, prefix); err != nil {
+				lg.Warnf("device cleanup (%s): %v", prefix, err)
+			} else if n > 0 {
+				lg.Infof("cleaned up %d stale devices matching %s*", n, prefix)
+			}
+		}
 	}
 
 	// Install Tailscale operator on K8s clusters for L7 ingress/LB
