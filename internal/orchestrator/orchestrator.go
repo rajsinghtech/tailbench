@@ -248,23 +248,9 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		return fmt.Errorf("setup networking: %w", err)
 	}
 
-	var families []string
-	if o.cfg.Family == "all" {
-		families = p.ListFamilies()
-	} else {
-		families = []string{o.cfg.Family}
-	}
-
-	var instances []provider.InstanceInfo
-	for _, fam := range families {
-		lg.Infof("listing instances for family %s", fam)
-		list, err := p.ListInstances(ctx, fam)
-		if err != nil {
-			lg.Warnf("listing family %s: %v", fam, err)
-			continue
-		}
-		lg.Infof("  %s: %d instance types", fam, len(list))
-		instances = append(instances, list...)
+	instances, err := o.listInstancesCached(ctx, p, lg)
+	if err != nil {
+		return fmt.Errorf("listing instances: %w", err)
 	}
 
 	if o.cfg.Filter != "" {
@@ -651,6 +637,57 @@ func loadTailnetState(path string) (*tailnet.TailnetInfo, error) {
 		OAuthClientID:     state.OAuthClientID,
 		OAuthClientSecret: state.OAuthClientSecret,
 	}, nil
+}
+
+// instanceCachePath returns the path for a provider's cached instance list.
+func instanceCachePath(providerName string) string {
+	return filepath.Join(".tailbench", "instances", providerName+".json")
+}
+
+// listInstancesCached returns the instance list for a provider, using a disk cache
+// when available. The cache is invalidated by --cleanup-networking.
+func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provider, lg *logger.Logger) ([]provider.InstanceInfo, error) {
+	cachePath := instanceCachePath(p.Name())
+
+	if !o.cfg.CleanupNetworking {
+		if data, err := os.ReadFile(cachePath); err == nil {
+			var cached []provider.InstanceInfo
+			if err := json.Unmarshal(data, &cached); err == nil && len(cached) > 0 {
+				lg.Infof("using cached instance list (%d types from %s)", len(cached), cachePath)
+				return cached, nil
+			}
+		}
+	}
+
+	var families []string
+	if o.cfg.Family == "all" {
+		families = p.ListFamilies()
+	} else {
+		families = []string{o.cfg.Family}
+	}
+
+	var instances []provider.InstanceInfo
+	for _, fam := range families {
+		lg.Infof("listing instances for family %s", fam)
+		list, err := p.ListInstances(ctx, fam)
+		if err != nil {
+			lg.Warnf("listing family %s: %v", fam, err)
+			continue
+		}
+		lg.Infof("  %s: %d instance types", fam, len(list))
+		instances = append(instances, list...)
+	}
+
+	if len(instances) > 0 {
+		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
+			if data, err := json.MarshalIndent(instances, "", "  "); err == nil {
+				os.WriteFile(cachePath, data, 0o644)
+				lg.Infof("cached %d instance types to %s", len(instances), cachePath)
+			}
+		}
+	}
+
+	return instances, nil
 }
 
 func saveTailnetState(path string, info *tailnet.TailnetInfo) error {
