@@ -1,0 +1,27 @@
+{
+  "Labels": "bench-echo",
+  "StartTime": "2026-03-22T10:00:00Z",
+  "RequestedQPS": "0",
+  "RequestedDuration": "30s",
+  "ActualQPS": 450.2,
+  "ActualDuration": 30000000000,
+  "NumThreads": 16,
+  "DurationHistogram": {
+    "Count": 13506,
+    "Min": 0.001234,
+    "Max": 2.500000,
+    "Sum": 1234.567,
+    "Avg": 0.091400,
+    "StdDev": 0.345000,
+    "Percentiles": [
+      {"Percentile": 50, "Value": 0.025000},
+      {"Percentile": 75, "Value": 0.080000},
+      {"Percentile": 90, "Value": 0.250000},
+      {"Percentile": 99, "Value": 1.200000},
+      {"Percentile": 99.9, "Value": 2.100000}
+    ]
+  },
+  "RetCodes": {"200": 12500, "502": 1006},
+  "SocketCount": 16,
+  "AbortOn": 0
+}

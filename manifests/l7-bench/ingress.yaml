@@ -1,0 +1,19 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: bench-echo-ingress
+  namespace: tailbench
+  labels:
+    app.kubernetes.io/part-of: tailbench-l7
+spec:
+  ingressClassName: tailscale
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: bench-echo
+            port:
+              number: 8080

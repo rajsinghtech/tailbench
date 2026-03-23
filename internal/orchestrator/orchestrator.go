@@ -435,44 +435,126 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		},
 	}
 
-	lg.Step("benchmark", inst.Type)
-	benchResult, err := runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
-	if err != nil {
-		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
+	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm")
+}
+
+func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env string) error {
+	for _, mode := range o.cfg.Modes {
+		if !benchmark.ModeAppliesTo(mode, env) {
+			log.Printf("%s skipping mode %s (not applicable to %s)", prefix, mode, env)
+			continue
+		}
+
+		var br *result.BenchmarkResult
+
+		switch {
+		case benchmark.ModeUsesIperf(mode):
+			log.Printf("%s running iperf benchmark for %s mode %s", prefix, inst.Type, mode)
+			var err error
+			br, err = runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
+			if err != nil {
+				return fmt.Errorf("mode %s: %w", mode, err)
+			}
+		case benchmark.ModeUsesFortio(mode):
+			target, baselineTarget := o.resolveEndpoints(mode, pair)
+			if target == "" {
+				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
+				continue
+			}
+			if strings.HasPrefix(mode, "l7-") {
+				if err := o.warmUpTLS(ctx, runner.Client, target); err != nil {
+					log.Printf("%s skipping mode %s: TLS warm-up failed: %v", prefix, mode, err)
+					continue
+				}
+			}
+			h2 := benchmark.ModeIsH2(mode)
+			log.Printf("%s running fortio benchmark for %s mode %s", prefix, inst.Type, mode)
+			baseline, ts, err := runner.RunFortio(ctx, target, baselineTarget, h2,
+				o.cfg.FortioConnections, o.cfg.FortioDuration, o.cfg.FortioIterations, o.cfg.FortioQPS)
+			if err != nil {
+				log.Printf("%s fortio mode %s failed: %v", prefix, mode, err)
+				continue
+			}
+			br = &result.BenchmarkResult{
+				FortioResult: ts,
+				L7Overhead:   result.ComputeL7Overhead(baseline, ts),
+			}
+		case benchmark.ModeUsesTsnet(mode):
+			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
+			continue
+		default:
+			log.Printf("%s skipping unknown mode %s", prefix, mode)
+			continue
+		}
+
+		br.TransportMode = mode
+		br.HTTPVersion = benchmark.ModeHTTPVersion(mode)
+		br.CloudProvider = p.Name()
+		br.InstanceFamily = family
+		br.InstanceType = inst.Type
+		br.VCPUs = inst.VCPUs
+		br.Date = time.Now().UTC().Format("2006-01-02")
+		br.Environment = env
+
+		switch p.Name() {
+		case "gcp", "gke":
+			br.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
+			br.Zone = o.cfg.GCPZone
+		case "aws", "eks":
+			br.Region = o.cfg.AWSRegion
+			br.Zone = o.cfg.AWSAZ
+		case "azure", "aks":
+			br.Region = o.cfg.AzureLocation
+			br.Zone = o.cfg.AzureLocation
+		}
+
+		if err := result.WriteResult(o.cfg.RootDir, br, false); err != nil {
+			return fmt.Errorf("writing result for mode %s: %w", mode, err)
+		}
+		log.Printf("%s result written for %s mode %s", prefix, inst.Type, mode)
 	}
-
-	benchResult.CloudProvider = p.Name()
-	benchResult.InstanceFamily = family
-	benchResult.InstanceType = inst.Type
-	benchResult.VCPUs = inst.VCPUs
-	benchResult.Date = time.Now().UTC().Format("2006-01-02")
-
-	switch p.Name() {
-	case "gcp", "gke":
-		benchResult.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
-		benchResult.Zone = o.cfg.GCPZone
-	case "aws", "eks":
-		benchResult.Region = o.cfg.AWSRegion
-		benchResult.Zone = o.cfg.AWSAZ
-	case "azure", "aks":
-		benchResult.Region = o.cfg.AzureLocation
-		benchResult.Zone = o.cfg.AzureLocation
-	}
-
-	benchResult.Environment = "vm"
-
-	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
-		return fmt.Errorf("write result: %w", err)
-	}
-	lg.Infof("result written: %s", inst.Type)
 	return nil
 }
 
 // providerStateDir returns a per-provider Pulumi state directory.
-// Separate dirs prevent parallel providers from deadlocking on the local backend lock.
 func providerStateDir(baseDir, providerName string) string {
-	// baseDir is "file:///path/to/state"
 	return baseDir + "/" + providerName
+}
+
+func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput) (target, baseline string) {
+	switch {
+	case strings.HasPrefix(mode, "l7-ingress"):
+		if o.cfg.IngressFQDN != "" {
+			target = "https://" + o.cfg.IngressFQDN
+		}
+		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
+	case strings.HasPrefix(mode, "l7-serve"):
+		if o.cfg.ServeFQDN != "" {
+			target = "https://" + o.cfg.ServeFQDN
+		}
+		baseline = "http://" + pair.ServerLANIP + ":8080"
+	case mode == "l4-lb":
+		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
+	}
+	return
+}
+
+func (o *Orchestrator) warmUpTLS(ctx context.Context, executor benchmark.Executor, target string) error {
+	for attempt := 0; attempt < 5; attempt++ {
+		backoff := time.Duration(1<<attempt) * time.Second
+		_, _, err := executor.Run(ctx, fmt.Sprintf("curl -sf --max-time 15 -o /dev/null %s", target))
+		if err == nil {
+			return nil
+		}
+		log.Printf("TLS warm-up attempt %d/5 failed: %v, retrying in %v", attempt+1, err, backoff)
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(backoff):
+		}
+	}
+	return fmt.Errorf("TLS cert not ready after 5 attempts for %s", target)
 }
 
 func safeHostname(instanceType string) string {
@@ -541,36 +623,8 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 		},
 	}
 
-	lg.Step("benchmark", inst.Type)
-	benchResult, err := runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
-	if err != nil {
-		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
-	}
-
-	benchResult.CloudProvider = p.Name()
-	benchResult.InstanceFamily = family
-	benchResult.InstanceType = inst.Type
-	benchResult.VCPUs = inst.VCPUs
-	benchResult.Date = time.Now().UTC().Format("2006-01-02")
-	benchResult.Environment = "container"
-
-	switch p.Name() {
-	case "gke":
-		benchResult.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
-		benchResult.Zone = o.cfg.GCPZone
-	case "eks":
-		benchResult.Region = o.cfg.AWSRegion
-		benchResult.Zone = o.cfg.AWSAZ
-	case "aks":
-		benchResult.Region = o.cfg.AzureLocation
-		benchResult.Zone = o.cfg.AzureLocation
-	}
-
-	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
-		return fmt.Errorf("write result: %w", err)
-	}
-	lg.Infof("result written: %s", inst.Type)
-	return nil
+	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container")
 }
 
 // tailnetState is persisted between runs to reuse infrastructure.

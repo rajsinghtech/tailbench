@@ -42,6 +42,14 @@ type Config struct {
 	StateDir           string
 	BenchImage         string
 	TSImage            string
+	FortioDuration    int
+	FortioConnections int
+	FortioQPS         int
+	FortioIterations  int
+	Modes             []string
+	IngressFQDN       string
+	ServeFQDN         string
+	ClusterLabel      string
 }
 
 type yamlConfig struct {
@@ -58,11 +66,16 @@ type yamlConfig struct {
 	} `yaml:"tailscale"`
 
 	Benchmark struct {
-		IPerfDuration   int `yaml:"iperf_duration"`
-		IPerfParallel   int `yaml:"iperf_parallel"`
-		IPerfIterations int `yaml:"iperf_iterations"`
-		MTRCycles       int `yaml:"mtr_cycles"`
-		CooldownSec     int `yaml:"cooldown_sec"`
+		IPerfDuration     int      `yaml:"iperf_duration"`
+		IPerfParallel     int      `yaml:"iperf_parallel"`
+		IPerfIterations   int      `yaml:"iperf_iterations"`
+		MTRCycles         int      `yaml:"mtr_cycles"`
+		CooldownSec       int      `yaml:"cooldown_sec"`
+		FortioDuration    int      `yaml:"fortio_duration"`
+		FortioConnections int      `yaml:"fortio_connections"`
+		FortioQPS         int      `yaml:"fortio_qps"`
+		FortioIterations  int      `yaml:"fortio_iterations"`
+		Modes             []string `yaml:"modes"`
 	} `yaml:"benchmark"`
 
 	SSH struct {
@@ -90,6 +103,12 @@ type yamlConfig struct {
 		Bench     string `yaml:"bench"`
 		Tailscale string `yaml:"tailscale"`
 	} `yaml:"images"`
+
+	L7Endpoints struct {
+		IngressFQDN  string `yaml:"ingress_fqdn"`
+		ServeFQDN    string `yaml:"serve_fqdn"`
+		ClusterLabel string `yaml:"cluster_label"`
+	} `yaml:"l7_endpoints"`
 
 	CleanupNetworking bool `yaml:"cleanup_networking"`
 	DryRun            bool `yaml:"dry_run"`
@@ -191,6 +210,14 @@ func Parse() (*Config, error) {
 		MTRCycles:         orInt(yc.Benchmark.MTRCycles, 100),
 		CooldownSec:       orInt(yc.Benchmark.CooldownSec, 30),
 		CreditRetrySec:    60,
+		FortioDuration:    orInt(yc.Benchmark.FortioDuration, 30),
+		FortioConnections: orInt(yc.Benchmark.FortioConnections, 16),
+		FortioQPS:         yc.Benchmark.FortioQPS,
+		FortioIterations:  orInt(yc.Benchmark.FortioIterations, 3),
+		Modes:             yc.Benchmark.Modes,
+		IngressFQDN:       yc.L7Endpoints.IngressFQDN,
+		ServeFQDN:         yc.L7Endpoints.ServeFQDN,
+		ClusterLabel:      or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
 		AuthKeyRefreshSec: 1800,
 
 		SSHTimeout:   orInt(yc.SSH.Timeout, 120),
@@ -211,6 +238,10 @@ func Parse() (*Config, error) {
 		DryRun:            yc.DryRun || *dryRun,
 		RootDir:           rootDir,
 		StateDir:          "file://" + rootDir + "/state",
+	}
+
+	if len(cfg.Modes) == 0 {
+		cfg.Modes = []string{"l4-kernel"}
 	}
 
 	// CLI flag overrides

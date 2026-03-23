@@ -157,6 +157,7 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 			m.Tag: {m.Tag},
 		},
 	}
+	acl.TagOwners["tag:bench-service"] = []string{m.Tag}
 	if tsnetSSH {
 		acl.SSH = []tailscale.ACLSSH{
 			{
@@ -191,6 +192,17 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 				},
 			},
 		}
+		acl.Grants = append(acl.Grants, tailscale.Grant{
+			Source:      []string{m.Tag},
+			Destination: []string{"tag:bench-service"},
+			IP:          []string{"*"},
+		})
+	}
+	acl.NodeAttrs = []tailscale.NodeAttrGrant{
+		{
+			Target: []string{"tag:k8s"},
+			Attr:   []string{"funnel"},
+		},
 	}
 	return client.PolicyFile().Set(ctx, acl, "")
 }

@@ -19,6 +19,12 @@ benchmark:
   iperf_iterations: 3
   mtr_cycles: 100
   cooldown_sec: 30
+  fortio_duration: 30
+  fortio_connections: 16
+  fortio_qps: 0
+  fortio_iterations: 3
+  modes:
+    - l4-kernel
 
 ssh:
   timeout: 120
@@ -43,3 +49,8 @@ images:
 
 cleanup_networking: false
 dry_run: false
+
+l7_endpoints:
+  ingress_fqdn: ""
+  serve_fqdn: ""
+  cluster_label: "app.kubernetes.io/part-of=tailbench-l7"

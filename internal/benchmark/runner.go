@@ -3,6 +3,7 @@ package benchmark
 import (
 	"context"
 	"fmt"
+	"log"
 	"strconv"
 	"strings"
 	"time"
@@ -313,6 +314,79 @@ func runMTR(ctx context.Context, c Executor, targetIP string, cycles int) (*resu
 		return nil, fmt.Errorf("mtr: %w", err)
 	}
 	return ParseMTR(stdout, targetIP)
+}
+
+// RunFortio executes a fortio-based benchmark for L7/L4-LB modes.
+func (r *Runner) RunFortio(ctx context.Context, target, baselineTarget string, h2 bool, connections, duration, iterations, qps int) (*result.FortioResult, *result.FortioResult, error) {
+	log.Printf("running fortio baseline against %s (h2=%v)", baselineTarget, h2)
+	baselineRuns, err := runFortioTest(ctx, r.Client, baselineTarget, h2, connections, iterations, duration, qps)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fortio baseline: %w", err)
+	}
+	baselineResult := averageFortioResults(baselineRuns)
+
+	log.Printf("running fortio tailscale against %s (h2=%v)", target, h2)
+	tsRuns, err := runFortioTest(ctx, r.Client, target, h2, connections, iterations, duration, qps)
+	if err != nil {
+		return nil, nil, fmt.Errorf("fortio tailscale: %w", err)
+	}
+	tsResult := averageFortioResults(tsRuns)
+
+	return baselineResult, tsResult, nil
+}
+
+func runFortioTest(ctx context.Context, c Executor, target string, h2 bool, connections, iterations, duration, qps int) ([]*result.FortioResult, error) {
+	var runs []*result.FortioResult
+	for i := range iterations {
+		cmd := BuildFortioCmd(target, h2, connections, duration, qps)
+		log.Printf("fortio iteration %d/%d: %s", i+1, iterations, cmd)
+
+		stdout, _, err := c.Run(ctx, cmd)
+		if err != nil {
+			log.Printf("fortio run error: %v", err)
+			continue
+		}
+		r, err := ParseFortioJSON([]byte(stdout))
+		if err != nil {
+			log.Printf("fortio parse error: %v", err)
+			continue
+		}
+		log.Printf("iteration %d: %.0f QPS, p50=%.2fms, p99=%.2fms", i+1, r.QPS, r.P50LatencyMs, r.P99LatencyMs)
+		runs = append(runs, r)
+	}
+	if len(runs) == 0 {
+		return nil, fmt.Errorf("all %d fortio iterations failed", iterations)
+	}
+	return runs, nil
+}
+
+func averageFortioResults(runs []*result.FortioResult) *result.FortioResult {
+	if len(runs) == 0 {
+		return &result.FortioResult{}
+	}
+	avg := &result.FortioResult{StatusCodes: make(map[int]int)}
+	n := float64(len(runs))
+	for _, r := range runs {
+		avg.QPS += r.QPS
+		avg.AvgLatencyMs += r.AvgLatencyMs
+		avg.P50LatencyMs += r.P50LatencyMs
+		avg.P90LatencyMs += r.P90LatencyMs
+		avg.P99LatencyMs += r.P99LatencyMs
+		avg.P999LatencyMs += r.P999LatencyMs
+		avg.BytesPerSec += r.BytesPerSec
+		avg.ConnectionErrs += r.ConnectionErrs
+		for code, count := range r.StatusCodes {
+			avg.StatusCodes[code] += count
+		}
+	}
+	avg.QPS /= n
+	avg.AvgLatencyMs /= n
+	avg.P50LatencyMs /= n
+	avg.P90LatencyMs /= n
+	avg.P99LatencyMs /= n
+	avg.P999LatencyMs /= n
+	avg.BytesPerSec /= n
+	return avg
 }
 
 // collectSystemConfig gathers system and network configuration from the server.

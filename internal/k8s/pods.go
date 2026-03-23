@@ -26,6 +26,7 @@ type PodConfig struct {
 	TSImage    string
 	AuthKey    string
 	Hostname   string
+	Userspace  bool
 }
 
 func BuildPod(name string, cfg PodConfig) *corev1.Pod {
@@ -61,7 +62,7 @@ func BuildPod(name string, cfg PodConfig) *corev1.Pod {
 						Privileged: &privileged,
 					},
 					Env: []corev1.EnvVar{
-						{Name: "TS_USERSPACE", Value: "false"},
+						{Name: "TS_USERSPACE", Value: fmt.Sprintf("%t", cfg.Userspace)},
 						{Name: "TS_KUBE_SECRET", Value: ""},
 						{Name: "TS_STATE_DIR", Value: "/dev/shm"},
 						{Name: "TS_DEBUG_FIREWALL_MODE", Value: "auto"},
