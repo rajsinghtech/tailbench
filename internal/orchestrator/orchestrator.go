@@ -58,38 +58,38 @@ func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 			Region:   region,
 			Network:  "default",
 			Subnet:   "default",
-			StateDir: cfg.StateDir,
+			StateDir: providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "aws":
 		return &provider.AWSProvider{
 			Region:   cfg.AWSRegion,
 			AZ:       cfg.AWSAZ,
 			KeyName:  cfg.AWSKeyName,
-			StateDir: cfg.StateDir,
+			StateDir: providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "azure":
 		return &provider.AzureProvider{
 			Location:      cfg.AzureLocation,
 			ResourceGroup: cfg.AzureResourceGroup,
-			StateDir:      cfg.StateDir,
+			StateDir:      providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "eks":
 		return &provider.EKSProvider{
 			Region:   cfg.AWSRegion,
 			AZ:       cfg.AWSAZ,
-			StateDir: cfg.StateDir,
+			StateDir: providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "gke":
 		return &provider.GKEProvider{
 			Project:  cfg.GCPProject,
 			Zone:     cfg.GCPZone,
-			StateDir: cfg.StateDir,
+			StateDir: providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "aks":
 		return &provider.AKSProvider{
 			Location:      cfg.AzureLocation,
 			ResourceGroup: cfg.AzureResourceGroup,
-			StateDir:      cfg.StateDir,
+			StateDir:      providerStateDir(cfg.StateDir, name),
 		}, nil
 	default:
 		return nil, fmt.Errorf("unknown provider: %s", name)
@@ -466,6 +466,13 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	}
 	lg.Infof("result written: %s", inst.Type)
 	return nil
+}
+
+// providerStateDir returns a per-provider Pulumi state directory.
+// Separate dirs prevent parallel providers from deadlocking on the local backend lock.
+func providerStateDir(baseDir, providerName string) string {
+	// baseDir is "file:///path/to/state"
+	return baseDir + "/" + providerName
 }
 
 func safeHostname(instanceType string) string {
