@@ -3,6 +3,7 @@ package provider
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"log"
 	"os/exec"
@@ -10,6 +11,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	azcompute "github.com/pulumi/pulumi-azure-native-sdk/compute/v3"
 	aznetwork "github.com/pulumi/pulumi-azure-native-sdk/network/v3"
@@ -26,6 +28,44 @@ type AzureProvider struct {
 	SSHUser       string
 	SSHPubKey     string
 	StateDir      string
+
+	skuCache []azureSKU // cached SKU list, loaded once
+}
+
+type azureSKU struct {
+	Name   string
+	Family string
+	VCPUs  string
+}
+
+// loadSKUCache fetches all VM SKUs once and caches them.
+func (p *AzureProvider) loadSKUCache(ctx context.Context) ([]azureSKU, error) {
+	if p.skuCache != nil {
+		return p.skuCache, nil
+	}
+	tCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
+	defer cancel()
+	out, err := exec.CommandContext(tCtx, "az", "vm", "list-skus",
+		"--location", p.Location,
+		"--resource-type", "virtualMachines",
+		"--query", "[].{name:name,family:family}",
+		"--output", "json",
+	).Output()
+	if err != nil {
+		return nil, fmt.Errorf("az vm list-skus: %w", err)
+	}
+	var raw []struct {
+		Name   string `json:"name"`
+		Family string `json:"family"`
+	}
+	if err := json.Unmarshal(out, &raw); err != nil {
+		return nil, fmt.Errorf("parse SKU list: %w", err)
+	}
+	p.skuCache = make([]azureSKU, len(raw))
+	for i, r := range raw {
+		p.skuCache[i] = azureSKU{Name: r.Name, Family: r.Family}
+	}
+	return p.skuCache, nil
 }
 
 func (p *AzureProvider) Name() string { return "azure" }
@@ -230,12 +270,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 					VmSize: pulumi.String(opts.InstanceType),
 				},
 				StorageProfile: azcompute.StorageProfileArgs{
-					ImageReference: azcompute.ImageReferenceArgs{
-						Publisher: pulumi.String("Canonical"),
-						Offer:    pulumi.String("ubuntu-24_04-lts"),
-						Sku:      pulumi.String("server"),
-						Version:  pulumi.String("latest"),
-					},
+					ImageReference: azureImageRef(opts.InstanceType),
 					OsDisk: azcompute.OSDiskArgs{
 						CreateOption: pulumi.String("FromImage"),
 						DiskSizeGB:  pulumi.Int(50),
@@ -373,25 +408,18 @@ func (p *AzureProvider) ListInstances(ctx context.Context, family string) ([]Ins
 		return nil, fmt.Errorf("unknown azure family: %s", family)
 	}
 
-	query := fmt.Sprintf("[?family=='%s'].{name:name,vcpus:capabilities[?name=='vCPUs'].value|[0]}", skuFamily)
-	out, err := exec.CommandContext(ctx, "az", "vm", "list-skus",
-		"--location", p.Location,
-		"--resource-type", "virtualMachines",
-		"--query", query,
-		"--output", "tsv",
-	).Output()
+	allSKUs, err := p.loadSKUCache(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("az vm list-skus: %w", err)
+		return nil, err
 	}
 
 	constrainedRe := regexp.MustCompile(`[0-9]-[0-9]`)
 	var instances []InstanceInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
+	for _, sku := range allSKUs {
+		if sku.Family != skuFamily {
 			continue
 		}
-		fields := strings.SplitN(line, "\t", 2)
-		name := fields[0]
+		name := sku.Name
 		// Skip constrained vCPU variants (e.g., Standard_E16-4s_v6)
 		if constrainedRe.MatchString(name) {
 			continue
@@ -427,6 +455,31 @@ func (p *AzureProvider) getVCPUsFromType(instanceType string) (int, error) {
 
 func (p *AzureProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
 	return p.getVCPUsFromType(instanceType)
+}
+
+// azureImageRef returns the correct Ubuntu image for the instance type.
+// ARM instances (containing "ps" before version suffix like Dps_v6, Dpds_v6, Eps_v6)
+// need the ARM64 SKU.
+func azureImageRef(instanceType string) azcompute.ImageReferenceArgs {
+	sku := "server"
+	if isAzureARM(instanceType) {
+		sku = "server-arm64"
+	}
+	return azcompute.ImageReferenceArgs{
+		Publisher: pulumi.String("Canonical"),
+		Offer:    pulumi.String("ubuntu-24_04-lts"),
+		Sku:      pulumi.String(sku),
+		Version:  pulumi.String("latest"),
+	}
+}
+
+// isAzureARM detects ARM-based Azure instance types.
+// ARM types contain "p" in the size segment: Dps_v6, Dpds_v6, Eps_v6, etc.
+func isAzureARM(instanceType string) bool {
+	lower := strings.ToLower(instanceType)
+	// Standard_D<N>ps_v6, Standard_E<N>pds_v6, etc.
+	return strings.Contains(lower, "ps_") || strings.Contains(lower, "pds_") ||
+		strings.Contains(lower, "pls_") || strings.Contains(lower, "pas_")
 }
 
 func (p *AzureProvider) IsQuotaError(err error) bool {

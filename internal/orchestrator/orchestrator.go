@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"log"
-	"net"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,6 +16,7 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/cloudinit"
 	"github.com/rajsinghtech/tailbench/internal/config"
 	"github.com/rajsinghtech/tailbench/internal/k8s"
+	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/provider"
 	"github.com/rajsinghtech/tailbench/internal/result"
 	"github.com/rajsinghtech/tailbench/internal/sshclient"
@@ -175,9 +175,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 		authKeyCreated = time.Now()
 
-		// Join the tailnet as the orchestrator node
+		// Ephemeral node — no state to preserve between runs.
+		tsnetDir := filepath.Join(".tailbench", "tsnet")
+		os.RemoveAll(tsnetDir)
 		o.tsnetSrv = &tsnet.Server{
-			Dir:           filepath.Join(".tailbench", "tsnet"),
+			Dir:           tsnetDir,
 			Hostname:      "tailbench-orchestrator",
 			AuthKey:       authKey,
 			Ephemeral:     true,
@@ -239,28 +241,11 @@ func (o *Orchestrator) dryRun(ctx context.Context) error {
 }
 
 func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, authKey *string, authKeyCreated *time.Time) error {
-	prefix := fmt.Sprintf("[%s]", p.Name())
-	log.Printf("%s setting up networking", prefix)
+	lg := logger.New(p.Name())
+	lg.Step("setup", "networking")
 	net, err := p.SetupNetworking(ctx)
 	if err != nil {
 		return fmt.Errorf("setup networking: %w", err)
-	}
-
-	// Install Tailscale operator on K8s providers for API server proxy
-	if kp, ok := p.(provider.K8sOperatorProvider); ok && o.tsnetSrv != nil && o.tailnetDNS != "" {
-		kp.SetTsnetServer(o.tsnetSrv)
-		log.Printf("%s installing Tailscale operator", prefix)
-		if err := kp.InstallOperator(ctx, provider.OperatorInstallConfig{
-			OAuthClientID:     o.cfg.OAuthClientID,
-			OAuthClientSecret: o.cfg.OAuthClientSecret,
-			Tag:               o.cfg.Tag,
-			TailnetDNS:        o.tailnetDNS,
-			TsnetSrv:          o.tsnetSrv,
-		}); err != nil {
-			log.Printf("%s warning: operator install failed, falling back to direct kubeconfig: %v", prefix, err)
-		} else {
-			log.Printf("%s operator API proxy at %s", prefix, kp.OperatorProxyFQDN())
-		}
 	}
 
 	var families []string
@@ -272,11 +257,13 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 
 	var instances []provider.InstanceInfo
 	for _, fam := range families {
+		lg.Infof("listing instances for family %s", fam)
 		list, err := p.ListInstances(ctx, fam)
 		if err != nil {
-			log.Printf("%s warning: listing instances for family %s: %v", prefix, fam, err)
+			lg.Warnf("listing family %s: %v", fam, err)
 			continue
 		}
+		lg.Infof("  %s: %d instance types", fam, len(list))
 		instances = append(instances, list...)
 	}
 
@@ -294,7 +281,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		instances = filtered
 	}
 
-	log.Printf("%s %d instance types to benchmark", prefix, len(instances))
+	lg.Infof("found %d instance types to benchmark", len(instances))
 
 	skippedFamilies := map[string]bool{}
 
@@ -305,39 +292,44 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 
 		family := provider.GetInstanceFamily(p.Name(), inst.Type)
 		if skippedFamilies[family] {
-			log.Printf("%s skipping %s (family %s quota exceeded)", prefix, inst.Type, family)
+			lg.Infof("skip %s (family %s quota exceeded)", inst.Type, family)
 			continue
 		}
 
 		resultPath := filepath.Join(o.cfg.RootDir, p.Name(), family, "results", inst.Type+".json")
 		if _, err := os.Stat(resultPath); err == nil {
-			log.Printf("%s skipping %s (result exists)", prefix, inst.Type)
+			lg.Infof("skip %s (result exists)", inst.Type)
 			continue
 		}
 
 		safeType := safeHostname(inst.Type)
-		serverHostname := fmt.Sprintf("tb-%s-server-%s", p.Name(), safeType)
-		clientHostname := fmt.Sprintf("tb-%s-client-%s", p.Name(), safeType)
+		suffix := fmt.Sprintf("%d", time.Now().Unix()%10000)
+		serverHostname := fmt.Sprintf("tb-%s-s-%s-%s", p.Name(), safeType, suffix)
+		clientHostname := fmt.Sprintf("tb-%s-c-%s-%s", p.Name(), safeType, suffix)
 
 		var userData, clientUserData string
 		if isK8sProvider(p.Name()) {
 			userData = *authKey
 		} else {
+			if *authKey == "" {
+				lg.Errf("BUG: auth key is empty for %s", inst.Type)
+				continue
+			}
 			serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname, EnableSSH: true})
 			if err != nil {
-				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
+				lg.Errf("cloud-init for %s: %v", inst.Type, err)
 				continue
 			}
 			userData = serverUD
 			clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname, EnableSSH: true})
 			if err != nil {
-				log.Printf("%s error rendering cloud-init for %s: %v", prefix, inst.Type, err)
+				lg.Errf("cloud-init for %s: %v", inst.Type, err)
 				continue
 			}
 			clientUserData = clientUD
 		}
 
-		log.Printf("%s creating pair for %s", prefix, inst.Type)
+		lg.Step("provision", inst.Type)
 		pair, err := p.CreatePair(ctx, provider.PairOptions{
 			InstanceType:   inst.Type,
 			UserData:       userData,
@@ -348,29 +340,34 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		})
 		if err != nil {
 			if p.IsQuotaError(err) {
-				log.Printf("%s quota exceeded for family %s, skipping remaining in family", prefix, family)
+				lg.Warnf("quota exceeded for %s, skipping family %s", inst.Type, family)
 				skippedFamilies[family] = true
 			} else {
-				log.Printf("%s error creating pair for %s: %v", prefix, inst.Type, err)
+				lg.Errf("create pair %s: %v", inst.Type, err)
+			}
+			// Destroy any partially-created resources (e.g. node pool created but nodes not ready)
+			if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
+				lg.Warnf("cleanup failed pair %s: %v", inst.Type, dErr)
 			}
 			continue
 		}
 
-		benchErr := o.runBenchmark(ctx, p, pair, inst, family, prefix, serverHostname, clientHostname, *authKey)
-		log.Printf("%s destroying pair for %s", prefix, inst.Type)
+		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, *authKey)
+
+		lg.Step("teardown", inst.Type)
 		if err := p.DestroyPair(ctx, inst.Type); err != nil {
-			log.Printf("%s warning: destroy pair %s: %v", prefix, inst.Type, err)
+			lg.Warnf("destroy pair %s: %v", inst.Type, err)
 		}
 
 		if benchErr != nil {
-			log.Printf("%s benchmark error for %s: %v", prefix, inst.Type, benchErr)
+			lg.Errf("benchmark %s: %v", inst.Type, benchErr)
 		}
 
 		if o.cfg.CreateTailnet && time.Since(*authKeyCreated) > time.Duration(o.cfg.AuthKeyRefreshSec)*time.Second {
-			log.Printf("%s refreshing auth key", prefix)
+			lg.Infof("refreshing auth key")
 			newKey, err := o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
 			if err != nil {
-				log.Printf("%s warning: auth key refresh failed: %v", prefix, err)
+				lg.Warnf("auth key refresh: %v", err)
 			} else {
 				*authKey = newKey
 				*authKeyCreated = time.Now()
@@ -379,43 +376,41 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	}
 
 	if err := result.Aggregate(o.cfg.RootDir); err != nil {
-		log.Printf("%s warning: aggregation failed: %v", prefix, err)
+		lg.Warnf("aggregation: %v", err)
 	}
 
 	if o.cfg.CleanupNetworking {
-		log.Printf("%s tearing down networking", prefix)
+		lg.Step("teardown", "networking")
 		if err := p.TeardownNetworking(ctx); err != nil {
-			log.Printf("%s warning: teardown networking: %v", prefix, err)
+			lg.Warnf("teardown networking: %v", err)
 		}
 	}
 	return nil
 }
 
-func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
+func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, authKey string) error {
 	if pair.Namespace != "" {
-		return o.runK8sBenchmark(ctx, p, pair, inst, family, prefix, serverHostname, clientHostname, authKey)
+		return o.runK8sBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, authKey)
 	}
 
-	// SSH into VMs over the Tailscale network via tsnet
-	log.Printf("%s dialing server via tsnet (%s)", prefix, serverHostname)
-	serverSSH, err := sshclient.Dial(o.tsnetSrv, serverHostname, "root", o.cfg.SSHTimeout)
+	lg.Step("ssh", fmt.Sprintf("connecting to %s", serverHostname))
+	serverSSH, err := sshclient.Dial(o.tsnetSrv, serverHostname, "root", o.cfg.SSHTimeout, lg)
 	if err != nil {
 		return fmt.Errorf("ssh dial server: %w", err)
 	}
 	defer serverSSH.Close()
 
-	log.Printf("%s dialing client via tsnet (%s)", prefix, clientHostname)
-	clientSSH, err := sshclient.Dial(o.tsnetSrv, clientHostname, "root", o.cfg.SSHTimeout)
+	lg.Step("ssh", fmt.Sprintf("connecting to %s", clientHostname))
+	clientSSH, err := sshclient.Dial(o.tsnetSrv, clientHostname, "root", o.cfg.SSHTimeout, lg)
 	if err != nil {
 		return fmt.Errorf("ssh dial client: %w", err)
 	}
 	defer clientSSH.Close()
 
-	log.Printf("%s waiting for server ready", prefix)
+	lg.Step("ssh", "waiting for cloud-init ready")
 	if err := serverSSH.WaitForReady(ctx); err != nil {
 		return fmt.Errorf("server ready: %w", err)
 	}
-	log.Printf("%s waiting for client ready", prefix)
 	if err := clientSSH.WaitForReady(ctx); err != nil {
 		return fmt.Errorf("client ready: %w", err)
 	}
@@ -425,6 +420,7 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		Client:          clientSSH,
 		ServerTailscale: serverSSH,
 		ClientTailscale: clientSSH,
+		Log:             lg,
 		Config: benchmark.RunConfig{
 			IPerfDuration:      o.cfg.IPerfDuration,
 			IPerfParallel:      o.cfg.IPerfParallel,
@@ -439,7 +435,7 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		},
 	}
 
-	log.Printf("%s running benchmark for %s", prefix, inst.Type)
+	lg.Step("benchmark", inst.Type)
 	benchResult, err := runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
 	if err != nil {
 		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
@@ -468,7 +464,7 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
 		return fmt.Errorf("write result: %w", err)
 	}
-	log.Printf("%s result written for %s", prefix, inst.Type)
+	lg.Infof("result written: %s", inst.Type)
 	return nil
 }
 
@@ -495,43 +491,27 @@ func (o *Orchestrator) hasK8sProviders() bool {
 	return false
 }
 
-func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, serverHostname, clientHostname, authKey string) error {
-	log.Printf("%s constructing kubectl exec transport", prefix)
+func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, authKey string) error {
+	lg.Step("k8s-exec", "constructing transport")
 
-	var serverBench, clientBench, serverTS, clientTS *k8s.KubeExecExecutor
-
-	// Use operator API server proxy if available (routes through tailnet via tsnet)
-	if kp, ok := p.(provider.K8sOperatorProvider); ok && kp.OperatorProxyFQDN() != "" {
-		log.Printf("%s using operator API proxy at %s", prefix, kp.OperatorProxyFQDN())
-		cs, cfg, err := k8s.ClientsetViaTsnet(o.tsnetSrv, kp.OperatorProxyFQDN())
-		if err != nil {
-			return fmt.Errorf("tsnet clientset: %w", err)
-		}
-		dialer := func(ctx context.Context, network, addr string) (net.Conn, error) {
-			return o.tsnetSrv.Dial(ctx, network, addr)
-		}
-		serverBench = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ServerName, k8s.BenchContainer)
-		clientBench = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ClientName, k8s.BenchContainer)
-		serverTS = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ServerName, k8s.TSContainer)
-		clientTS = k8s.NewKubeExecExecutorFromConfig(cs, cfg, dialer, pair.Namespace, pair.ClientName, k8s.TSContainer)
-	} else {
-		var err error
-		serverBench, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
-		if err != nil {
-			return fmt.Errorf("server bench executor: %w", err)
-		}
-		clientBench, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
-		if err != nil {
-			return fmt.Errorf("client bench executor: %w", err)
-		}
-		serverTS, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
-		if err != nil {
-			return fmt.Errorf("server tailscale executor: %w", err)
-		}
-		clientTS, err = k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
-		if err != nil {
-			return fmt.Errorf("client tailscale executor: %w", err)
-		}
+	// Use direct kubeconfig for kubectl exec (SPDY protocol doesn't work
+	// through the operator API proxy due to TLS upgrade issues).
+	// The operator is still installed for tailnet membership.
+	serverBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
+	if err != nil {
+		return fmt.Errorf("server bench executor: %w", err)
+	}
+	clientBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
+	if err != nil {
+		return fmt.Errorf("client bench executor: %w", err)
+	}
+	serverTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
+	if err != nil {
+		return fmt.Errorf("server tailscale executor: %w", err)
+	}
+	clientTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
+	if err != nil {
+		return fmt.Errorf("client tailscale executor: %w", err)
 	}
 
 	runner := &benchmark.Runner{
@@ -539,6 +519,7 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 		Client:          clientBench,
 		ServerTailscale: serverTS,
 		ClientTailscale: clientTS,
+		Log:             lg,
 		Config: benchmark.RunConfig{
 			IPerfDuration:      o.cfg.IPerfDuration,
 			IPerfParallel:      o.cfg.IPerfParallel,
@@ -553,7 +534,7 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 		},
 	}
 
-	log.Printf("%s running K8s benchmark for %s", prefix, inst.Type)
+	lg.Step("benchmark", inst.Type)
 	benchResult, err := runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
 	if err != nil {
 		return fmt.Errorf("benchmark %s: %w", inst.Type, err)
@@ -581,7 +562,7 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 	if err := result.WriteResult(o.cfg.RootDir, benchResult, false); err != nil {
 		return fmt.Errorf("write result: %w", err)
 	}
-	log.Printf("%s K8s result written for %s", prefix, inst.Type)
+	lg.Infof("result written: %s", inst.Type)
 	return nil
 }
 

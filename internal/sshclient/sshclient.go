@@ -4,9 +4,9 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"log"
 	"time"
 
+	"github.com/rajsinghtech/tailbench/internal/logger"
 	"golang.org/x/crypto/ssh"
 	"tailscale.com/tsnet"
 )
@@ -16,10 +16,7 @@ type Client struct {
 }
 
 // Dial connects to a host over the Tailscale network using tsnet.
-// Tailscale SSH handles auth via node identity — the dummy password
-// satisfies Go's SSH client handshake while Tailscale's PasswordCallback
-// authenticates based on the source node's identity.
-func Dial(srv *tsnet.Server, host, user string, maxRetries int) (*Client, error) {
+func Dial(srv *tsnet.Server, host, user string, maxRetries int, log *logger.Logger) (*Client, error) {
 	if maxRetries <= 0 {
 		maxRetries = 120
 	}
@@ -39,24 +36,23 @@ func Dial(srv *tsnet.Server, host, user string, maxRetries int) (*Client, error)
 		cancel()
 		if err != nil {
 			lastErr = err
-			if attempt%10 == 0 {
-				log.Printf("tsnet dial %s attempt %d: %v", addr, attempt, err)
+			if attempt%20 == 19 {
+				log.Infof("waiting for %s (%d/%d attempts)", host, attempt+1, maxRetries)
 			}
 		} else {
 			sshConn, chans, reqs, err := ssh.NewClientConn(conn, addr, cfg)
 			if err != nil {
 				conn.Close()
 				lastErr = err
-				log.Printf("tsnet ssh handshake %s attempt %d: %v", addr, attempt, err)
 			} else {
-				log.Printf("tsnet ssh connected to %s after %d attempts", addr, attempt)
+				log.Infof("connected to %s", host)
 				return &Client{conn: ssh.NewClient(sshConn, chans, reqs)}, nil
 			}
 		}
 		backoff := min(time.Second*time.Duration(1<<min(uint(attempt), 4)), 5*time.Second)
 		time.Sleep(backoff)
 	}
-	return nil, fmt.Errorf("tsnet ssh dial %s after %d attempts: %w", addr, maxRetries, lastErr)
+	return nil, fmt.Errorf("ssh dial %s after %d attempts: %w", host, maxRetries, lastErr)
 }
 
 // Run executes cmd on the remote host, returning stdout and stderr.

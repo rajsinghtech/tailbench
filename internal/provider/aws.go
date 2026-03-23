@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -350,15 +351,17 @@ func (p *AWSProvider) ListFamilies() []string {
 }
 
 func (p *AWSProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
+	tCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	filter := fmt.Sprintf("Name=instance-type,Values=%s.*", family)
-	out, err := exec.CommandContext(ctx, "aws", "ec2", "describe-instance-types",
+	out, err := exec.CommandContext(tCtx, "aws", "ec2", "describe-instance-types",
 		"--region", p.Region,
 		"--filters", filter,
 		"--query", "sort_by(InstanceTypes,&VCpuInfo.DefaultVCpus)[].[InstanceType,VCpuInfo.DefaultVCpus]",
 		"--output", "json",
 	).Output()
 	if err != nil {
-		return nil, fmt.Errorf("aws describe-instance-types: %w", err)
+		return nil, fmt.Errorf("aws describe-instance-types (%s): %w", family, err)
 	}
 
 	var raw [][]json.RawMessage
