@@ -483,8 +483,11 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				FortioResult: ts,
 				L7Overhead:   result.ComputeL7Overhead(baseline, ts),
 			}
+		case benchmark.ModeUsesTsnet(mode):
+			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
+			continue
 		default:
-			log.Printf("%s skipping mode %s: not yet implemented", prefix, mode)
+			log.Printf("%s skipping unknown mode %s", prefix, mode)
 			continue
 		}
 
@@ -530,7 +533,8 @@ func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput) 
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
 	case mode == "l4-lb":
-		target = "http://" + pair.ServerLANIP + ":8080"
+		// TODO: wire up k8s.DiscoverServiceLBFQDN when clientset is available
+		// For now, use config or skip
 		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
 	}
 	return

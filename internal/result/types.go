@@ -100,7 +100,7 @@ type FortioResult struct {
 	P999LatencyMs  float64     `json:"p999_latency_ms"`
 	StatusCodes    map[int]int `json:"status_codes"`
 	BytesPerSec    float64     `json:"bytes_per_sec"`
-	ConnectionErrs int         `json:"connection_errors"`
+	ConnectionErrs int         `json:"connection_errors"` // non-200 response count (includes 5xx, 4xx, etc.)
 }
 
 type L7Overhead struct {

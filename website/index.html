@@ -1556,9 +1556,10 @@ footer a:hover { text-decoration: underline; }
   function renderStats() {
     var data = getFilteredData();
     var totalTests = data.length;
-    var avgOverhead = data.reduce(function(s, d) { return s + d.overhead.bandwidth_pct; }, 0) / (data.length || 1);
+    var overheadData = data.filter(function(d) { return d.overhead; });
+    var avgOverhead = overheadData.reduce(function(s, d) { return s + d.overhead.bandwidth_pct; }, 0) / (overheadData.length || 1);
     var bestEntry = null, worstEntry = null;
-    data.forEach(function(d) {
+    overheadData.forEach(function(d) {
       if (!bestEntry || d.overhead.bandwidth_pct < bestEntry.overhead.bandwidth_pct) bestEntry = d;
       if (!worstEntry || d.overhead.bandwidth_pct > worstEntry.overhead.bandwidth_pct) worstEntry = d;
     });
@@ -1682,7 +1683,7 @@ footer a:hover { text-decoration: underline; }
       case 'vcpus': return getVCPUs(d);
       case 'baseline_bw': return d.baseline_tcp.summary.bandwidth_mbps_avg;
       case 'ts_bw': return d.tailscale_tcp.summary.bandwidth_mbps_avg;
-      case 'overhead': return d.overhead.bandwidth_pct;
+      case 'overhead': return d.overhead ? d.overhead.bandwidth_pct : 0;
       case 'baseline_retrans': return d.baseline_tcp.summary.retransmits_avg;
       case 'ts_retrans': return d.tailscale_tcp.summary.retransmits_avg;
       case 'baseline_bw_single': return d.baseline_tcp_single ? d.baseline_tcp_single.summary.bandwidth_mbps_avg : 0;
@@ -1783,7 +1784,7 @@ footer a:hover { text-decoration: underline; }
       var tBW = d.tailscale_tcp.summary.bandwidth_mbps_avg;
       var bBarW = maxBW ? (bBW / maxBW * 85).toFixed(1) : 0;
       var tBarW = maxBW ? (tBW / maxBW * 85).toFixed(1) : 0;
-      var oc = overheadClass(d.overhead.bandwidth_pct);
+      var oc = d.overhead ? overheadClass(d.overhead.bandwidth_pct) : '';
       var isOpen = state.expanded === rowKey;
 
       html += '<tr data-instance="' + rowKey + '" class="data-row">';
@@ -1826,9 +1827,9 @@ footer a:hover { text-decoration: underline; }
         html += '<td class="mono">' + (d.fortio_result ? fmtNum(d.fortio_result.qps, 0) : '\u2014') + '</td>';
         html += '<td class="mono">' + (d.fortio_result ? d.fortio_result.p99_latency_ms.toFixed(1) + ' ms' : '\u2014') + '</td>';
       }
-      html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
-      html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
-      html += '<td class="mono">' + fmtNum(d.tailscale_tcp.summary.retransmits_avg, 1) + '</td>';
+      html += '<td>' + (d.overhead ? '<span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span>' : '\u2014') + '</td>';
+      html += '<td class="mono">' + (d.baseline_tcp ? fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) : '\u2014') + '</td>';
+      html += '<td class="mono">' + (d.tailscale_tcp ? fmtNum(d.tailscale_tcp.summary.retransmits_avg, 1) : '\u2014') + '</td>';
       html += '<td><button class="btn-details" data-instance="' + rowKey + '">' + (isOpen ? 'Close' : 'Details') + '</button></td>';
       html += '</tr>';
 

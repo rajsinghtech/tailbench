@@ -33,7 +33,11 @@ func ModeUsesIperf(mode string) bool {
 }
 
 func ModeUsesFortio(mode string) bool {
-	return strings.HasPrefix(mode, "l4-lb") || strings.HasPrefix(mode, "l7-")
+	return mode == "l4-lb" || strings.HasPrefix(mode, "l7-")
+}
+
+func ModeUsesTsnet(mode string) bool {
+	return mode == "tsnet-userspace"
 }
 
 func ModeIsH2(mode string) bool {
