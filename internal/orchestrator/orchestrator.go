@@ -330,11 +330,18 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			continue
 		}
 
-		resultPath := filepath.Join(o.cfg.RootDir, p.Name(), family, "results", inst.Type+".json")
-		if _, err := os.Stat(resultPath); err == nil {
-			lg.Infof("skip %s (result exists)", inst.Type)
+		// Check which modes still need results for this instance.
+		// Skip the instance entirely if all applicable modes are done.
+		env := "vm"
+		if isK8sProvider(p.Name()) {
+			env = "container"
+		}
+		pendingModes := pendingModesForInstance(o.cfg.RootDir, p.Name(), family, inst.Type, o.cfg.Modes, env)
+		if len(pendingModes) == 0 {
+			lg.Infof("skip %s (all mode results exist)", inst.Type)
 			continue
 		}
+		lg.Infof("%s: %d/%d modes pending %v", inst.Type, len(pendingModes), len(o.cfg.Modes), pendingModes)
 
 		safeType := safeHostname(inst.Type)
 		suffix := fmt.Sprintf("%d", time.Now().Unix()%10000)
@@ -500,7 +507,12 @@ type modeContext struct {
 func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env string, mc modeContext) error {
 	for _, mode := range o.cfg.Modes {
 		if !benchmark.ModeAppliesTo(mode, env) {
-			log.Printf("%s skipping mode %s (not applicable to %s)", prefix, mode, env)
+			continue
+		}
+		// Skip modes that already have results
+		resultPath := filepath.Join(o.cfg.RootDir, p.Name(), family, "results", inst.Type+"-"+mode+".json")
+		if _, err := os.Stat(resultPath); err == nil {
+			log.Printf("%s skipping mode %s (result exists)", prefix, mode)
 			continue
 		}
 
@@ -642,6 +654,30 @@ func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Ex
 		}
 	}
 	return fmt.Errorf("endpoint not reachable after 10 attempts: %s", target)
+}
+
+// pendingModesForInstance returns the subset of modes that don't have result files yet.
+func pendingModesForInstance(rootDir, providerName, family, instanceType string, modes []string, env string) []string {
+	var pending []string
+	for _, mode := range modes {
+		if !benchmark.ModeAppliesTo(mode, env) {
+			continue
+		}
+		// Check for mode-suffixed result file
+		resultPath := filepath.Join(rootDir, providerName, family, "results", instanceType+"-"+mode+".json")
+		if _, err := os.Stat(resultPath); err != nil {
+			pending = append(pending, mode)
+			continue
+		}
+		// Also check legacy path (no mode suffix) for l4-kernel backward compat
+		if mode == "l4-kernel" {
+			legacyPath := filepath.Join(rootDir, providerName, family, "results", instanceType+".json")
+			if _, err := os.Stat(legacyPath); err != nil {
+				pending = append(pending, mode)
+			}
+		}
+	}
+	return pending
 }
 
 func hasL7ServeMode(modes []string) bool {
