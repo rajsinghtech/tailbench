@@ -49,7 +49,10 @@ tailscale set --ssh
 # Start fortio echo server and expose via tailscale serve
 fortio server -http-port 8080 -redirect-port disabled &
 sleep 2
-tailscale serve --bg --https=443 http://localhost:8080
+# Use HTTP serve (port 80) to avoid Let's Encrypt rate limits.
+# The L7 reverse proxy overhead is the same with or without TLS.
+# HTTPS (port 443) can be enabled via config for TLS termination benchmarks.
+tailscale serve --bg --http=80 http://localhost:8080
 {{- end }}
 
 touch /tmp/tailbench-ready

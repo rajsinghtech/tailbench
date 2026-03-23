@@ -471,7 +471,7 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
 				continue
 			}
-			if strings.HasPrefix(mode, "l7-") {
+			if strings.HasPrefix(target, "https://") {
 				if err := o.warmUpTLS(ctx, runner.Client, target); err != nil {
 					log.Printf("%s skipping mode %s: TLS warm-up failed: %v", prefix, mode, err)
 					continue
@@ -558,7 +558,10 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 			fqdn = mc.serverHostname + "." + o.tailnetDNS
 		}
 		if fqdn != "" {
-			target = "https://" + fqdn
+			// Use HTTP serve (port 80) to avoid LE cert rate limits.
+			// The L7 reverse proxy overhead is the same — TLS termination
+			// is a separate measurable delta if needed via config.
+			target = "http://" + fqdn
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
 
