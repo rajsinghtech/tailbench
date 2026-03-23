@@ -76,6 +76,39 @@ func TestComputeL7Overhead(t *testing.T) {
 	}
 }
 
+func TestWriteResultWithMode(t *testing.T) {
+	dir := t.TempDir()
+	r := &BenchmarkResult{
+		CloudProvider:  "gke",
+		InstanceFamily: "n2",
+		InstanceType:   "n2-standard-4",
+		TransportMode:  "l7-ingress-h1",
+	}
+	if err := WriteResult(dir, r, false); err != nil {
+		t.Fatal(err)
+	}
+	path := dir + "/gke/n2/results/n2-standard-4-l7-ingress-h1.json"
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected file at %s: %v", path, err)
+	}
+}
+
+func TestWriteResultWithoutMode(t *testing.T) {
+	dir := t.TempDir()
+	r := &BenchmarkResult{
+		CloudProvider:  "gcp",
+		InstanceFamily: "c3",
+		InstanceType:   "c3-standard-4",
+	}
+	if err := WriteResult(dir, r, false); err != nil {
+		t.Fatal(err)
+	}
+	path := dir + "/gcp/c3/results/c3-standard-4.json"
+	if _, err := os.Stat(path); err != nil {
+		t.Errorf("expected file at %s: %v", path, err)
+	}
+}
+
 func TestBenchmarkResultRoundTrip(t *testing.T) {
 	data, err := os.ReadFile("../../gcp/c4/results/c4-standard-4.json")
 	if err != nil {

@@ -60,10 +60,14 @@ func WriteResult(rootDir string, r *BenchmarkResult, enaExpress bool) error {
 		return fmt.Errorf("creating result directory: %w", err)
 	}
 
-	filename := r.InstanceType + ".json"
-	if enaExpress {
-		filename = r.InstanceType + "-ena-express.json"
+	filename := r.InstanceType
+	if r.TransportMode != "" {
+		filename += "-" + r.TransportMode
 	}
+	if enaExpress {
+		filename += "-ena-express"
+	}
+	filename += ".json"
 
 	data, err := json.MarshalIndent(r, "", "  ")
 	if err != nil {
