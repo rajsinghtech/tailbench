@@ -30,11 +30,26 @@ NETDEV=$(ip -o route get 8.8.8.8 | cut -f 5 -d " ")
 ethtool -K "$NETDEV" rx-udp-gro-forwarding on rx-gro-list off 2>/dev/null || true
 ethtool -k "$NETDEV" | grep -E "rx-udp-gro-forwarding|rx-gro-list" || true
 
+{{- if .EnableServe }}
+# Install fortio for L7 benchmarks
+ARCH=$(dpkg --print-architecture)
+FORTIO_VERSION="1.67.0"
+curl -fsSL "https://github.com/fortio/fortio/releases/download/v${FORTIO_VERSION}/fortio_linux_${ARCH}-${FORTIO_VERSION}.tgz" | tar xz -C /usr/local/bin fortio
+chmod +x /usr/local/bin/fortio
+{{- end }}
+
 {{- if .AuthKey }}
 tailscale up --authkey={{ .AuthKey }} --hostname={{ .Hostname }}
 {{- if .EnableSSH }}
 tailscale set --ssh
 {{- end }}
+{{- end }}
+
+{{- if .EnableServe }}
+# Start fortio echo server and expose via tailscale serve
+fortio server -http-port 8080 -redirect-port disabled &
+sleep 2
+tailscale serve --bg --https=443 http://localhost:8080
 {{- end }}
 
 touch /tmp/tailbench-ready

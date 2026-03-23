@@ -71,6 +71,8 @@ func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
 		return &provider.AzureProvider{
 			Location:      cfg.AzureLocation,
 			ResourceGroup: cfg.AzureResourceGroup,
+			SSHUser:       cfg.AzureSSHUser,
+			SSHPubKey:     cfg.AzureSSHPubKey,
 			StateDir:      providerStateDir(cfg.StateDir, name),
 		}, nil
 	case "eks":
@@ -100,6 +102,17 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	stateDir := strings.TrimPrefix(o.cfg.StateDir, "file://")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
 		return fmt.Errorf("create state dir %s: %w", stateDir, err)
+	}
+
+	// Clean stale Pulumi lock files left behind by previous crashed runs.
+	// These live in state/<provider>/.pulumi/locks/*.json and cause all
+	// subsequent operations to fail with "exit status 255".
+	lockPattern := filepath.Join(stateDir, "*", ".pulumi", "locks", "*.json")
+	if locks, err := filepath.Glob(lockPattern); err == nil {
+		for _, lf := range locks {
+			log.Printf("removing stale pulumi lock: %s", lf)
+			os.Remove(lf)
+		}
 	}
 
 	if o.cfg.DryRun {
@@ -198,26 +211,18 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	}
 
 	var wg sync.WaitGroup
-	errCh := make(chan error, len(o.providers))
 	for _, p := range o.providers {
 		wg.Add(1)
 		go func(p provider.Provider) {
 			defer wg.Done()
 			if err := o.runProvider(ctx, p, &authKey, &authKeyCreated); err != nil {
-				errCh <- fmt.Errorf("%s: %w", p.Name(), err)
+				log.Printf("[%s] provider finished with error: %v", p.Name(), err)
+			} else {
+				log.Printf("[%s] provider finished successfully", p.Name())
 			}
 		}(p)
 	}
 	wg.Wait()
-	close(errCh)
-
-	var errs []string
-	for err := range errCh {
-		errs = append(errs, err.Error())
-	}
-	if len(errs) > 0 {
-		return fmt.Errorf("provider errors:\n  %s", strings.Join(errs, "\n  "))
-	}
 	return nil
 }
 
@@ -301,13 +306,24 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 				lg.Errf("BUG: auth key is empty for %s", inst.Type)
 				continue
 			}
-			serverUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: serverHostname, EnableSSH: true})
+			wantServe := hasL7ServeMode(o.cfg.Modes)
+			serverUD, err := cloudinit.Render(cloudinit.Config{
+				AuthKey:     *authKey,
+				Hostname:    serverHostname,
+				EnableSSH:   true,
+				EnableServe: wantServe,
+			})
 			if err != nil {
 				lg.Errf("cloud-init for %s: %v", inst.Type, err)
 				continue
 			}
 			userData = serverUD
-			clientUD, err := cloudinit.Render(cloudinit.Config{AuthKey: *authKey, Hostname: clientHostname, EnableSSH: true})
+			clientUD, err := cloudinit.Render(cloudinit.Config{
+				AuthKey:     *authKey,
+				Hostname:    clientHostname,
+				EnableSSH:   true,
+				EnableServe: wantServe, // client needs fortio binary too
+			})
 			if err != nil {
 				lg.Errf("cloud-init for %s: %v", inst.Type, err)
 				continue
@@ -422,10 +438,10 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	}
 
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm")
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm", serverHostname)
 }
 
-func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env string) error {
+func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env, serverHostname string) error {
 	for _, mode := range o.cfg.Modes {
 		if !benchmark.ModeAppliesTo(mode, env) {
 			log.Printf("%s skipping mode %s (not applicable to %s)", prefix, mode, env)
@@ -443,7 +459,7 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				return fmt.Errorf("mode %s: %w", mode, err)
 			}
 		case benchmark.ModeUsesFortio(mode):
-			target, baselineTarget := o.resolveEndpoints(mode, pair)
+			target, baselineTarget := o.resolveEndpoints(mode, pair, serverHostname)
 			if target == "" {
 				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
 				continue
@@ -512,7 +528,7 @@ func providerStateDir(baseDir, providerName string) string {
 	return url
 }
 
-func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput) (target, baseline string) {
+func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput, serverHostname string) (target, baseline string) {
 	switch {
 	case strings.HasPrefix(mode, "l7-ingress"):
 		if o.cfg.IngressFQDN != "" {
@@ -520,8 +536,12 @@ func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput) 
 		}
 		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
 	case strings.HasPrefix(mode, "l7-serve"):
-		if o.cfg.ServeFQDN != "" {
-			target = "https://" + o.cfg.ServeFQDN
+		fqdn := o.cfg.ServeFQDN
+		if fqdn == "" && serverHostname != "" && o.tailnetDNS != "" {
+			fqdn = serverHostname + "." + o.tailnetDNS
+		}
+		if fqdn != "" {
+			target = "https://" + fqdn
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
 	case mode == "l4-lb":
@@ -545,6 +565,15 @@ func (o *Orchestrator) warmUpTLS(ctx context.Context, executor benchmark.Executo
 		}
 	}
 	return fmt.Errorf("TLS cert not ready after 5 attempts for %s", target)
+}
+
+func hasL7ServeMode(modes []string) bool {
+	for _, m := range modes {
+		if strings.HasPrefix(m, "l7-serve") {
+			return true
+		}
+	}
+	return false
 }
 
 func safeHostname(instanceType string) string {
@@ -614,7 +643,7 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 	}
 
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container")
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", "")
 }
 
 // tailnetState is persisted between runs to reuse infrastructure.
