@@ -438,10 +438,17 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	}
 
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm", serverHostname)
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm", modeContext{
+		serverHostname: serverHostname,
+	})
 }
 
-func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env, serverHostname string) error {
+type modeContext struct {
+	serverHostname string
+	kubeconfig     string // base64 kubeconfig for K8s providers, empty for VMs
+}
+
+func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env string, mc modeContext) error {
 	for _, mode := range o.cfg.Modes {
 		if !benchmark.ModeAppliesTo(mode, env) {
 			log.Printf("%s skipping mode %s (not applicable to %s)", prefix, mode, env)
@@ -459,7 +466,7 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				return fmt.Errorf("mode %s: %w", mode, err)
 			}
 		case benchmark.ModeUsesFortio(mode):
-			target, baselineTarget := o.resolveEndpoints(mode, pair, serverHostname)
+			target, baselineTarget := o.resolveEndpoints(ctx, mode, pair, mc)
 			if target == "" {
 				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
 				continue
@@ -528,23 +535,42 @@ func providerStateDir(baseDir, providerName string) string {
 	return url
 }
 
-func (o *Orchestrator) resolveEndpoints(mode string, pair *provider.PairOutput, serverHostname string) (target, baseline string) {
+func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *provider.PairOutput, mc modeContext) (target, baseline string) {
 	switch {
 	case strings.HasPrefix(mode, "l7-ingress"):
-		if o.cfg.IngressFQDN != "" {
-			target = "https://" + o.cfg.IngressFQDN
+		fqdn := o.cfg.IngressFQDN
+		if fqdn == "" && mc.kubeconfig != "" {
+			if cs, err := k8s.ClientsetFromKubeconfig(mc.kubeconfig); err == nil {
+				if discovered, err := k8s.DiscoverIngressFQDN(ctx, cs, o.cfg.ClusterLabel); err == nil {
+					fqdn = discovered
+					log.Printf("discovered ingress FQDN: %s", fqdn)
+				}
+			}
+		}
+		if fqdn != "" {
+			target = "https://" + fqdn
 		}
 		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
+
 	case strings.HasPrefix(mode, "l7-serve"):
 		fqdn := o.cfg.ServeFQDN
-		if fqdn == "" && serverHostname != "" && o.tailnetDNS != "" {
-			fqdn = serverHostname + "." + o.tailnetDNS
+		if fqdn == "" && mc.serverHostname != "" && o.tailnetDNS != "" {
+			fqdn = mc.serverHostname + "." + o.tailnetDNS
 		}
 		if fqdn != "" {
 			target = "https://" + fqdn
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
+
 	case mode == "l4-lb":
+		if mc.kubeconfig != "" {
+			if cs, err := k8s.ClientsetFromKubeconfig(mc.kubeconfig); err == nil {
+				if discovered, err := k8s.DiscoverServiceLBFQDN(ctx, cs, o.cfg.ClusterLabel); err == nil {
+					target = "http://" + discovered + ":8080"
+					log.Printf("discovered service LB FQDN: %s", discovered)
+				}
+			}
+		}
 		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
 	}
 	return
@@ -643,7 +669,9 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 	}
 
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", "")
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", modeContext{
+		kubeconfig: pair.Kubeconfig,
+	})
 }
 
 // tailnetState is persisted between runs to reuse infrastructure.

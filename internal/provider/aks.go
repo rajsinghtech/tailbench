@@ -40,6 +40,7 @@ func (p *AKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
+		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -149,6 +150,9 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("create agent pool stack: %w", err)
 	}
 
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
 	_, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()))
 	if err != nil {
 		return nil, fmt.Errorf("create agent pool %s: %w", opts.InstanceType, err)
@@ -233,7 +237,10 @@ func (p *AKSProvider) DestroyPair(ctx context.Context, instanceType string) erro
 	if err != nil {
 		return fmt.Errorf("select stack %s: %w", stackName, err)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
+	// Cancel any incomplete operations, then destroy with ContinueOnError
+	// to handle partial state from previously failed creates.
+	_ = stack.Cancel(ctx)
+	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
 	return err
 }
 

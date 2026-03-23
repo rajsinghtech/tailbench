@@ -35,6 +35,8 @@ type Config struct {
 	GCPZone            string
 	AzureLocation      string
 	AzureResourceGroup string
+	AzureSSHUser       string
+	AzureSSHPubKey     string
 	CleanupNetworking  bool
 	DryRun             bool
 	AuthKeyRefreshSec  int
@@ -97,6 +99,8 @@ type yamlConfig struct {
 	Azure struct {
 		Location      string `yaml:"location"`
 		ResourceGroup string `yaml:"resource_group"`
+		SSHUser       string `yaml:"ssh_user"`
+		SSHPubKeyFile string `yaml:"ssh_pub_key_file"`
 	} `yaml:"azure"`
 
 	Images struct {
@@ -230,6 +234,7 @@ func Parse() (*Config, error) {
 		GCPZone:            or(yc.GCP.Zone, "us-central1-a"),
 		AzureLocation:      or(yc.Azure.Location, "eastus"),
 		AzureResourceGroup: or(yc.Azure.ResourceGroup, "tailbench-rg"),
+		AzureSSHUser:       or(yc.Azure.SSHUser, "azureuser"),
 
 		BenchImage: or(yc.Images.Bench, "ghcr.io/rajsinghtech/tailbench-tools:latest"),
 		TSImage:    or(yc.Images.Tailscale, "ghcr.io/tailscale/tailscale:latest"),
@@ -238,6 +243,26 @@ func Parse() (*Config, error) {
 		DryRun:            yc.DryRun || *dryRun,
 		RootDir:           rootDir,
 		StateDir:          "file://" + rootDir + "/state",
+	}
+
+	// Load Azure SSH pub key
+	if pubKeyFile := yc.Azure.SSHPubKeyFile; pubKeyFile != "" {
+		if !filepath.IsAbs(pubKeyFile) {
+			pubKeyFile = filepath.Join(filepath.Dir(*configFile), pubKeyFile)
+		}
+		if data, err := os.ReadFile(pubKeyFile); err == nil {
+			cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
+		}
+	}
+	if cfg.AzureSSHPubKey == "" {
+		// Default: try common SSH key locations
+		home, _ := os.UserHomeDir()
+		for _, name := range []string{"id_ed25519.pub", "id_rsa.pub"} {
+			if data, err := os.ReadFile(filepath.Join(home, ".ssh", name)); err == nil {
+				cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
+				break
+			}
+		}
 	}
 
 	if len(cfg.Modes) == 0 {

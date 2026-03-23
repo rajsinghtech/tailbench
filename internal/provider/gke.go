@@ -41,6 +41,7 @@ func (p *GKEProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
+		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -183,6 +184,9 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	stack.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: p.Project})
 	stack.SetConfig(ctx, "gcp:zone", auto.ConfigValue{Value: p.Zone})
 
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
 	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer())); err != nil {
 		return nil, fmt.Errorf("create node pool %s: %w", opts.InstanceType, err)
 	}
@@ -274,7 +278,10 @@ func (p *GKEProvider) DestroyPair(ctx context.Context, instanceType string) erro
 	if err != nil {
 		return fmt.Errorf("select stack %s: %w", stackName, err)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
+	// Cancel any incomplete operations, then destroy with ContinueOnError
+	// to handle partial state from previously failed creates.
+	_ = stack.Cancel(ctx)
+	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
 	return err
 }
 
