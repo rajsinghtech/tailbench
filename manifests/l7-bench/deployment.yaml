@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench-echo
+  namespace: tailbench
+  labels:
+    app.kubernetes.io/part-of: tailbench-l7
+    app: bench-echo
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bench-echo
+  template:
+    metadata:
+      labels:
+        app: bench-echo
+    spec:
+      containers:
+      - name: fortio
+        image: fortio/fortio:latest
+        args: ["server"]
+        ports:
+        - containerPort: 8080
+          name: http
+        - containerPort: 8079
+          name: grpc
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
+          limits:
+            cpu: "2"
+            memory: 256Mi

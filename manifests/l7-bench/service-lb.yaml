@@ -1,0 +1,20 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bench-echo-lb
+  namespace: tailbench
+  labels:
+    app.kubernetes.io/part-of: tailbench-l7
+  annotations:
+    tailscale.com/expose: "true"
+    tailscale.com/hostname: bench-echo-lb
+    tailscale.com/tags: "tag:bench-service"
+spec:
+  type: LoadBalancer
+  loadBalancerClass: tailscale
+  selector:
+    app: bench-echo
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http

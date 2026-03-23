@@ -1,0 +1,14 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: bench-echo
+  namespace: tailbench
+  labels:
+    app.kubernetes.io/part-of: tailbench-l7
+spec:
+  selector:
+    app: bench-echo
+  ports:
+  - port: 8080
+    targetPort: 8080
+    name: http
