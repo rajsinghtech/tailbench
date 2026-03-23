@@ -1,0 +1,33 @@
+{
+  "Labels": "bench-echo",
+  "StartTime": "2026-03-22T10:00:00Z",
+  "RequestedQPS": "0",
+  "RequestedDuration": "30s",
+  "ActualQPS": 12450.5,
+  "ActualDuration": 30000000000,
+  "NumThreads": 16,
+  "Version": "1.63.0",
+  "DurationHistogram": {
+    "Count": 373515,
+    "Min": 0.000234,
+    "Max": 0.045123,
+    "Sum": 456.789,
+    "Avg": 0.001223,
+    "StdDev": 0.002345,
+    "Percentiles": [
+      {"Percentile": 50, "Value": 0.001200},
+      {"Percentile": 75, "Value": 0.001800},
+      {"Percentile": 90, "Value": 0.003400},
+      {"Percentile": 99, "Value": 0.008100},
+      {"Percentile": 99.9, "Value": 0.015000}
+    ]
+  },
+  "RetCodes": {"200": 373515},
+  "Sizes": {"Count": 373515, "Min": 256, "Max": 256, "Sum": 95619840, "Avg": 256},
+  "SocketCount": 16,
+  "AbortOn": 0,
+  "URL": "https://bench-echo.tailnet.ts.net:443/echo",
+  "Destination": "bench-echo.tailnet.ts.net:443",
+  "BytesSent": 37351500,
+  "BytesReceived": 95619840
+}
