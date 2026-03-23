@@ -418,6 +418,21 @@ td.mono {
   background: var(--yellow-bg);
   color: var(--yellow);
 }
+.mode-tag {
+  display: inline-block;
+  font-size: 0.6rem;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 5px;
+  border-radius: 4px;
+  margin-left: 6px;
+}
+.mode-l4 { background: rgba(37, 99, 235, 0.1); color: var(--accent); }
+.mode-l7 { background: rgba(139, 92, 246, 0.1); color: #8b5cf6; }
+.mode-tsnet { background: rgba(16, 185, 129, 0.1); color: #10b981; }
+[data-theme="dark"] .mode-l7 { background: rgba(139, 92, 246, 0.15); color: #a78bfa; }
+[data-theme="dark"] .mode-tsnet { background: rgba(16, 185, 129, 0.15); color: #34d399; }
 .env-tag {
   display: inline-block;
   font-size: 0.6rem;
@@ -679,6 +694,11 @@ footer a:hover { text-decoration: underline; }
     <div class="pill-group" id="k8sFilter"></div>
   </div>
 
+  <div class="filter-bar" id="modeFilterBar" style="display:none">
+    <label>Mode</label>
+    <div class="pill-group" id="modeFilter"></div>
+  </div>
+
   <div class="table-wrap">
     <table id="mainTable">
       <thead id="tableHead">
@@ -741,7 +761,8 @@ footer a:hover { text-decoration: underline; }
     expanded: null,
     filterK8s: false,
     filterEnv: 'all',
-    activeTab: 'throughput'
+    activeTab: 'throughput',
+    mode: 'all'
   };
 
   // --- Detect providers ---
@@ -755,6 +776,10 @@ footer a:hover { text-decoration: underline; }
   var multiProvider = allProviders.length > 1;
   var hasSingle = TAILBENCH_DATA.some(function(d) { return d.baseline_tcp_single; });
   var hasK8s = TAILBENCH_DATA.some(function(d) { return d.k8s_pod_to_vm_tcp; });
+  var allModes = {};
+  TAILBENCH_DATA.forEach(function(d) { if (d.transport_mode) allModes[d.transport_mode] = true; });
+  var hasModes = Object.keys(allModes).length > 1;
+  var hasFortio = TAILBENCH_DATA.some(function(d) { return d.fortio_result; });
   var hasContainer = TAILBENCH_DATA.some(function(d) { return d.environment === 'container'; });
   var hasVM = TAILBENCH_DATA.some(function(d) { return !d.environment || d.environment === 'vm'; });
   var hasMultiEnv = hasContainer && hasVM;
@@ -821,6 +846,7 @@ footer a:hover { text-decoration: underline; }
     if (params.k8s) state.filterK8s = params.k8s === '1';
     if (params.env) state.filterEnv = params.env;
     if (params.tab) state.activeTab = params.tab;
+    if (params.mode) state.mode = params.mode;
   }
   function writeHash() {
     var parts = [];
@@ -831,6 +857,7 @@ footer a:hover { text-decoration: underline; }
     if (state.filterK8s) parts.push('k8s=1');
     if (state.filterEnv !== 'all') parts.push('env=' + encodeURIComponent(state.filterEnv));
     if (state.activeTab !== 'throughput') parts.push('tab=' + encodeURIComponent(state.activeTab));
+    if (state.mode !== 'all') parts.push('mode=' + encodeURIComponent(state.mode));
     location.hash = parts.length ? parts.join('&') : '';
   }
   readHash();
@@ -847,6 +874,7 @@ footer a:hover { text-decoration: underline; }
     var data = getProviderData();
     if (state.family !== 'all') data = data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
     if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_vm_tcp; });
+    if (state.mode !== 'all') data = data.filter(function(d) { return d.transport_mode === state.mode; });
     if (state.filterEnv !== 'all') {
       data = data.filter(function(d) {
         var env = d.environment || 'vm';
@@ -1586,6 +1614,27 @@ footer a:hover { text-decoration: underline; }
     });
   }
 
+  // --- Mode filter ---
+  function renderModeFilter() {
+    var bar = document.getElementById('modeFilterBar');
+    if (!hasModes) { bar.style.display = 'none'; return; }
+    bar.style.display = '';
+    var modeList = Object.keys(allModes).sort();
+    var html = '<button class="pill' + (state.mode === 'all' ? ' active' : '') + '" data-mode="all">All</button>';
+    modeList.forEach(function(m) {
+      html += '<button class="pill' + (state.mode === m ? ' active' : '') + '" data-mode="' + m + '">' + m.replace(/-/g, ' ') + '</button>';
+    });
+    document.getElementById('modeFilter').innerHTML = html;
+    document.querySelectorAll('#modeFilter .pill').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        state.mode = this.getAttribute('data-mode');
+        state.expanded = null;
+        writeHash();
+        render();
+      });
+    });
+  }
+
   // --- K8s filter ---
   function renderK8sFilter() {
     var bar = document.getElementById('k8sFilterBar');
@@ -1640,6 +1689,9 @@ footer a:hover { text-decoration: underline; }
       case 'ts_bw_single': return d.tailscale_tcp_single ? d.tailscale_tcp_single.summary.bandwidth_mbps_avg : 0;
       case 'k8s_pod_to_vm': return d.k8s_pod_to_vm_tcp ? d.k8s_pod_to_vm_tcp.summary.bandwidth_mbps_avg : 0;
       case 'k8s_vm_to_pod': return d.k8s_vm_to_pod_tcp ? d.k8s_vm_to_pod_tcp.summary.bandwidth_mbps_avg : 0;
+      case 'transport_mode': return d.transport_mode || '';
+      case 'qps': return d.fortio_result ? d.fortio_result.qps : 0;
+      case 'p99': return d.fortio_result ? d.fortio_result.p99_latency_ms : 0;
       default: return 0;
     }
   }
@@ -1681,6 +1733,11 @@ footer a:hover { text-decoration: underline; }
       cols.push({key:'k8s_pod_to_vm', label:'K8s\u2192VM'});
       cols.push({key:'k8s_vm_to_pod', label:'VM\u2192K8s'});
     }
+    if (hasFortio) {
+      cols.push({key:'transport_mode', label:'Transport'});
+      cols.push({key:'qps', label:'QPS'});
+      cols.push({key:'p99', label:'P99 Latency'});
+    }
     cols.push({key:'overhead', label:'BW Overhead'});
     cols.push({key:'baseline_retrans', label:'Baseline Retrans'});
     cols.push({key:'ts_retrans', label:'TS Retrans'});
@@ -1716,7 +1773,7 @@ footer a:hover { text-decoration: underline; }
   function renderTable() {
     var data = sortData(getFilteredData());
     var tbody = document.getElementById('tableBody');
-    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0) + (hasK8s ? 2 : 0);
+    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0) + (hasK8s ? 2 : 0) + (hasFortio ? 3 : 0);
     var html = '';
 
     data.forEach(function(d) {
@@ -1761,6 +1818,13 @@ footer a:hover { text-decoration: underline; }
         } else {
           html += '<td class="mono">—</td>';
         }
+      }
+      if (hasFortio) {
+        var mode = d.transport_mode || '';
+        var modeClass = mode.startsWith('l7') ? 'mode-l7' : mode.startsWith('l4') ? 'mode-l4' : mode.startsWith('tsnet') ? 'mode-tsnet' : '';
+        html += '<td>' + (mode ? '<span class="mode-tag ' + modeClass + '">' + mode + '</span>' : '\u2014') + '</td>';
+        html += '<td class="mono">' + (d.fortio_result ? fmtNum(d.fortio_result.qps, 0) : '\u2014') + '</td>';
+        html += '<td class="mono">' + (d.fortio_result ? d.fortio_result.p99_latency_ms.toFixed(1) + ' ms' : '\u2014') + '</td>';
       }
       html += '<td><span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span></td>';
       html += '<td class="mono">' + fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) + '</td>';
@@ -1965,6 +2029,29 @@ footer a:hover { text-decoration: underline; }
       html += '</div>';
     }
 
+    if (d.fortio_result) {
+      html += '<div class="detail-grid" style="margin-top:16px"><div class="detail-section" style="grid-column:1/-1">';
+      html += '<h4>HTTP Performance (fortio)</h4>';
+      html += '<div class="detail-meta">';
+      if (d.transport_mode) html += '<div class="detail-meta-item"><strong>Transport:</strong> ' + d.transport_mode + '</div>';
+      if (d.http_version) html += '<div class="detail-meta-item"><strong>HTTP:</strong> ' + d.http_version + '</div>';
+      if (d.ha_mode) html += '<div class="detail-meta-item"><strong>HA:</strong> ' + d.ha_mode + '</div>';
+      html += '</div>';
+      var fr = d.fortio_result;
+      html += '<table class="mini-table"><thead><tr><th>QPS</th><th>P50</th><th>P90</th><th>P99</th><th>P99.9</th><th>Errors</th></tr></thead><tbody>';
+      html += '<tr><td>' + fmtNum(fr.qps, 0) + '</td><td>' + fr.p50_latency_ms.toFixed(2) + ' ms</td><td>' + fr.p90_latency_ms.toFixed(2) + ' ms</td><td>' + fr.p99_latency_ms.toFixed(2) + ' ms</td><td>' + fr.p999_latency_ms.toFixed(2) + ' ms</td><td>' + fr.connection_errors + '</td></tr>';
+      html += '</tbody></table>';
+      if (d.l7_overhead) {
+        var lo = d.l7_overhead;
+        html += '<div class="detail-meta" style="margin-top:8px">';
+        html += '<div class="detail-meta-item"><strong>QPS overhead:</strong> ' + lo.qps.delta_pct.toFixed(1) + '%</div>';
+        html += '<div class="detail-meta-item"><strong>P50 overhead:</strong> +' + lo.p50_latency.delta_pct.toFixed(1) + '%</div>';
+        html += '<div class="detail-meta-item"><strong>P99 overhead:</strong> +' + lo.p99_latency.delta_pct.toFixed(1) + '%</div>';
+        html += '</div>';
+      }
+      html += '</div></div>';
+    }
+
     return html;
   }
 
@@ -1977,6 +2064,7 @@ footer a:hover { text-decoration: underline; }
     renderFamilyFilter();
     renderEnvFilter();
     renderK8sFilter();
+    renderModeFilter();
     renderTableHead();
     renderTable();
   }
