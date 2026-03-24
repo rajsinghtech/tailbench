@@ -565,13 +565,20 @@ footer a:hover { text-decoration: underline; }
       aks:{bg:'rgba(45,212,191,0.12)',border:css('--teal')}
     };
 
+    var k8sProviders = {gke:1,eks:1,aks:1};
     var datasets = providers.map(function(p,i) {
       var c = colors[p] || {bg:'rgba(154,152,150,0.12)',border:css('--text-2')};
+      var isK8s = !!k8sProviders[p];
       return {
         label: p.toUpperCase()+' ('+pa[p].count+')',
         data: [bwS[i],ohS[i],qpsS[i],latS[i],effS[i]],
-        backgroundColor: c.bg, borderColor: c.border, borderWidth: 2,
-        pointBackgroundColor: c.border, pointRadius: 4, pointHoverRadius: 6
+        backgroundColor: c.bg, borderColor: c.border,
+        borderWidth: isK8s ? 2 : 2,
+        borderDash: isK8s ? [6,3] : [],
+        pointBackgroundColor: c.border,
+        pointRadius: isK8s ? 3 : 5,
+        pointHoverRadius: 6,
+        pointStyle: isK8s ? 'rectRot' : 'circle'
       };
     });
 
