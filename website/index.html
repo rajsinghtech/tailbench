@@ -1991,7 +1991,7 @@ footer a:hover { text-decoration: underline; }
     var html = '';
 
     data.forEach(function(d) {
-      var rowKey = d.instance_type + (d.ena_express ? '-ena' : '') + (d.transport_mode ? '-' + d.transport_mode : '');
+      var rowKey = d.instance_type + (d.ena_express ? '-ena' : '') + (d.transport_mode ? '-' + d.transport_mode : '') + (d.environment === 'container' ? '-ctr' : '');
       var vcpus = getVCPUs(d);
       var bBW = d.baseline_tcp ? d.baseline_tcp.summary.bandwidth_mbps_avg : 0;
       var tBW = d.tailscale_tcp ? d.tailscale_tcp.summary.bandwidth_mbps_avg : 0;
@@ -2278,8 +2278,6 @@ footer a:hover { text-decoration: underline; }
   // --- Full render ---
   function render() {
     renderStats();
-    renderInsightsTabs();
-    renderChart();
     renderProviderFilter();
     renderFamilyFilter();
     renderEnvFilter();
@@ -2287,6 +2285,8 @@ footer a:hover { text-decoration: underline; }
     renderModeFilter();
     renderTableHead();
     renderTable();
+    renderInsightsTabs();
+    try { renderChart(); } catch(e) { console.warn('chart render error:', e); }
   }
 
   render();
