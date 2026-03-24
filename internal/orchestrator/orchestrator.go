@@ -591,6 +591,12 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 		br.VCPUs = inst.VCPUs
 		br.Date = time.Now().UTC().Format("2006-01-02")
 		br.Environment = env
+		// Fill TSVersion if not already set (iperf RunFull sets it; fortio doesn't)
+		if br.TSVersion == "" && runner.ServerTailscale != nil {
+			if out, _, err := runner.ServerTailscale.Run(ctx, "tailscale version | head -1"); err == nil {
+				br.TSVersion = strings.TrimSpace(out)
+			}
+		}
 
 		switch p.Name() {
 		case "gcp", "gke":

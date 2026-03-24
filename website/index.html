@@ -1872,9 +1872,11 @@ footer a:hover { text-decoration: underline; }
 
     html += '<div class="detail-meta">';
     html += '<div class="detail-meta-item"><strong>Provider:</strong> ' + provider + '</div>';
-    html += '<div class="detail-meta-item"><strong>Date:</strong> ' + d.date + '</div>';
-    html += '<div class="detail-meta-item"><strong>Tailscale:</strong> v' + d.tailscale_version + '</div>';
-    html += '<div class="detail-meta-item"><strong>Region:</strong> ' + d.region + ' (' + d.zone + ')</div>';
+    if (d.date) html += '<div class="detail-meta-item"><strong>Date:</strong> ' + d.date + '</div>';
+    if (d.tailscale_version) html += '<div class="detail-meta-item"><strong>Tailscale:</strong> v' + d.tailscale_version + '</div>';
+    if (d.region) html += '<div class="detail-meta-item"><strong>Region:</strong> ' + d.region + (d.zone ? ' (' + d.zone + ')' : '') + '</div>';
+    if (d.transport_mode) html += '<div class="detail-meta-item"><strong>Mode:</strong> ' + d.transport_mode + '</div>';
+    if (d.http_version) html += '<div class="detail-meta-item"><strong>HTTP:</strong> ' + d.http_version + '</div>';
     html += '<div class="detail-meta-item"><strong>vCPUs:</strong> ' + getVCPUs(d) + '</div>';
     if (d.environment) {
       html += '<div class="detail-meta-item"><strong>Environment:</strong> ' + d.environment + '</div>';
