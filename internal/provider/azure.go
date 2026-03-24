@@ -333,7 +333,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
 
-	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()))
+	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}

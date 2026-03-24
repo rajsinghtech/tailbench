@@ -294,6 +294,32 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		if err := k8s.DeployL7Bench(ctx, kubeconfig, o.cfg.RootDir); err != nil {
 			lg.Warnf("L7 bench deploy: %v (L7 modes may not work)", err)
 		}
+
+		// Wait for the operator LB proxy to get a FQDN before starting benchmarks.
+		lg.Step("setup", "waiting for LB FQDN")
+		cs, csErr := k8s.ClientsetFromKubeconfig(kubeconfig)
+		if csErr != nil {
+			lg.Warnf("kubeconfig parse for LB wait: %v", csErr)
+		} else {
+			const pollInterval = 10 * time.Second
+			const pollTimeout = 3 * time.Minute
+			deadline := time.Now().Add(pollTimeout)
+			for time.Now().Before(deadline) {
+				fqdn, err := k8s.DiscoverServiceLBFQDN(ctx, cs, o.cfg.ClusterLabel)
+				if err == nil && fqdn != "" {
+					lg.Infof("LB FQDN ready: %s", fqdn)
+					break
+				}
+				lg.Infof("LB FQDN not yet available, retrying in %v...", pollInterval)
+				select {
+				case <-ctx.Done():
+				case <-time.After(pollInterval):
+				}
+				if ctx.Err() != nil {
+					break
+				}
+			}
+		}
 	}
 
 	instances, err := o.listInstancesCached(ctx, p, lg)
@@ -610,7 +636,9 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 		if fqdn != "" {
 			target = "https://" + fqdn
 		}
-		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
+		// Use pod IP for baseline — tailscale sidecar hijacks DNS so
+		// cluster-local service names don't resolve from bench pods.
+		baseline = discoverEchoPodIP(ctx, mc.kubeconfig, o.cfg.ClusterLabel)
 
 	case strings.HasPrefix(mode, "l7-serve"):
 		fqdn := o.cfg.ServeFQDN
@@ -618,9 +646,6 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 			fqdn = mc.serverHostname + "." + o.tailnetDNS
 		}
 		if fqdn != "" {
-			// Use HTTP serve (port 80) to avoid LE cert rate limits.
-			// The L7 reverse proxy overhead is the same — TLS termination
-			// is a separate measurable delta if needed via config.
 			target = "http://" + fqdn
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
@@ -634,15 +659,36 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 				}
 			}
 		}
-		baseline = "http://bench-echo.tailbench.svc.cluster.local:8080"
+		baseline = discoverEchoPodIP(ctx, mc.kubeconfig, o.cfg.ClusterLabel)
 	}
 	return
 }
 
+func discoverEchoPodIP(ctx context.Context, kubeconfig, labelSelector string) string {
+	if kubeconfig == "" {
+		return ""
+	}
+	cs, err := k8s.ClientsetFromKubeconfig(kubeconfig)
+	if err != nil {
+		return ""
+	}
+	ip, err := k8s.DiscoverPodIP(ctx, cs, labelSelector)
+	if err != nil {
+		log.Printf("could not discover echo pod IP: %v", err)
+		return ""
+	}
+	return "http://" + ip + ":8080"
+}
+
 func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Executor, target string) error {
-	for attempt := 0; attempt < 10; attempt++ {
+	// Use -k for HTTPS targets to skip cert verification (LE certs may not be ready on ephemeral tailnets)
+	insecureFlag := ""
+	if strings.HasPrefix(target, "https://") {
+		insecureFlag = "-k "
+	}
+	for attempt := 0; attempt < 20; attempt++ {
 		backoff := time.Duration(1<<min(attempt, 4)) * time.Second
-		_, _, err := executor.Run(ctx, fmt.Sprintf("curl -sf --max-time 15 -o /dev/null %s", target))
+		_, _, err := executor.Run(ctx, fmt.Sprintf("curl %s-sf --max-time 15 -o /dev/null %s", insecureFlag, target))
 		if err == nil {
 			return nil
 		}
@@ -653,7 +699,7 @@ func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Ex
 		case <-time.After(backoff):
 		}
 	}
-	return fmt.Errorf("endpoint not reachable after 10 attempts: %s", target)
+	return fmt.Errorf("endpoint not reachable after 20 attempts: %s", target)
 }
 
 // pendingModesForInstance returns the subset of modes that don't have result files yet.
@@ -744,9 +790,23 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 		return fmt.Errorf("client tailscale executor: %w", err)
 	}
 
+	// Create a baseline executor from the bench-baseline pod (no tailscale sidecar).
+	// The tailscale sidecar in bench pods hijacks networking, so direct pod-to-pod
+	// fortio baseline must run from a separate pod without tailscale.
+	var baselineClient benchmark.Executor
+	if cs, err := k8s.ClientsetFromKubeconfig(pair.Kubeconfig); err == nil {
+		if baselinePod, err := k8s.DiscoverPodName(ctx, cs, "app.kubernetes.io/part-of=tailbench-l7-baseline"); err == nil {
+			if exec, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, baselinePod, "tools"); err == nil {
+				baselineClient = exec
+				lg.Infof("using baseline pod %s for L7 tests", baselinePod)
+			}
+		}
+	}
+
 	runner := &benchmark.Runner{
 		Server:          serverBench,
 		Client:          clientBench,
+		BaselineClient:  baselineClient,
 		ServerTailscale: serverTS,
 		ClientTailscale: clientTS,
 		Log:             lg,

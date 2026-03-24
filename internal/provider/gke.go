@@ -358,7 +358,7 @@ func (p *GKEProvider) OperatorProxyFQDN() string {
 }
 
 func (p *GKEProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
-	hostname := fmt.Sprintf("tailbench-gke-operator")
+	hostname := "tailbench-gke-operator"
 	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
 		OAuthClientID:     cfg.OAuthClientID,
 		OAuthClientSecret: cfg.OAuthClientSecret,
@@ -368,12 +368,9 @@ func (p *GKEProvider) InstallOperator(ctx context.Context, cfg OperatorInstallCo
 	}); err != nil {
 		return err
 	}
-
-	fqdn, err := k8s.WaitForOperatorProxy(ctx, cfg.TsnetSrv, hostname, cfg.TailnetDNS, 10*time.Minute)
-	if err != nil {
-		return err
-	}
-	p.operatorFQDN = fqdn
+	// Don't wait for API server proxy — we use direct kubeconfig for kubectl exec.
+	// The operator just needs to be running for ingress/LB proxy provisioning.
+	p.operatorFQDN = hostname + "." + cfg.TailnetDNS
 	p.tsnetSrv = cfg.TsnetSrv
 	return nil
 }

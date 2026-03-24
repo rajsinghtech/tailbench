@@ -25,10 +25,10 @@ benchmark:
   fortio_iterations: 3
   modes:
     - l4-kernel
+    - l4-lb
     - l7-ingress-h1
     - l7-ingress-h2
     - l7-serve-h1
-    - l7-serve-h2
 
 ssh:
   timeout: 120

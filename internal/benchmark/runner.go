@@ -18,6 +18,7 @@ type Runner struct {
 	Client          Executor
 	ServerTailscale Executor
 	ClientTailscale Executor
+	BaselineClient  Executor // optional: non-tailscale client for L7 baseline (K8s only)
 	Config          RunConfig
 	Log             *logger.Logger
 }
@@ -318,8 +319,15 @@ func runMTR(ctx context.Context, c Executor, targetIP string, cycles int) (*resu
 
 // RunFortio executes a fortio-based benchmark for L7/L4-LB modes.
 func (r *Runner) RunFortio(ctx context.Context, target, baselineTarget string, h2 bool, connections, duration, iterations, qps int) (*result.FortioResult, *result.FortioResult, error) {
+	// Use BaselineClient (no tailscale sidecar) for baseline if available,
+	// otherwise fall back to Client. In K8s, the tailscale sidecar hijacks
+	// networking so direct pod-to-pod traffic doesn't work from Client.
+	baselineExec := r.Client
+	if r.BaselineClient != nil {
+		baselineExec = r.BaselineClient
+	}
 	log.Printf("running fortio baseline against %s (h2=%v)", baselineTarget, h2)
-	baselineRuns, err := runFortioTest(ctx, r.Client, baselineTarget, h2, connections, iterations, duration, qps)
+	baselineRuns, err := runFortioTest(ctx, baselineExec, baselineTarget, h2, connections, iterations, duration, qps)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fortio baseline: %w", err)
 	}

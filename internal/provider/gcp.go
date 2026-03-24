@@ -138,7 +138,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -170,16 +170,12 @@ func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) erro
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err != nil {
-		return fmt.Errorf("select stack %s: %w", stackName, err)
+	if err == nil {
+		_ = stack.Cancel(ctx)
+		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError())
+		_ = stack.Workspace().RemoveStack(ctx, stackName)
 	}
-	// Cancel any incomplete operations, then destroy with ContinueOnError
-	// to handle partial state from previously failed creates.
-	_ = stack.Cancel(ctx)
-	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError()); err != nil {
-		return fmt.Errorf("destroy stack %s: %w", stackName, err)
-	}
-	return stack.Workspace().RemoveStack(ctx, stackName)
+	return nil
 }
 
 func (p *GCPProvider) TeardownNetworking(_ context.Context) error {

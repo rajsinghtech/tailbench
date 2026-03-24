@@ -31,11 +31,10 @@ ethtool -K "$NETDEV" rx-udp-gro-forwarding on rx-gro-list off 2>/dev/null || tru
 ethtool -k "$NETDEV" | grep -E "rx-udp-gro-forwarding|rx-gro-list" || true
 
 {{- if .EnableServe }}
-# Install fortio for L7 benchmarks
+# Install fortio for L7 benchmarks (non-fatal so tailscale up always runs)
 ARCH=$(dpkg --print-architecture)
-FORTIO_VERSION="1.67.0"
-curl -fsSL "https://github.com/fortio/fortio/releases/download/v${FORTIO_VERSION}/fortio_linux_${ARCH}-${FORTIO_VERSION}.tgz" | tar xz -C /usr/local/bin fortio
-chmod +x /usr/local/bin/fortio
+FORTIO_VERSION="1.75.0"
+curl -fsSL "https://github.com/fortio/fortio/releases/download/v${FORTIO_VERSION}/fortio-linux_${ARCH}-${FORTIO_VERSION}.tgz" | tar xz --strip-components=2 -C /usr/local/bin usr/bin/fortio && chmod +x /usr/local/bin/fortio || echo "WARN: fortio install failed, L7 benchmarks will not work"
 {{- end }}
 
 {{- if .AuthKey }}
@@ -47,12 +46,11 @@ tailscale set --ssh
 
 {{- if .EnableServe }}
 # Start fortio echo server and expose via tailscale serve
-fortio server -http-port 8080 -redirect-port disabled &
-sleep 2
-# Use HTTP serve (port 80) to avoid Let's Encrypt rate limits.
-# The L7 reverse proxy overhead is the same with or without TLS.
-# HTTPS (port 443) can be enabled via config for TLS termination benchmarks.
-tailscale serve --bg --http=80 http://localhost:8080
+if command -v fortio &>/dev/null; then
+  fortio server -http-port 8080 -redirect-port disabled &
+  sleep 2
+  tailscale serve --bg --http=80 http://localhost:8080 || echo "WARN: tailscale serve failed"
+fi
 {{- end }}
 
 touch /tmp/tailbench-ready

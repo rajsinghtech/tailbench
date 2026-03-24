@@ -155,10 +155,8 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		}
 
 		pg, err := ec2.NewPlacementGroup(pCtx, "tailbench-pg", &ec2.PlacementGroupArgs{
-			Name:     pulumi.String("tailbench-pg"),
 			Strategy: pulumi.String("cluster"),
 			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-pg"),
 				"Project": pulumi.String("tailbench"),
 			},
 		})
@@ -185,7 +183,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	// Cancel any incomplete operations from a previous crashed run.
 	_ = stack.Cancel(ctx)
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -290,7 +288,10 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
+	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
