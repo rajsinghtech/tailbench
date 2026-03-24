@@ -875,7 +875,13 @@ footer a:hover { text-decoration: underline; }
     var data = getProviderData();
     if (state.family !== 'all') data = data.filter(function(d) { return d.instance_family.toLowerCase() === state.family; });
     if (state.filterK8s) data = data.filter(function(d) { return d.k8s_pod_to_vm_tcp; });
-    if (state.mode !== 'all') data = data.filter(function(d) { return d.transport_mode === state.mode; });
+    if (state.mode === 'l4') {
+      data = data.filter(function(d) { return d.transport_mode && d.transport_mode.startsWith('l4'); });
+    } else if (state.mode === 'l7') {
+      data = data.filter(function(d) { return d.transport_mode && d.transport_mode.startsWith('l7'); });
+    } else if (state.mode !== 'all') {
+      data = data.filter(function(d) { return d.transport_mode === state.mode; });
+    }
     if (state.filterEnv !== 'all') {
       data = data.filter(function(d) {
         var env = d.environment || 'vm';
@@ -1769,18 +1775,24 @@ footer a:hover { text-decoration: underline; }
   function renderStats() {
     var data = getFilteredData();
     var totalTests = data.length;
-    var overheadData = data.filter(function(d) { return d.overhead; });
-    var avgOverhead = overheadData.reduce(function(s, d) { return s + d.overhead.bandwidth_pct; }, 0) / (overheadData.length || 1);
-    var bestEntry = null, worstEntry = null;
-    overheadData.forEach(function(d) {
-      if (!bestEntry || d.overhead.bandwidth_pct < bestEntry.overhead.bandwidth_pct) bestEntry = d;
-      if (!worstEntry || d.overhead.bandwidth_pct > worstEntry.overhead.bandwidth_pct) worstEntry = d;
-    });
+    var iperfData = data.filter(function(d) { return d.overhead; });
+    var fortioData = data.filter(function(d) { return d.fortio_result; });
     var html = '';
-    html += '<div class="stat-card"><div class="stat-label">Total Tests</div><div class="stat-value">' + totalTests + '</div><div class="stat-sub">instance configurations</div></div>';
-    html += '<div class="stat-card"><div class="stat-label">Avg BW Overhead</div><div class="stat-value">' + avgOverhead.toFixed(1) + '<small>%</small></div><div class="stat-sub">Tailscale vs baseline</div></div>';
-    html += '<div class="stat-card"><div class="stat-label">Best Performer</div><div class="stat-value" style="font-size:1.05rem">' + (bestEntry ? bestEntry.instance_type : '—') + '</div><div class="stat-sub">' + (bestEntry ? bestEntry.overhead.bandwidth_pct.toFixed(1) + '% overhead' : '') + '</div></div>';
-    html += '<div class="stat-card"><div class="stat-label">Highest Overhead</div><div class="stat-value" style="font-size:1.05rem">' + (worstEntry ? worstEntry.instance_type : '—') + '</div><div class="stat-sub">' + (worstEntry ? worstEntry.overhead.bandwidth_pct.toFixed(1) + '% overhead' : '') + '</div></div>';
+    html += '<div class="stat-card"><div class="stat-label">Total Tests</div><div class="stat-value">' + totalTests + '</div><div class="stat-sub">' + iperfData.length + ' iperf, ' + fortioData.length + ' fortio</div></div>';
+
+    if (iperfData.length > 0) {
+      var avgOverhead = iperfData.reduce(function(s, d) { return s + d.overhead.bandwidth_pct; }, 0) / iperfData.length;
+      html += '<div class="stat-card"><div class="stat-label">Avg BW Overhead</div><div class="stat-value">' + avgOverhead.toFixed(1) + '<small>%</small></div><div class="stat-sub">L4 kernel (iperf3)</div></div>';
+    }
+    if (fortioData.length > 0) {
+      var avgQPS = fortioData.reduce(function(s, d) { return s + d.fortio_result.qps; }, 0) / fortioData.length;
+      var avgP99 = fortioData.reduce(function(s, d) { return s + d.fortio_result.p99_latency_ms; }, 0) / fortioData.length;
+      html += '<div class="stat-card"><div class="stat-label">Avg QPS</div><div class="stat-value">' + (avgQPS >= 1000 ? (avgQPS/1000).toFixed(1) + '<small>k</small>' : avgQPS.toFixed(0)) + '</div><div class="stat-sub">HTTP (fortio)</div></div>';
+      html += '<div class="stat-card"><div class="stat-label">Avg P99 Latency</div><div class="stat-value">' + avgP99.toFixed(1) + '<small>ms</small></div><div class="stat-sub">HTTP (fortio)</div></div>';
+    }
+    if (iperfData.length === 0 && fortioData.length === 0) {
+      html += '<div class="stat-card"><div class="stat-label">No Data</div><div class="stat-value">\u2014</div><div class="stat-sub">adjust filters</div></div>';
+    }
     document.getElementById('statsRow').innerHTML = html;
   }
 
@@ -1833,10 +1845,20 @@ footer a:hover { text-decoration: underline; }
     var bar = document.getElementById('modeFilterBar');
     if (!hasModes) { bar.style.display = 'none'; return; }
     bar.style.display = '';
-    var modeList = Object.keys(allModes).sort();
-    var html = '<button class="pill' + (state.mode === 'all' ? ' active' : '') + '" data-mode="all">All</button>';
-    modeList.forEach(function(m) {
-      html += '<button class="pill' + (state.mode === m ? ' active' : '') + '" data-mode="' + m + '">' + m.replace(/-/g, ' ') + '</button>';
+    // Group modes: L4 (kernel+userspace+lb), L7 (ingress+serve), All
+    var groups = [
+      { id: 'all', label: 'All' },
+      { id: 'l4', label: 'L4' },
+      { id: 'l7', label: 'L7' }
+    ];
+    // Add specific modes that exist
+    Object.keys(allModes).sort().forEach(function(m) {
+      groups.push({ id: m, label: m.replace('l4-', '').replace('l7-', '').replace(/-/g, ' ') });
+    });
+
+    var html = '';
+    groups.forEach(function(g) {
+      html += '<button class="pill' + (state.mode === g.id ? ' active' : '') + '" data-mode="' + g.id + '">' + g.label + '</button>';
     });
     document.getElementById('modeFilter').innerHTML = html;
     document.querySelectorAll('#modeFilter .pill').forEach(function(btn) {
@@ -1931,30 +1953,41 @@ footer a:hover { text-decoration: underline; }
 
   var showCloudCol = multiProvider && state.provider === 'all';
 
+  // Column visibility computed from filtered data (not global)
+  var showIperf = true, showSingle = false, showK8sCols = false, showFortio = false;
+
   function renderTableHead() {
+    var filtered = getFilteredData();
     showCloudCol = multiProvider && state.provider === 'all';
+    showIperf = filtered.some(function(d) { return d.baseline_tcp; });
+    showSingle = filtered.some(function(d) { return d.baseline_tcp_single; });
+    showK8sCols = filtered.some(function(d) { return d.k8s_pod_to_vm_tcp; });
+    showFortio = filtered.some(function(d) { return d.fortio_result; });
+
     var cols = [];
     cols.push({key:'instance_type', label:'Instance Type'});
     if (showCloudCol) cols.push({key:'cloud', label:'Cloud'});
     cols.push({key:'vcpus', label:'vCPUs'});
-    cols.push({key:'baseline_bw', label:'Baseline BW'});
-    cols.push({key:'ts_bw', label:'Tailscale BW'});
-    if (hasSingle) {
+    if (showIperf) {
+      cols.push({key:'baseline_bw', label:'Baseline BW'});
+      cols.push({key:'ts_bw', label:'Tailscale BW'});
+    }
+    if (showSingle) {
       cols.push({key:'baseline_bw_single', label:'Single BW'});
       cols.push({key:'ts_bw_single', label:'Single TS BW'});
     }
-    if (hasK8s) {
+    if (showK8sCols) {
       cols.push({key:'k8s_pod_to_vm', label:'K8s\u2192VM'});
       cols.push({key:'k8s_vm_to_pod', label:'VM\u2192K8s'});
     }
-    if (hasFortio) {
+    if (showFortio) {
       cols.push({key:'transport_mode', label:'Transport'});
       cols.push({key:'qps', label:'QPS'});
       cols.push({key:'p99', label:'P99 Latency'});
     }
-    cols.push({key:'overhead', label:'BW Overhead'});
-    cols.push({key:'baseline_retrans', label:'Baseline Retrans'});
-    cols.push({key:'ts_retrans', label:'TS Retrans'});
+    if (showIperf) {
+      cols.push({key:'overhead', label:'BW Overhead'});
+    }
     cols.push({key:'', label:'Actions'});
 
     var html = '<tr>';
@@ -1987,7 +2020,7 @@ footer a:hover { text-decoration: underline; }
   function renderTable() {
     var data = sortData(getFilteredData());
     var tbody = document.getElementById('tableBody');
-    var colCount = (showCloudCol ? 9 : 8) + (hasSingle ? 2 : 0) + (hasK8s ? 2 : 0) + (hasFortio ? 3 : 0);
+    var colCount = 3 + (showCloudCol ? 1 : 0) + (showIperf ? 3 : 0) + (showSingle ? 2 : 0) + (showK8sCols ? 2 : 0) + (showFortio ? 3 : 0);
     var html = '';
 
     data.forEach(function(d) {
@@ -2007,42 +2040,32 @@ footer a:hover { text-decoration: underline; }
         html += '<td><span class="cloud-tag">' + (d.cloud_provider || 'gcp').toUpperCase() + '</span></td>';
       }
       html += '<td class="mono">' + vcpus + '</td>';
-      html += '<td class="mono bw-cell">' + (d.baseline_tcp ? '<div class="bw-bar baseline" style="width:' + bBarW + '%"></div><span class="bw-val">' + toGbps(bBW) + ' <small style="color:var(--text-muted)">Gbps</small></span>' : '\u2014') + '</td>';
-      html += '<td class="mono bw-cell">' + (d.tailscale_tcp ? '<div class="bw-bar tailscale" style="width:' + tBarW + '%"></div><span class="bw-val">' + toGbps(tBW) + ' <small style="color:var(--text-muted)">Gbps</small></span>' : '\u2014') + '</td>';
-      if (hasSingle) {
+      if (showIperf) {
+        html += '<td class="mono bw-cell">' + (d.baseline_tcp ? '<div class="bw-bar baseline" style="width:' + bBarW + '%"></div><span class="bw-val">' + toGbps(bBW) + ' <small style="color:var(--text-muted)">Gbps</small></span>' : '\u2014') + '</td>';
+        html += '<td class="mono bw-cell">' + (d.tailscale_tcp ? '<div class="bw-bar tailscale" style="width:' + tBarW + '%"></div><span class="bw-val">' + toGbps(tBW) + ' <small style="color:var(--text-muted)">Gbps</small></span>' : '\u2014') + '</td>';
+      }
+      if (showSingle) {
         var bSingleBW = d.baseline_tcp_single ? d.baseline_tcp_single.summary.bandwidth_mbps_avg : 0;
         var tSingleBW = d.tailscale_tcp_single ? d.tailscale_tcp_single.summary.bandwidth_mbps_avg : 0;
         var bSingleBarW = maxBW ? (bSingleBW / maxBW * 85).toFixed(1) : 0;
         var tSingleBarW = maxBW ? (tSingleBW / maxBW * 85).toFixed(1) : 0;
-        html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + bSingleBarW + '%"></div><span class="bw-val">' + (d.baseline_tcp_single ? toGbps(bSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
-        html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tSingleBarW + '%"></div><span class="bw-val">' + (d.tailscale_tcp_single ? toGbps(tSingleBW) : '—') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+        html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + bSingleBarW + '%"></div><span class="bw-val">' + (d.baseline_tcp_single ? toGbps(bSingleBW) : '\u2014') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
+        html += '<td class="mono bw-cell"><div class="bw-bar tailscale" style="width:' + tSingleBarW + '%"></div><span class="bw-val">' + (d.tailscale_tcp_single ? toGbps(tSingleBW) : '\u2014') + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
       }
-      if (hasK8s) {
-        if (d.k8s_pod_to_vm_tcp) {
-          var k8sPodBW = d.k8s_pod_to_vm_tcp.summary.bandwidth_mbps_avg;
-          var k8sPodBarW = maxBW ? (k8sPodBW / maxBW * 85).toFixed(1) : 0;
-          html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + k8sPodBarW + '%"></div><span class="bw-val">' + toGbps(k8sPodBW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
-        } else {
-          html += '<td class="mono">—</td>';
-        }
-        if (d.k8s_vm_to_pod_tcp) {
-          var k8sVmBW = d.k8s_vm_to_pod_tcp.summary.bandwidth_mbps_avg;
-          var k8sVmBarW = maxBW ? (k8sVmBW / maxBW * 85).toFixed(1) : 0;
-          html += '<td class="mono bw-cell"><div class="bw-bar baseline" style="width:' + k8sVmBarW + '%"></div><span class="bw-val">' + toGbps(k8sVmBW) + ' <small style="color:var(--text-muted)">Gbps</small></span></td>';
-        } else {
-          html += '<td class="mono">—</td>';
-        }
+      if (showK8sCols) {
+        html += '<td class="mono">' + (d.k8s_pod_to_vm_tcp ? toGbps(d.k8s_pod_to_vm_tcp.summary.bandwidth_mbps_avg) + ' Gbps' : '\u2014') + '</td>';
+        html += '<td class="mono">' + (d.k8s_vm_to_pod_tcp ? toGbps(d.k8s_vm_to_pod_tcp.summary.bandwidth_mbps_avg) + ' Gbps' : '\u2014') + '</td>';
       }
-      if (hasFortio) {
+      if (showFortio) {
         var mode = d.transport_mode || '';
         var modeClass = mode.startsWith('l7') ? 'mode-l7' : mode.startsWith('l4') ? 'mode-l4' : mode.startsWith('tsnet') ? 'mode-tsnet' : '';
         html += '<td>' + (mode ? '<span class="mode-tag ' + modeClass + '">' + mode + '</span>' : '\u2014') + '</td>';
         html += '<td class="mono">' + (d.fortio_result ? fmtNum(d.fortio_result.qps, 0) : '\u2014') + '</td>';
         html += '<td class="mono">' + (d.fortio_result ? d.fortio_result.p99_latency_ms.toFixed(1) + ' ms' : '\u2014') + '</td>';
       }
-      html += '<td>' + (d.overhead ? '<span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span>' : '\u2014') + '</td>';
-      html += '<td class="mono">' + (d.baseline_tcp ? fmtNum(d.baseline_tcp.summary.retransmits_avg, 1) : '\u2014') + '</td>';
-      html += '<td class="mono">' + (d.tailscale_tcp ? fmtNum(d.tailscale_tcp.summary.retransmits_avg, 1) : '\u2014') + '</td>';
+      if (showIperf) {
+        html += '<td>' + (d.overhead ? '<span class="overhead-badge ' + oc + '">' + d.overhead.bandwidth_pct.toFixed(1) + '%</span>' : '\u2014') + '</td>';
+      }
       html += '<td><button class="btn-details" data-instance="' + rowKey + '">' + (isOpen ? 'Close' : 'Details') + '</button></td>';
       html += '</tr>';
 
