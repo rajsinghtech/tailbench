@@ -366,6 +366,7 @@ footer a:hover { text-decoration: underline; }
   var hasL7Bytes = TAILBENCH_DATA.some(function(d){ return d.fortio_result && d.fortio_result.bytes_per_sec > 0; });
   var tabs = [
     {id:'radar',label:'Provider Radar'},
+    {id:'vmvsk8s',label:'VM vs K8s'},
     {id:'throughput',label:'L4 Throughput'},
     {id:'overhead',label:'Overhead Comparison'},
     {id:'qps',label:'QPS by Mode'},
@@ -384,12 +385,94 @@ footer a:hover { text-decoration: underline; }
     var ctx = document.getElementById('chartCanvas').getContext('2d');
     try {
       if(state.tab==='radar') renderRadarChart(ctx);
+      else if(state.tab==='vmvsk8s') renderVMvsK8sChart(ctx);
       else if(state.tab==='throughput') renderThroughputChart(ctx);
       else if(state.tab==='overhead') renderOverheadChart(ctx);
       else if(state.tab==='qps') renderQPSChart(ctx);
       else if(state.tab==='latency') renderLatencyChart(ctx);
       else if(state.tab==='l7throughput') renderL7ThroughputChart(ctx);
     } catch(e) { console.warn('chart error:',e); }
+  }
+
+  function renderVMvsK8sChart(ctx) {
+    // Pair instance types that exist in both VM and K8s
+    var byType = {};
+    allGroups.forEach(function(g) {
+      if (!byType[g.type]) byType[g.type] = {};
+      byType[g.type][g.env] = g;
+    });
+    var pairs = [];
+    Object.keys(byType).forEach(function(t) {
+      var b = byType[t];
+      if (b.vm && b.container) pairs.push({type:t, vm:b.vm, k8s:b.container, vcpus:vcpu(b.vm)});
+    });
+    pairs.sort(function(a,b){ return a.vcpus - b.vcpus; });
+
+    var labels = pairs.map(function(p){ return p.type; });
+
+    // VM: best L4 throughput via Tailscale
+    var vmBW = pairs.map(function(p) {
+      var e = p.vm.modes['l4-kernel'] || p.vm.modes['l4-userspace'];
+      return e && e.tailscale_tcp ? e.tailscale_tcp.summary.bandwidth_mbps_avg/1000 : 0;
+    });
+    // K8s: best L4 throughput via Tailscale (often l4-kernel or l4-lb)
+    var k8sBW = pairs.map(function(p) {
+      var e = p.k8s.modes['l4-kernel'] || p.k8s.modes['l4-userspace'] || p.k8s.modes['l4-lb'];
+      return e && e.tailscale_tcp ? e.tailscale_tcp.summary.bandwidth_mbps_avg/1000 : 0;
+    });
+    // VM: best QPS
+    var vmQPS = pairs.map(function(p) { return bestQPS(p.vm); });
+    // K8s: best QPS
+    var k8sQPS = pairs.map(function(p) { return bestQPS(p.k8s); });
+
+    // Pick metric: if most have BW data, show throughput; if most have QPS, show QPS
+    var hasBW = vmBW.filter(function(v){return v>0;}).length + k8sBW.filter(function(v){return v>0;}).length;
+    var hasQPS = vmQPS.filter(function(v){return v>0;}).length + k8sQPS.filter(function(v){return v>0;}).length;
+
+    var datasets, yLabel;
+    if (hasBW >= hasQPS) {
+      datasets = [
+        {label:'VM (Tailscale L4)',data:vmBW,backgroundColor:css('--accent')+'99',borderColor:css('--accent'),borderWidth:1,borderRadius:3},
+        {label:'K8s (Tailscale L4)',data:k8sBW,backgroundColor:css('--accent')+'44',borderColor:css('--accent'),borderWidth:1,borderRadius:3,borderDash:[4,2]}
+      ];
+      yLabel = 'Throughput (Gbps)';
+      // Add QPS as secondary datasets if available
+      if (hasQPS > pairs.length/2) {
+        datasets.push(
+          {label:'VM (HTTP QPS)',data:vmQPS,backgroundColor:css('--purple')+'99',borderColor:css('--purple'),borderWidth:1,borderRadius:3},
+          {label:'K8s (HTTP QPS)',data:k8sQPS,backgroundColor:css('--purple')+'44',borderColor:css('--purple'),borderWidth:1,borderRadius:3,borderDash:[4,2]}
+        );
+      }
+    } else {
+      datasets = [
+        {label:'VM (HTTP QPS)',data:vmQPS,backgroundColor:css('--purple')+'99',borderColor:css('--purple'),borderWidth:1,borderRadius:3},
+        {label:'K8s (HTTP QPS)',data:k8sQPS,backgroundColor:css('--purple')+'44',borderColor:css('--purple'),borderWidth:1,borderRadius:3}
+      ];
+      yLabel = 'Requests/sec';
+    }
+
+    chart = new Chart(ctx, {
+      type:'bar',
+      data:{ labels:labels, datasets:datasets },
+      options:{
+        responsive:true, maintainAspectRatio:false,
+        plugins:{
+          legend:{labels:{color:css('--text-2'),padding:14,usePointStyle:true}},
+          tooltip:{
+            backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
+            callbacks:{label:function(item){
+              var v=item.raw;
+              if(item.dataset.label.indexOf('QPS')!==-1) return item.dataset.label+': '+fq(v);
+              return item.dataset.label+': '+v.toFixed(2)+' Gbps';
+            }}
+          }
+        },
+        scales:{
+          x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
+          y:{ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:yLabel,color:css('--text-2'),font:{size:11}}}
+        }
+      }
+    });
   }
 
   function renderQPSChart(ctx) {
@@ -603,11 +686,11 @@ footer a:hover { text-decoration: underline; }
 
     var colors = {
       gcp:{bg:'rgba(110,140,239,0.15)',border:css('--accent')},
-      gke:{bg:'rgba(192,132,252,0.12)',border:css('--purple')},
+      gke:{bg:'rgba(110,140,239,0.08)',border:css('--accent')},
       aws:{bg:'rgba(250,204,21,0.15)',border:css('--yellow')},
-      eks:{bg:'rgba(248,113,113,0.12)',border:css('--red')},
+      eks:{bg:'rgba(250,204,21,0.08)',border:css('--yellow')},
       azure:{bg:'rgba(45,212,191,0.15)',border:css('--teal')},
-      aks:{bg:'rgba(244,114,182,0.12)',border:css('--pink')}
+      aks:{bg:'rgba(45,212,191,0.08)',border:css('--teal')}
     };
 
     var k8sProviders = {gke:1,eks:1,aks:1};
@@ -685,8 +768,10 @@ footer a:hover { text-decoration: underline; }
   function renderStats() {
     var groups=filtered(); var all=[]; groups.forEach(function(g){Object.values(g.modes).forEach(function(d){all.push(d);});});
     var ip=all.filter(function(d){return d.overhead;}); var fo=all.filter(function(d){return d.fortio_result;});
+    var vmIP=ip.filter(function(d){return d.environment==='vm';}); var k8sIP=ip.filter(function(d){return d.environment==='container';});
     var h='<div class="stat"><div class="stat-label">Instances</div><div class="stat-val">'+groups.length+'</div><div class="stat-sub">'+all.length+' benchmarks</div></div>';
-    if(ip.length) { var avg=ip.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/ip.length; h+='<div class="stat"><div class="stat-label">Avg L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+ip.length+' iperf tests</div></div>'; }
+    if(vmIP.length) { var avg=vmIP.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/vmIP.length; h+='<div class="stat"><div class="stat-label">VM L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+vmIP.length+' iperf tests</div></div>'; }
+    if(k8sIP.length) { var avg=k8sIP.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/k8sIP.length; h+='<div class="stat"><div class="stat-label">K8s L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+k8sIP.length+' iperf tests</div></div>'; }
     if(fo.length) {
       var aq=fo.reduce(function(s,d){return s+d.fortio_result.qps;},0)/fo.length;
       var ap=fo.reduce(function(s,d){return s+d.fortio_result.p99_latency_ms;},0)/fo.length;
