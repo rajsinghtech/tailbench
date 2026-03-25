@@ -1,0 +1,56 @@
+{
+  "cloud_provider": "gcp",
+  "instance_family": "c2",
+  "instance_type": "c2-standard-30",
+  "vcpus": 30,
+  "region": "us-central1",
+  "zone": "us-central1-a",
+  "date": "2026-03-25",
+  "tailscale_version": "1.96.2",
+  "kernel_version": "",
+  "connection_type": "",
+  "ena_express": false,
+  "environment": "vm",
+  "system_config": null,
+  "test_config": null,
+  "baseline_tcp": null,
+  "tailscale_tcp": null,
+  "overhead": null,
+  "baseline_tcp_single": null,
+  "tailscale_tcp_single": null,
+  "overhead_single": null,
+  "baseline_mtr": null,
+  "tailscale_mtr": null,
+  "transport_mode": "l7-serve-h1",
+  "http_version": "1.1",
+  "fortio_result": {
+    "qps": 25129.031105170143,
+    "avg_latency_ms": 0.6364208680974413,
+    "p50_latency_ms": 0.6702901641773021,
+    "p90_latency_ms": 1.1199945697202849,
+    "p99_latency_ms": 2.4454373255146673,
+    "p999_latency_ms": 3.5060979643538825,
+    "status_codes": {
+      "200": 2261663
+    },
+    "bytes_per_sec": 0,
+    "connection_errors": 0
+  },
+  "l7_overhead": {
+    "qps": {
+      "baseline": 151793.9475177231,
+      "tailscale": 25129.031105170143,
+      "delta_pct": -83.44530100435253
+    },
+    "p50_latency": {
+      "baseline_ms": 0.5199942312918127,
+      "tailscale_ms": 0.6702901641773021,
+      "delta_pct": 28.903384661039777
+    },
+    "p99_latency": {
+      "baseline_ms": 0.9904064245585845,
+      "tailscale_ms": 2.4454373255146673,
+      "delta_pct": 146.91250630816307
+    }
+  }
+}

@@ -1,11 +1,3 @@
-# Results (generated)
-gcp/*/results/*.json
-aws/*/results/*.json
-azure/*/results/*.json
-gke/*/results/*.json
-eks/*/results/*.json
-aks/*/results/*.json
-
 # OS files
 .DS_Store
 
