@@ -652,7 +652,12 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 			fqdn = mc.serverHostname + "." + o.tailnetDNS
 		}
 		if fqdn != "" {
-			target = "http://" + fqdn
+			if strings.HasSuffix(mode, "-h2") {
+				// h2 requires HTTPS (TLS + ALPN negotiation)
+				target = "https://" + fqdn
+			} else {
+				target = "http://" + fqdn
+			}
 		}
 		baseline = "http://" + pair.ServerLANIP + ":8080"
 

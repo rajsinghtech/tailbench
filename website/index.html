@@ -365,6 +365,7 @@ footer a:hover { text-decoration: underline; }
   var tabs = [
     {id:'qps',label:'QPS by Mode'},
     {id:'latency',label:'Latency (P50/P99)'},
+    {id:'l7throughput',label:'L7 Throughput (MB/s)'},
     {id:'throughput',label:'L4 Throughput'},
     {id:'overhead',label:'Overhead Comparison'},
     {id:'radar',label:'Provider Radar'}
@@ -382,6 +383,7 @@ footer a:hover { text-decoration: underline; }
     try {
       if(state.tab==='qps') renderQPSChart(ctx);
       else if(state.tab==='latency') renderLatencyChart(ctx);
+      else if(state.tab==='l7throughput') renderL7ThroughputChart(ctx);
       else if(state.tab==='throughput') renderThroughputChart(ctx);
       else if(state.tab==='overhead') renderOverheadChart(ctx);
       else if(state.tab==='radar') renderRadarChart(ctx);
@@ -449,6 +451,48 @@ footer a:hover { text-decoration: underline; }
         scales:{
           x:{ticks:{color:css('--text-3')},grid:{color:css('--border')},title:{display:true,text:'Latency (ms)',color:css('--text-2'),font:{size:11}},beginAtZero:true},
           y:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9}},grid:{display:false}}
+        }
+      }
+    });
+  }
+
+  function renderL7ThroughputChart(ctx) {
+    var data=[]; var groups=filtered();
+    var modeColors = {'l4-lb':css('--teal'),'l7-ingress-h1':css('--purple'),'l7-ingress-h2':css('--pink'),'l7-serve-h1':css('--green'),'l7-serve-h2':css('--accent')};
+    groups.forEach(function(g) {
+      Object.entries(g.modes).forEach(function(e) {
+        var fr = e[1].fortio_result;
+        if(!fr) return;
+        var mbps = fr.bytes_per_sec / (1024*1024);
+        if(mbps <= 0) {
+          // Estimate from QPS * avg response size (~500 bytes for fortio echo)
+          mbps = (fr.qps * 500) / (1024*1024);
+        }
+        data.push({label:g.type+' ('+g.provider.toUpperCase()+')',mode:e[0],mbps:mbps,qps:fr.qps,env:g.env});
+      });
+    });
+    data.sort(function(a,b){return b.mbps-a.mbps;});
+
+    chart = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels:data.map(function(d){return d.label;}),
+        datasets:[{
+          data:data.map(function(d){return d.mbps;}),
+          backgroundColor:data.map(function(d){return (modeColors[d.mode]||css('--text-3'))+'99';}),
+          borderColor:data.map(function(d){return modeColors[d.mode]||css('--text-3');}),
+          borderWidth:1
+        }]
+      },
+      options:{
+        indexAxis:'y',responsive:true,maintainAspectRatio:false,
+        plugins:{legend:{display:false},tooltip:{
+          backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
+          callbacks:{label:function(i){var d=data[i.dataIndex]; return d.mode+': '+d.mbps.toFixed(1)+' MB/s ('+Math.round(d.qps)+' QPS)';}}
+        }},
+        scales:{
+          x:{title:{display:true,text:'Throughput (MB/s)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true},
+          y:{ticks:{color:css('--text-3'),font:{size:10}},grid:{display:false}}
         }
       }
     });

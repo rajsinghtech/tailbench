@@ -45,11 +45,12 @@ tailscale set --ssh
 {{- end }}
 
 {{- if .EnableServe }}
-# Start fortio echo server and expose via tailscale serve
+# Start fortio echo server and expose via tailscale serve (HTTP + HTTPS)
 if command -v fortio &>/dev/null; then
   fortio server -http-port 8080 -redirect-port disabled &
   sleep 2
-  tailscale serve --bg --http=80 http://localhost:8080 || echo "WARN: tailscale serve failed"
+  tailscale serve --bg --http=80 http://localhost:8080 || echo "WARN: tailscale serve --http failed"
+  tailscale serve --bg --https=443 http://localhost:8080 || echo "WARN: tailscale serve --https failed"
 fi
 {{- end }}
 

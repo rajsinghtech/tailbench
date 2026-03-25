@@ -2695,6 +2695,63 @@ const TAILBENCH_DATA = [
     "zone": "us-central1-a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "gcp",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 3857.8391820178076,
+      "avg_latency_ms": 4.148199375038065,
+      "p50_latency_ms": 4.206738726823011,
+      "p90_latency_ms": 5.663685038730655,
+      "p99_latency_ms": 8.085292616420057,
+      "p999_latency_ms": 10.753271689279082,
+      "status_codes": {
+        "200": 347240
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c4a",
+    "instance_type": "c4a-standard-1",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 31258.71256097713,
+        "tailscale": 3857.8391820178076,
+        "delta_pct": -87.65835549211367
+      },
+      "p50_latency": {
+        "baseline_ms": 0.6271130884903112,
+        "tailscale_ms": 4.206738726823011,
+        "delta_pct": 570.810226102944
+      },
+      "p99_latency": {
+        "baseline_ms": 1.9439465460091034,
+        "tailscale_ms": 8.085292616420057,
+        "delta_pct": 315.92155057036194
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-central1",
+    "source": "gcp/c4a/results/c4a-standard-1-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 1,
+    "zone": "us-central1-a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.128.15.195",
       "hops": [
@@ -2936,6 +2993,63 @@ const TAILBENCH_DATA = [
     "tailscale_version": "",
     "test_config": null,
     "transport_mode": "l7-serve-h1",
+    "vcpus": 2,
+    "zone": "us-central1-a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "gcp",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 6722.468146963151,
+      "avg_latency_ms": 2.379537012039542,
+      "p50_latency_ms": 2.3553917878958472,
+      "p90_latency_ms": 3.598092832435912,
+      "p99_latency_ms": 5.187243204798283,
+      "p999_latency_ms": 6.9100244984110875,
+      "status_codes": {
+        "200": 605067
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c4a",
+    "instance_type": "c4a-standard-2",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 35264.43891615908,
+        "tailscale": 6722.468146963151,
+        "delta_pct": -80.93697687081945
+      },
+      "p50_latency": {
+        "baseline_ms": 0.584279267708521,
+        "tailscale_ms": 2.3553917878958472,
+        "delta_pct": 303.12773669574733
+      },
+      "p99_latency": {
+        "baseline_ms": 1.9378919955547438,
+        "tailscale_ms": 5.187243204798283,
+        "delta_pct": 167.67452555132593
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-central1",
+    "source": "gcp/c4a/results/c4a-standard-2-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
     "vcpus": 2,
     "zone": "us-central1-a"
   },
@@ -3185,6 +3299,63 @@ const TAILBENCH_DATA = [
     "zone": "us-central1-a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "gcp",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 12988.226851030704,
+      "avg_latency_ms": 1.231418813724934,
+      "p50_latency_ms": 1.2641999961936878,
+      "p90_latency_ms": 1.9348042641345655,
+      "p99_latency_ms": 3.142291183413223,
+      "p999_latency_ms": 4.758802156240396,
+      "status_codes": {
+        "200": 1168977
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c4a",
+    "instance_type": "c4a-standard-4",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 52450.372421743195,
+        "tailscale": 12988.226851030704,
+        "delta_pct": -75.23711224279799
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5405586869373571,
+        "tailscale_ms": 1.2641999961936878,
+        "delta_pct": 133.86914811345733
+      },
+      "p99_latency": {
+        "baseline_ms": 1.5927072118145784,
+        "tailscale_ms": 3.142291183413223,
+        "delta_pct": 97.29245652333027
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-central1",
+    "source": "gcp/c4a/results/c4a-standard-4-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 4,
+    "zone": "us-central1-a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.128.15.208",
       "hops": [
@@ -3426,6 +3597,63 @@ const TAILBENCH_DATA = [
     "tailscale_version": "1.96.2",
     "test_config": null,
     "transport_mode": "l7-serve-h1",
+    "vcpus": 8,
+    "zone": "us-central1-a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "gcp",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 22303.07882160865,
+      "avg_latency_ms": 0.71699437375988,
+      "p50_latency_ms": 0.6649369982400087,
+      "p90_latency_ms": 1.115009491773058,
+      "p99_latency_ms": 1.964619789132547,
+      "p999_latency_ms": 2.9919317460193935,
+      "status_codes": {
+        "200": 2007315
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c4a",
+    "instance_type": "c4a-standard-8",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 63396.5068319061,
+        "tailscale": 22303.07882160865,
+        "delta_pct": -64.81970389828483
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5318533829258594,
+        "tailscale_ms": 0.6649369982400087,
+        "delta_pct": 25.022613296548553
+      },
+      "p99_latency": {
+        "baseline_ms": 0.9921896422690876,
+        "tailscale_ms": 1.964619789132547,
+        "delta_pct": 98.00849610156791
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-central1",
+    "source": "gcp/c4a/results/c4a-standard-8-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
     "vcpus": 8,
     "zone": "us-central1-a"
   },
@@ -5865,6 +6093,63 @@ const TAILBENCH_DATA = [
     "zone": "us-west-2a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 20529.963706037506,
+      "avg_latency_ms": 0.7789789473786239,
+      "p50_latency_ms": 0.699435508428213,
+      "p90_latency_ms": 1.476702999551376,
+      "p99_latency_ms": 1.9591200108965712,
+      "p999_latency_ms": 2.62857847278369,
+      "status_codes": {
+        "200": 1847724
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c8gn",
+    "instance_type": "c8gn.2xlarge",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 69896.1229152194,
+        "tailscale": 20529.963706037506,
+        "delta_pct": -70.62789343703749
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5239314161832667,
+        "tailscale_ms": 0.699435508428213,
+        "delta_pct": 33.49753170433218
+      },
+      "p99_latency": {
+        "baseline_ms": 0.9911201563092481,
+        "tailscale_ms": 1.9591200108965712,
+        "delta_pct": 97.66725542057173
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-west-2",
+    "source": "aws/c8gn/results/c8gn.2xlarge-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 8,
+    "zone": "us-west-2a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.0.1.89",
       "hops": [
@@ -6845,6 +7130,63 @@ const TAILBENCH_DATA = [
     "zone": "us-west-2a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 7154.353754817143,
+      "avg_latency_ms": 2.235903967453412,
+      "p50_latency_ms": 2.2205175577382064,
+      "p90_latency_ms": 3.3492038758070444,
+      "p99_latency_ms": 4.950355639442148,
+      "p999_latency_ms": 6.8414953841564925,
+      "status_codes": {
+        "200": 643934
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c8gn",
+    "instance_type": "c8gn.large",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 37792.474108713686,
+        "tailscale": 7154.353754817143,
+        "delta_pct": -81.06936917060005
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5623590849657089,
+        "tailscale_ms": 2.2205175577382064,
+        "delta_pct": 294.857594925066
+      },
+      "p99_latency": {
+        "baseline_ms": 1.8918740729763366,
+        "tailscale_ms": 4.950355639442148,
+        "delta_pct": 161.66411972939315
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-west-2",
+    "source": "aws/c8gn/results/c8gn.large-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 2,
+    "zone": "us-west-2a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.0.1.65",
       "hops": [
@@ -7090,6 +7432,63 @@ const TAILBENCH_DATA = [
     "zone": "us-west-2a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 4399.126257720991,
+      "avg_latency_ms": 3.6365315756442995,
+      "p50_latency_ms": 3.643136771607933,
+      "p90_latency_ms": 4.968259071355553,
+      "p99_latency_ms": 6.995275882265244,
+      "p999_latency_ms": 9.351560513238185,
+      "status_codes": {
+        "200": 395946
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c8gn",
+    "instance_type": "c8gn.medium",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 30585.321672551345,
+        "tailscale": 4399.126257720991,
+        "delta_pct": -85.6168710441618
+      },
+      "p50_latency": {
+        "baseline_ms": 0.6167392589842081,
+        "tailscale_ms": 3.643136771607933,
+        "delta_pct": 490.7093992375823
+      },
+      "p99_latency": {
+        "baseline_ms": 1.9398155210784402,
+        "tailscale_ms": 6.995275882265244,
+        "delta_pct": 260.61552277797125
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-west-2",
+    "source": "aws/c8gn/results/c8gn.medium-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 1,
+    "zone": "us-west-2a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.0.1.51",
       "hops": [
@@ -7331,6 +7730,63 @@ const TAILBENCH_DATA = [
     "tailscale_version": "",
     "test_config": null,
     "transport_mode": "l7-serve-h1",
+    "vcpus": 4,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 12970.912601042257,
+      "avg_latency_ms": 1.233121954869765,
+      "p50_latency_ms": 1.2944431497121267,
+      "p90_latency_ms": 1.9217308295333801,
+      "p99_latency_ms": 2.9303563613616688,
+      "p999_latency_ms": 4.194279677903,
+      "status_codes": {
+        "200": 1167425
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c8gn",
+    "instance_type": "c8gn.xlarge",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 54774.25439244663,
+        "tailscale": 12970.912601042257,
+        "delta_pct": -76.31932603206563
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5286514295979268,
+        "tailscale_ms": 1.2944431497121267,
+        "delta_pct": 144.85758994289176
+      },
+      "p99_latency": {
+        "baseline_ms": 1.190201936375465,
+        "tailscale_ms": 2.9303563613616688,
+        "delta_pct": 146.2066538293086
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "region": "us-west-2",
+    "source": "aws/c8gn/results/c8gn.xlarge-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.96.2",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
     "vcpus": 4,
     "zone": "us-west-2a"
   },
@@ -13664,6 +14120,216 @@ const TAILBENCH_DATA = [
     "test_config": null,
     "transport_mode": "l7-ingress-h2",
     "vcpus": 2,
+    "zone": "us-central1-a"
+  },
+  {
+    "baseline_mtr": {
+      "target_ip": "10.240.20.3",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "10.240.19.1",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.1,
+          "avg_ms": 0.1,
+          "best_ms": 0.1,
+          "worst_ms": 0.2,
+          "stdev_ms": 0
+        },
+        {
+          "hop": 2,
+          "host": "10.0.0.63",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.5,
+          "avg_ms": 0.4,
+          "best_ms": 0.3,
+          "worst_ms": 0.9,
+          "stdev_ms": 0.1
+        },
+        {
+          "hop": 3,
+          "host": "10.240.20.3",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.4,
+          "avg_ms": 0.4,
+          "best_ms": 0.3,
+          "worst_ms": 0.7,
+          "stdev_ms": 0.1
+        }
+      ]
+    },
+    "baseline_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9052.875185204393,
+          "retransmits": 335406,
+          "duration_sec": 30.001988,
+          "bytes_transferred": 33950531584
+        },
+        {
+          "bandwidth_mbps": 9169.3258599328,
+          "retransmits": 255977,
+          "duration_sec": 30.002228,
+          "bytes_transferred": 34387525632
+        },
+        {
+          "bandwidth_mbps": 9245.398418989143,
+          "retransmits": 182456,
+          "duration_sec": 30.001818,
+          "bytes_transferred": 34672345088
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9155.866488042113,
+        "bandwidth_mbps_min": 9052.875185204393,
+        "bandwidth_mbps_max": 9245.398418989143,
+        "bandwidth_mbps_stddev": 79.17139595208724,
+        "retransmits_avg": 257946.33333333334
+      }
+    },
+    "baseline_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9408.669553589143,
+          "retransmits": 113804,
+          "duration_sec": 30.002653,
+          "bytes_transferred": 35285630976
+        },
+        {
+          "bandwidth_mbps": 9201.03488068441,
+          "retransmits": 120891,
+          "duration_sec": 30.002995,
+          "bytes_transferred": 34507325440
+        },
+        {
+          "bandwidth_mbps": 9233.94688934208,
+          "retransmits": 137819,
+          "duration_sec": 30.001097,
+          "bytes_transferred": 34628567040
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9281.217107871877,
+        "bandwidth_mbps_min": 9201.03488068441,
+        "bandwidth_mbps_max": 9408.669553589143,
+        "bandwidth_mbps_stddev": 91.1185839733219,
+        "retransmits_avg": 124171.33333333333
+      }
+    },
+    "cloud_provider": "gke",
+    "connection_type": "direct",
+    "date": "2026-03-25",
+    "ena_express": false,
+    "environment": "container",
+    "instance_family": "n4",
+    "instance_type": "n4-standard-4",
+    "kernel_version": "6.12.55+",
+    "overhead": {
+      "bandwidth_pct": 84.90565282729361,
+      "retransmits_pct": 99.41848368975975
+    },
+    "overhead_single": {
+      "bandwidth_pct": 83.8169964101871,
+      "retransmits_pct": 99.44216861648152
+    },
+    "region": "us-central1",
+    "source": "gke/n4/results/n4-standard-4-l4-kernel.json",
+    "system_config": {
+      "tcp_congestion_control": "cubic",
+      "cpu_governor": "",
+      "gro_udp_forwarding": false,
+      "mtu_underlay": 0,
+      "mtu_tailscale": 0,
+      "tcp_rmem": "4096\t87380\t6291456",
+      "tcp_wmem": "4096\t16384\t4194304",
+      "kernel_full": "Linux tb-gke-server-n4-standard-4 6.12.55+ #1 SMP Sun Feb  1 08:53:53 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
+    },
+    "tailscale_mtr": {
+      "target_ip": "100.102.11.100",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "100.102.11.100",
+          "loss_pct": 23,
+          "snt": 100,
+          "last_ms": 1.1,
+          "avg_ms": 1.1,
+          "best_ms": 0.9,
+          "worst_ms": 1.5,
+          "stdev_ms": 0.1
+        }
+      ]
+    },
+    "tailscale_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 1410.0234212071368,
+          "retransmits": 1632,
+          "duration_sec": 30.000674,
+          "bytes_transferred": 5287706624
+        },
+        {
+          "bandwidth_mbps": 1374.865064057577,
+          "retransmits": 1750,
+          "duration_sec": 30.001369,
+          "bytes_transferred": 5155979264
+        },
+        {
+          "bandwidth_mbps": 1361.1663378589558,
+          "retransmits": 1118,
+          "duration_sec": 30.001324,
+          "bytes_transferred": 5104599040
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 1382.0182743745565,
+        "bandwidth_mbps_min": 1361.1663378589558,
+        "bandwidth_mbps_max": 1410.0234212071368,
+        "bandwidth_mbps_stddev": 20.577171196935442,
+        "retransmits_avg": 1500
+      }
+    },
+    "tailscale_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 1463.8533583359551,
+          "retransmits": 866,
+          "duration_sec": 30.000587,
+          "bytes_transferred": 5489557504
+        },
+        {
+          "bandwidth_mbps": 1521.0396226788037,
+          "retransmits": 499,
+          "duration_sec": 30.001177,
+          "bytes_transferred": 5704122368
+        },
+        {
+          "bandwidth_mbps": 1521.0461122209426,
+          "retransmits": 713,
+          "duration_sec": 30.001049,
+          "bytes_transferred": 5704122368
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 1501.979697745234,
+        "bandwidth_mbps_min": 1463.8533583359551,
+        "bandwidth_mbps_max": 1521.0461122209426,
+        "bandwidth_mbps_stddev": 26.959393268298605,
+        "retransmits_avg": 692.6666666666666
+      }
+    },
+    "tailscale_version": "1.94.2",
+    "test_config": {
+      "iperf_duration_sec": 30,
+      "iperf_parallel_streams": 4,
+      "iperf_iterations": 3,
+      "mtr_cycles": 100
+    },
+    "transport_mode": "l4-kernel",
+    "vcpus": 4,
     "zone": "us-central1-a"
   },
   {

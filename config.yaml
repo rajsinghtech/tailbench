@@ -29,6 +29,7 @@ benchmark:
     - l7-ingress-h1
     - l7-ingress-h2
     - l7-serve-h1
+    - l7-serve-h2
 
 ssh:
   timeout: 120
