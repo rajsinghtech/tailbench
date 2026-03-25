@@ -252,7 +252,7 @@ footer a { color: var(--accent); text-decoration: none; }
 footer a:hover { text-decoration: underline; }
 
 @media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .chart-body { height: 280px; } }
-@media (max-width: 600px) { html { font-size: 14px; } .wrap { padding: 0 16px; } table { min-width: 700px; } }
+@media (max-width: 600px) { html { font-size: 14px; } .wrap { padding: 0 16px; } table { min-width: 900px; } }
 </style>
 </head>
 <body>
@@ -274,7 +274,7 @@ footer a:hover { text-decoration: underline; }
 <script src="data.generated.js"></script>
 <script>
 (function() {
-  var state = { provider:'all', family:'all', env:'all', sort:'vcpus', dir:'asc', expanded:null, tab:'qps' };
+  var state = { provider:'all', family:'all', env:'all', sort:'vcpus', dir:'asc', expanded:null, tab:'radar' };
 
   // Theme
   var theme = localStorage.getItem('tb-theme') || 'dark';
@@ -318,6 +318,7 @@ footer a:hover { text-decoration: underline; }
   var provs = {}, fams = {}, envs = {};
   allGroups.forEach(function(g) { provs[g.provider.toUpperCase()]=1; fams[g.family.toUpperCase()]=1; envs[g.env]=1; });
 
+  var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2'];
   var maxBW = 0;
   TAILBENCH_DATA.forEach(function(d) { if (d.baseline_tcp) { var b=d.baseline_tcp.summary.bandwidth_mbps_avg; if(b>maxBW) maxBW=b; } });
 
@@ -350,7 +351,7 @@ footer a:hover { text-decoration: underline; }
       case 'vcpus': return vcpu(g);
       case 'bw': return bestBW(g);
       case 'qps': return bestQPS(g);
-      case 'p99': return bestP99(g);
+      case 'p99': var p=bestP99(g); return p?p:999999;
       case 'overhead': var o=iperfOH(g); return o!==null?o:999;
       default: return 0;
     }
@@ -362,14 +363,15 @@ footer a:hover { text-decoration: underline; }
 
   // ===== CHARTS =====
   var chart = null;
+  var hasL7Bytes = TAILBENCH_DATA.some(function(d){ return d.fortio_result && d.fortio_result.bytes_per_sec > 0; });
   var tabs = [
-    {id:'qps',label:'QPS by Mode'},
-    {id:'latency',label:'Latency (P50/P99)'},
-    {id:'l7throughput',label:'L7 Throughput (MB/s)'},
+    {id:'radar',label:'Provider Radar'},
     {id:'throughput',label:'L4 Throughput'},
     {id:'overhead',label:'Overhead Comparison'},
-    {id:'radar',label:'Provider Radar'}
+    {id:'qps',label:'QPS by Mode'},
+    {id:'latency',label:'Latency (P50/P99)'}
   ];
+  if (hasL7Bytes) tabs.push({id:'l7throughput',label:'L7 Throughput'});
 
   function renderChartTabs() {
     var h=''; tabs.forEach(function(t){ h+='<button class="chart-tab'+(state.tab===t.id?' on':'')+'" data-t="'+t.id+'">'+t.label+'</button>'; });
@@ -381,12 +383,12 @@ footer a:hover { text-decoration: underline; }
     if(chart){chart.destroy();chart=null;}
     var ctx = document.getElementById('chartCanvas').getContext('2d');
     try {
-      if(state.tab==='qps') renderQPSChart(ctx);
-      else if(state.tab==='latency') renderLatencyChart(ctx);
-      else if(state.tab==='l7throughput') renderL7ThroughputChart(ctx);
+      if(state.tab==='radar') renderRadarChart(ctx);
       else if(state.tab==='throughput') renderThroughputChart(ctx);
       else if(state.tab==='overhead') renderOverheadChart(ctx);
-      else if(state.tab==='radar') renderRadarChart(ctx);
+      else if(state.tab==='qps') renderQPSChart(ctx);
+      else if(state.tab==='latency') renderLatencyChart(ctx);
+      else if(state.tab==='l7throughput') renderL7ThroughputChart(ctx);
     } catch(e) { console.warn('chart error:',e); }
   }
 
@@ -462,17 +464,12 @@ footer a:hover { text-decoration: underline; }
     groups.forEach(function(g) {
       Object.entries(g.modes).forEach(function(e) {
         var fr = e[1].fortio_result;
-        if(!fr) return;
+        if(!fr || fr.bytes_per_sec <= 0) return;
         var mbps = fr.bytes_per_sec / (1024*1024);
-        if(mbps <= 0) {
-          // Estimate from QPS * avg response size (~500 bytes for fortio echo)
-          mbps = (fr.qps * 500) / (1024*1024);
-        }
         data.push({label:g.type+' ('+g.provider.toUpperCase()+')',mode:e[0],mbps:mbps,qps:fr.qps,env:g.env});
       });
     });
     data.sort(function(a,b){return b.mbps-a.mbps;});
-
     chart = new Chart(ctx, {
       type:'bar',
       data:{
@@ -562,7 +559,6 @@ footer a:hover { text-decoration: underline; }
 
   function renderRadarChart(ctx) {
     var groups = filtered();
-    // Aggregate per provider
     var pa = {};
     groups.forEach(function(g) {
       var p = g.provider.toLowerCase();
@@ -581,12 +577,17 @@ footer a:hover { text-decoration: underline; }
 
     var providers = Object.keys(pa);
     if (providers.length < 2) {
-      chart = new Chart(ctx,{type:'radar',data:{labels:['Need 2+ providers'],datasets:[]},options:{responsive:true,maintainAspectRatio:false}});
+      chart = new Chart(ctx,{type:'radar',data:{labels:['Throughput','Overhead','QPS','Latency','Efficiency'],datasets:[]},options:{
+        responsive:true,maintainAspectRatio:false,
+        scales:{r:{beginAtZero:true,max:100,ticks:{display:false},grid:{color:css('--border')},angleLines:{color:css('--border')},pointLabels:{color:css('--text-3'),font:{size:11}}}},
+        plugins:{title:{display:true,text:'Select multiple providers to compare',color:css('--text-3'),font:{size:13,weight:500}},legend:{display:false}}
+      }});
       return;
     }
 
     function avg(arr) { return arr.length ? arr.reduce(function(s,v){return s+v;},0)/arr.length : 0; }
-    providers.forEach(function(p) { var a=pa[p]; a.avgOH=avg(a.ohs); a.avgQPS=avg(a.qpss); a.avgLat=avg(a.lats); a.avgEff=avg(a.effs); });
+    function med(arr) { if(!arr.length) return 0; var s=arr.slice().sort(function(a,b){return a-b;}); var m=Math.floor(s.length/2); return s.length%2?s[m]:(s[m-1]+s[m])/2; }
+    providers.forEach(function(p) { var a=pa[p]; a.avgOH=avg(a.ohs); a.medQPS=med(a.qpss); a.medLat=med(a.lats); a.avgEff=avg(a.effs); });
 
     function norm(vals, higherBetter) {
       var mn=Math.min.apply(null,vals), mx=Math.max.apply(null,vals);
@@ -596,17 +597,17 @@ footer a:hover { text-decoration: underline; }
 
     var bwS = norm(providers.map(function(p){return pa[p].maxBW;}), true);
     var ohS = norm(providers.map(function(p){return pa[p].avgOH||50;}), false);
-    var qpsS = norm(providers.map(function(p){return pa[p].avgQPS||0;}), true);
-    var latS = norm(providers.map(function(p){return pa[p].avgLat||50;}), false);
+    var qpsS = norm(providers.map(function(p){return pa[p].medQPS||0;}), true);
+    var latS = norm(providers.map(function(p){return pa[p].medLat||50;}), false);
     var effS = norm(providers.map(function(p){return pa[p].avgEff||0;}), true);
 
     var colors = {
-      gcp:{bg:'rgba(110,140,239,0.12)',border:css('--accent')},
-      gke:{bg:'rgba(110,140,239,0.12)',border:css('--accent')},
-      aws:{bg:'rgba(250,204,21,0.12)',border:css('--yellow')},
-      eks:{bg:'rgba(250,204,21,0.12)',border:css('--yellow')},
-      azure:{bg:'rgba(45,212,191,0.12)',border:css('--teal')},
-      aks:{bg:'rgba(45,212,191,0.12)',border:css('--teal')}
+      gcp:{bg:'rgba(110,140,239,0.15)',border:css('--accent')},
+      gke:{bg:'rgba(192,132,252,0.12)',border:css('--purple')},
+      aws:{bg:'rgba(250,204,21,0.15)',border:css('--yellow')},
+      eks:{bg:'rgba(248,113,113,0.12)',border:css('--red')},
+      azure:{bg:'rgba(45,212,191,0.15)',border:css('--teal')},
+      aks:{bg:'rgba(244,114,182,0.12)',border:css('--pink')}
     };
 
     var k8sProviders = {gke:1,eks:1,aks:1};
@@ -617,18 +618,20 @@ footer a:hover { text-decoration: underline; }
         label: p.toUpperCase()+' ('+pa[p].count+')',
         data: [bwS[i],ohS[i],qpsS[i],latS[i],effS[i]],
         backgroundColor: c.bg, borderColor: c.border,
-        borderWidth: isK8s ? 2 : 2,
+        borderWidth: 2,
         borderDash: isK8s ? [6,3] : [],
         pointBackgroundColor: c.border,
-        pointRadius: isK8s ? 3 : 5,
-        pointHoverRadius: 6,
+        pointRadius: isK8s ? 4 : 5,
+        pointHoverRadius: 7,
         pointStyle: isK8s ? 'rectRot' : 'circle'
       };
     });
 
+    var radarLabels = ['Max Throughput','Low Overhead','Median QPS','Low Latency','Gbps/vCPU'];
+
     chart = new Chart(ctx, {
       type:'radar',
-      data:{ labels:['Max Throughput','Low L4 Overhead','HTTP QPS','Low Latency','Efficiency'], datasets:datasets },
+      data:{ labels:radarLabels, datasets:datasets },
       options:{
         responsive:true,maintainAspectRatio:false,
         scales:{r:{beginAtZero:true,max:100,ticks:{display:false},grid:{color:css('--border')},angleLines:{color:css('--border')},pointLabels:{color:css('--text-2'),font:{size:11,weight:600}}}},
@@ -638,8 +641,14 @@ footer a:hover { text-decoration: underline; }
             backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
             callbacks:{label:function(item) {
               var p=providers[item.datasetIndex]; var a=pa[p];
-              var labels=['Max BW: '+a.maxBW.toFixed(1)+' Gbps','Avg OH: '+(a.avgOH||0).toFixed(1)+'%','Avg QPS: '+fq(a.avgQPS||0),'Avg P99: '+(a.avgLat||0).toFixed(1)+'ms','Eff: '+(a.avgEff||0).toFixed(2)+' Gbps/vCPU'];
-              return p.toUpperCase()+': '+labels[item.dataIndex]+' (score '+item.raw.toFixed(0)+')';
+              var labels=[
+                'Max BW: '+a.maxBW.toFixed(1)+' Gbps',
+                'Avg OH: '+(a.avgOH||0).toFixed(1)+'%',
+                'Median QPS: '+fq(a.medQPS||0),
+                'Median P99: '+(a.medLat||0).toFixed(1)+' ms',
+                'Efficiency: '+(a.avgEff||0).toFixed(2)+' Gbps/vCPU'
+              ];
+              return p.toUpperCase()+': '+labels[item.dataIndex];
             }}
           }
         }
@@ -677,7 +686,7 @@ footer a:hover { text-decoration: underline; }
     var groups=filtered(); var all=[]; groups.forEach(function(g){Object.values(g.modes).forEach(function(d){all.push(d);});});
     var ip=all.filter(function(d){return d.overhead;}); var fo=all.filter(function(d){return d.fortio_result;});
     var h='<div class="stat"><div class="stat-label">Instances</div><div class="stat-val">'+groups.length+'</div><div class="stat-sub">'+all.length+' benchmarks</div></div>';
-    if(ip.length) { var avg=ip.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/ip.length; h+='<div class="stat"><div class="stat-label">L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">'+ip.length+' iperf tests</div></div>'; }
+    if(ip.length) { var avg=ip.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/ip.length; h+='<div class="stat"><div class="stat-label">Avg L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+ip.length+' iperf tests</div></div>'; }
     if(fo.length) {
       var aq=fo.reduce(function(s,d){return s+d.fortio_result.qps;},0)/fo.length;
       var ap=fo.reduce(function(s,d){return s+d.fortio_result.p99_latency_ms;},0)/fo.length;
@@ -691,6 +700,7 @@ footer a:hover { text-decoration: underline; }
     var cols=[
       {k:'type',l:'Instance'},{k:'provider',l:'Cloud'},{k:'vcpus',l:'vCPU'},
       {k:'bw',l:'L4 Throughput'},{k:'overhead',l:'Overhead'},
+      {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'},
       {k:'',l:'Mode Breakdown'},
       {k:'',l:''}
     ];
@@ -726,9 +736,12 @@ footer a:hover { text-decoration: underline; }
       h+='<td class="m bw-cell">'+(bw?'<div class="bw-bar bl" style="width:'+blW+'%"></div><div class="bw-bar ts" style="width:'+bwW+'%"></div><span class="bw-v">'+gbps(bw)+'<small>Gbps</small></span>':'\u2014')+'</td>';
       // Overhead — show iperf overhead
       h+='<td>'+(oh!==null?'<span class="oh '+ohc(oh)+'">'+oh.toFixed(1)+'%</span>':'\u2014')+'</td>';
+      // Best QPS
+      h+='<td class="m">'+(qps?fq(qps)+'<small style="color:var(--text-3);margin-left:1px">qps</small>':'\u2014')+'</td>';
+      // Best P99
+      h+='<td class="m">'+(p99?p99.toFixed(1)+'<small style="color:var(--text-3);margin-left:1px">ms</small>':'\u2014')+'</td>';
       // Mode breakdown — compact per-mode summary
       var mbHtml = '<div style="display:flex;flex-direction:column;gap:2px">';
-      var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2'];
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});
       Object.keys(g.modes).forEach(function(m){if(orderedModes.indexOf(m)===-1) orderedModes.push(m);});
       orderedModes.forEach(function(mode) {
@@ -739,11 +752,11 @@ footer a:hover { text-decoration: underline; }
         mbHtml += '<span class="mode-pill mp-'+mCls+'" style="min-width:65px;text-align:center">'+mLabel+'</span>';
         if (d.fortio_result) {
           var fr = d.fortio_result;
-          var delta = d.l7_overhead ? d.l7_overhead.qps.delta_pct : null;
+          var delta = d.l7_overhead ? Math.abs(d.l7_overhead.qps.delta_pct) : null;
           mbHtml += '<span class="m" style="font-size:0.68rem;min-width:45px">'+fq(fr.qps)+'<small style="color:var(--text-3);margin-left:1px">qps</small></span>';
           mbHtml += '<span class="m" style="font-size:0.68rem;min-width:50px">'+fr.p99_latency_ms.toFixed(1)+'<small style="color:var(--text-3);margin-left:1px">ms</small></span>';
           if (delta !== null) {
-            mbHtml += '<span class="oh '+ohc(Math.abs(delta))+'" style="font-size:0.55rem">'+delta.toFixed(0)+'%</span>';
+            mbHtml += '<span class="oh '+ohc(delta)+'" style="font-size:0.55rem">'+delta.toFixed(1)+'%</span>';
           }
         } else if (d.baseline_tcp && d.tailscale_tcp) {
           mbHtml += '<span class="m" style="font-size:0.68rem">'+gbps(d.tailscale_tcp.summary.bandwidth_mbps_avg)+'<small style="color:var(--text-3);margin-left:1px">Gbps</small></span>';
@@ -759,10 +772,9 @@ footer a:hover { text-decoration: underline; }
       h+='</tr>';
 
       // Detail row
-      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="7"><div class="detail-content">';
+      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="9"><div class="detail-content">';
 
       // Mode detail rows
-      var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2'];
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});
       Object.keys(g.modes).forEach(function(m){if(orderedModes.indexOf(m)===-1) orderedModes.push(m);});
 
@@ -783,7 +795,7 @@ footer a:hover { text-decoration: underline; }
           h+='<div class="md-m">'+fr.p99_latency_ms.toFixed(1)+'<small>ms p99</small></div>';
           h+='<div class="md-m">'+fr.p999_latency_ms.toFixed(1)+'<small>ms p999</small></div>';
           h+='</div>';
-          if(d.l7_overhead){var dp=d.l7_overhead.qps.delta_pct; h+='<span class="oh '+ohc(Math.abs(dp))+'">'+dp.toFixed(0)+'%</span>';}
+          if(d.l7_overhead){var dp=Math.abs(d.l7_overhead.qps.delta_pct); h+='<span class="oh '+ohc(dp)+'">'+dp.toFixed(1)+'%</span>';}
         }
         h+='</div>';
       });
@@ -807,7 +819,7 @@ footer a:hover { text-decoration: underline; }
       // Fortio table
       var fEntries=Object.entries(g.modes).filter(function(e){return e[1].fortio_result;});
       if(fEntries.length) {
-        h+='<div class="dsec" style="margin-top:12px"><h5>HTTP Performance</h5><table class="mt"><thead><tr><th>Mode</th><th>QPS</th><th>P50</th><th>P99</th><th>P99.9</th><th>Errs</th></tr></thead><tbody>';
+        h+='<div class="dsec" style="margin-top:12px"><h5>HTTP Performance (via Tailscale)</h5><table class="mt"><thead><tr><th>Mode</th><th>QPS</th><th>P50</th><th>P99</th><th>P99.9</th><th>Conn Errs</th></tr></thead><tbody>';
         fEntries.forEach(function(e){var fr=e[1].fortio_result;h+='<tr><td>'+e[0]+'</td><td>'+fq(fr.qps)+'</td><td>'+fr.p50_latency_ms.toFixed(2)+'ms</td><td>'+fr.p99_latency_ms.toFixed(2)+'ms</td><td>'+fr.p999_latency_ms.toFixed(2)+'ms</td><td>'+fr.connection_errors+'</td></tr>';});
         h+='</tbody></table></div>';
       }

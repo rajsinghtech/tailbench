@@ -18,9 +18,14 @@ type fortioOutput struct {
 			Value      float64 `json:"Value"`
 		} `json:"Percentiles"`
 	} `json:"DurationHistogram"`
-	RetCodes  map[string]int `json:"RetCodes"`
-	BytesSent int64          `json:"BytesSent"`
-	BytesRecv int64          `json:"BytesReceived"`
+	Sizes *struct {
+		Count int     `json:"Count"`
+		Sum   float64 `json:"Sum"`
+	} `json:"Sizes"`
+	HeaderSizes *struct {
+		Sum float64 `json:"Sum"`
+	} `json:"HeaderSizes"`
+	RetCodes map[string]int `json:"RetCodes"`
 }
 
 func ParseFortioJSON(data []byte) (*result.FortioResult, error) {
@@ -63,7 +68,14 @@ func ParseFortioJSON(data []byte) (*result.FortioResult, error) {
 
 	duration := float64(raw.DurationHistogram.Count) / raw.ActualQPS
 	if duration > 0 {
-		r.BytesPerSec = float64(raw.BytesRecv) / duration
+		var totalBytes float64
+		if raw.Sizes != nil {
+			totalBytes += raw.Sizes.Sum
+		}
+		if raw.HeaderSizes != nil {
+			totalBytes += raw.HeaderSizes.Sum
+		}
+		r.BytesPerSec = totalBytes / duration
 	}
 
 	return r, nil
