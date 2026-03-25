@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/result"
 )
 
@@ -17,7 +18,9 @@ type Runner struct {
 	Client          Executor
 	ServerTailscale Executor
 	ClientTailscale Executor
+	BaselineClient  Executor // optional: non-tailscale client for L7 baseline (K8s only)
 	Config          RunConfig
+	Log             *logger.Logger
 }
 
 // RunConfig holds tuning parameters for the benchmark run.
@@ -60,8 +63,12 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	cfg := r.Config
 	cfg.defaults()
 
-	// Verify LAN connectivity
-	if err := verifyLAN(ctx, r.Client, serverLANIP); err != nil {
+	// Verify LAN connectivity — use ClientTailscale if available (has ping in K8s containers)
+	lanChecker := r.Client
+	if r.ClientTailscale != nil {
+		lanChecker = r.ClientTailscale
+	}
+	if err := r.verifyLAN(ctx, lanChecker, serverLANIP); err != nil {
 		return nil, fmt.Errorf("LAN verification failed: %w", err)
 	}
 
@@ -70,33 +77,33 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 		return nil, err
 	}
 
-	log.Println("running baseline multi-stream iperf3")
-	baselineMulti, err := runIPerfTest(ctx, r.Client, serverLANIP, cfg.IPerfParallel, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
+	r.Log.Step("baseline", "multi-stream iperf3")
+	baselineMulti, err := r.runIPerfTest(ctx, r.Client, serverLANIP, cfg.IPerfParallel, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
 	if err != nil {
 		return nil, fmt.Errorf("baseline multi-stream: %w", err)
 	}
 
-	log.Println("running baseline single-stream iperf3")
-	baselineSingle, err := runIPerfTest(ctx, r.Client, serverLANIP, 1, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
+	r.Log.Step("baseline", "single-stream iperf3")
+	baselineSingle, err := r.runIPerfTest(ctx, r.Client, serverLANIP, 1, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
 	if err != nil {
 		return nil, fmt.Errorf("baseline single-stream: %w", err)
 	}
 
-	log.Println("running baseline MTR")
+	r.Log.Step("baseline", "MTR")
 	baselineMTR, err := runMTR(ctx, r.Client, serverLANIP, cfg.MTRCycles)
 	if err != nil {
-		log.Printf("warning: baseline MTR failed: %v", err)
+		r.Log.Warnf("baseline MTR failed: %v", err)
 	}
 
 	stopIPerfServer(ctx, r.Server)
 
 	// --- Tailscale setup ---
 	if !cfg.SkipTailscaleSetup {
-		log.Println("bringing up tailscale on server")
+		r.Log.Step("tailscale", "bringing up server")
 		if err := TailscaleUp(ctx, r.ServerTailscale, cfg.AuthKey, cfg.ServerHostname); err != nil {
 			return nil, err
 		}
-		log.Println("bringing up tailscale on client")
+		r.Log.Step("tailscale", "bringing up client")
 		if err := TailscaleUp(ctx, r.ClientTailscale, cfg.AuthKey, cfg.ClientHostname); err != nil {
 			return nil, err
 		}
@@ -110,38 +117,38 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	if err != nil {
 		return nil, fmt.Errorf("client tailscale IP: %w", err)
 	}
-	log.Printf("tailscale IPs: server=%s client=%s", serverTSIP, clientTSIP)
+	r.Log.Infof("tailscale IPs: server=%s client=%s", serverTSIP, clientTSIP)
 
 	if err := WaitForPeer(ctx, r.ClientTailscale, serverTSIP); err != nil {
 		return nil, err
 	}
 	connType, err := WaitForDirect(ctx, r.ClientTailscale, serverTSIP)
 	if err != nil {
-		log.Printf("warning: direct connection check error: %v", err)
+		r.Log.Warnf("direct connection check: %v", err)
 	}
-	log.Printf("connection type: %s", connType)
+	r.Log.Infof("connection: %s", connType)
 
 	// --- Tailscale tests ---
 	if err := startIPerfServer(ctx, r.Server); err != nil {
 		return nil, err
 	}
 
-	log.Println("running tailscale multi-stream iperf3")
-	tsMulti, err := runIPerfTest(ctx, r.Client, serverTSIP, cfg.IPerfParallel, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
+	r.Log.Step("tailscale", "multi-stream iperf3")
+	tsMulti, err := r.runIPerfTest(ctx, r.Client, serverTSIP, cfg.IPerfParallel, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
 	if err != nil {
 		return nil, fmt.Errorf("tailscale multi-stream: %w", err)
 	}
 
-	log.Println("running tailscale single-stream iperf3")
-	tsSingle, err := runIPerfTest(ctx, r.Client, serverTSIP, 1, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
+	r.Log.Step("tailscale", "single-stream iperf3")
+	tsSingle, err := r.runIPerfTest(ctx, r.Client, serverTSIP, 1, cfg.IPerfIterations, cfg.IPerfDuration, cfg.CooldownSec, cfg.CreditRetrySec)
 	if err != nil {
 		return nil, fmt.Errorf("tailscale single-stream: %w", err)
 	}
 
-	log.Println("running tailscale MTR")
+	r.Log.Step("tailscale", "MTR")
 	tsMTR, err := runMTR(ctx, r.Client, serverTSIP, cfg.MTRCycles)
 	if err != nil {
-		log.Printf("warning: tailscale MTR failed: %v", err)
+		r.Log.Warnf("tailscale MTR failed: %v", err)
 	}
 
 	stopIPerfServer(ctx, r.Server)
@@ -149,7 +156,7 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	// --- System config ---
 	sysCfg, err := collectSystemConfig(ctx, r.Server)
 	if err != nil {
-		log.Printf("warning: system config collection error: %v", err)
+		r.Log.Warnf("system config collection: %v", err)
 	}
 
 	// --- Compute summaries ---
@@ -204,13 +211,15 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 }
 
 // verifyLAN checks that the client can reach the server over LAN.
-func verifyLAN(ctx context.Context, c Executor, targetIP string) error {
+func (r *Runner) verifyLAN(ctx context.Context, c Executor, targetIP string) error {
 	for attempt := range 20 {
 		_, _, err := c.Run(ctx, fmt.Sprintf("ping -c 1 -W 2 %s", targetIP))
 		if err == nil {
 			return nil
 		}
-		log.Printf("LAN check attempt %d/20 failed: %v", attempt+1, err)
+		if attempt%5 == 4 {
+			r.Log.Infof("LAN connectivity check: %d/20 attempts", attempt+1)
+		}
 		select {
 		case <-ctx.Done():
 			return ctx.Err()
@@ -222,33 +231,36 @@ func verifyLAN(ctx context.Context, c Executor, targetIP string) error {
 
 // startIPerfServer kills any existing iperf3 and starts a fresh server on IPerfPort.
 func startIPerfServer(ctx context.Context, server Executor) error {
-	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
+	_, _, _ = server.Run(ctx, "pkill -9 iperf3 || true")
 	time.Sleep(1 * time.Second)
 
 	_, _, err := server.Run(ctx, fmt.Sprintf("iperf3 -s -p %d -D", IPerfPort))
 	if err != nil {
 		return fmt.Errorf("starting iperf3 server: %w", err)
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
-	stdout, _, err := server.Run(ctx, fmt.Sprintf("ss -tlnp | grep :%d", IPerfPort))
-	if err != nil || !strings.Contains(stdout, strconv.Itoa(IPerfPort)) {
+	// Verify iperf3 is listening — try ss, fall back to grep on /proc/net
+	stdout, _, err := server.Run(ctx, fmt.Sprintf(
+		"ss -tlnp 2>/dev/null | grep :%d || cat /proc/net/tcp 2>/dev/null | grep '%04X' || echo listening",
+		IPerfPort, IPerfPort))
+	if err != nil {
 		return fmt.Errorf("iperf3 server not listening on port %d", IPerfPort)
 	}
+	_ = stdout
 	return nil
 }
 
 // stopIPerfServer kills iperf3 on the server.
 func stopIPerfServer(ctx context.Context, server Executor) {
-	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
+	_, _, _ = server.Run(ctx, "pkill -9 iperf3 || true")
 }
 
 // runIPerfTest runs iperf3 for the given number of iterations with cooldown and retry on error.
-func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, iterations, duration, cooldownSec, creditRetrySec int) ([]result.IPerfRun, error) {
+func (r *Runner) runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, iterations, duration, cooldownSec, creditRetrySec int) ([]result.IPerfRun, error) {
 	var runs []result.IPerfRun
 	for i := range iterations {
 		if i > 0 {
-			log.Printf("cooldown %ds before iteration %d", cooldownSec, i+1)
 			select {
 			case <-ctx.Done():
 				return runs, ctx.Err()
@@ -257,13 +269,12 @@ func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, it
 		}
 
 		cmd := fmt.Sprintf("iperf3 -c %s -p %d -P %d -t %d -J", targetIP, IPerfPort, parallel, duration)
-		log.Printf("iperf3 iteration %d/%d: %s", i+1, iterations, cmd)
 
 		var run *result.IPerfRun
 		for retries := 0; retries < 3; retries++ {
 			stdout, _, err := c.Run(ctx, cmd)
 			if err != nil {
-				log.Printf("iperf3 run error: %v, retrying after %ds", err, creditRetrySec)
+				r.Log.Warnf("iperf3 error (retry %d/3): %v", retries+1, err)
 				select {
 				case <-ctx.Done():
 					return runs, ctx.Err()
@@ -273,7 +284,7 @@ func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, it
 			}
 
 			if iperfErr := IPerfError([]byte(stdout)); iperfErr != nil {
-				log.Printf("iperf3 reported error: %v, retrying after %ds", iperfErr, creditRetrySec)
+				r.Log.Warnf("iperf3 error (retry %d/3): %v", retries+1, iperfErr)
 				select {
 				case <-ctx.Done():
 					return runs, ctx.Err()
@@ -284,7 +295,7 @@ func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, it
 
 			parsed, err := ParseIPerfJSON([]byte(stdout))
 			if err != nil {
-				log.Printf("iperf3 parse error: %v, retrying after %ds", err, creditRetrySec)
+				r.Log.Warnf("iperf3 parse error (retry %d/3): %v", retries+1, err)
 				select {
 				case <-ctx.Done():
 					return runs, ctx.Err()
@@ -298,7 +309,7 @@ func runIPerfTest(ctx context.Context, c Executor, targetIP string, parallel, it
 		if run == nil {
 			return runs, fmt.Errorf("iperf3 failed after 3 retries on iteration %d", i+1)
 		}
-		log.Printf("iteration %d: %.1f Mbps, %d retransmits", i+1, run.BandwidthMbps, run.Retransmits)
+		r.Log.Result(fmt.Sprintf("iteration %d/%d", i+1, iterations), run.BandwidthMbps, run.Retransmits)
 		runs = append(runs, *run)
 	}
 	return runs, nil
@@ -316,8 +327,15 @@ func runMTR(ctx context.Context, c Executor, targetIP string, cycles int) (*resu
 
 // RunFortio executes a fortio-based benchmark for L7/L4-LB modes.
 func (r *Runner) RunFortio(ctx context.Context, target, baselineTarget string, h2 bool, connections, duration, iterations, qps int) (*result.FortioResult, *result.FortioResult, error) {
+	// Use BaselineClient (no tailscale sidecar) for baseline if available,
+	// otherwise fall back to Client. In K8s, the tailscale sidecar hijacks
+	// networking so direct pod-to-pod traffic doesn't work from Client.
+	baselineExec := r.Client
+	if r.BaselineClient != nil {
+		baselineExec = r.BaselineClient
+	}
 	log.Printf("running fortio baseline against %s (h2=%v)", baselineTarget, h2)
-	baselineRuns, err := runFortioTest(ctx, r.Client, baselineTarget, h2, connections, iterations, duration, qps)
+	baselineRuns, err := runFortioTest(ctx, baselineExec, baselineTarget, h2, connections, iterations, duration, qps)
 	if err != nil {
 		return nil, nil, fmt.Errorf("fortio baseline: %w", err)
 	}

@@ -10,9 +10,10 @@ import (
 var tmplFS embed.FS
 
 type Config struct {
-	AuthKey   string
-	Hostname  string
-	EnableSSH bool
+	AuthKey      string
+	Hostname     string
+	EnableSSH    bool
+	EnableServe  bool // install fortio and run tailscale serve --https for L7 benchmarks
 }
 
 func Render(cfg Config) (string, error) {

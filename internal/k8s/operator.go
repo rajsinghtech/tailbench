@@ -32,15 +32,42 @@ type OperatorConfig struct {
 	OAuthClientSecret string
 	Hostname          string // operator hostname on the tailnet
 	Tag               string // e.g. "tag:bench"
+	ForceReinstall    bool   // tear down and reinstall even if already running
+}
+
+// IsOperatorRunning checks if the Tailscale operator is already installed and has
+// a running pod in the operator namespace.
+func IsOperatorRunning(ctx context.Context, kubeconfigData string) bool {
+	cs, err := ClientsetFromKubeconfig(kubeconfigData)
+	if err != nil {
+		return false
+	}
+	pods, err := cs.CoreV1().Pods(OperatorNamespace).List(ctx, metav1.ListOptions{
+		LabelSelector: "app.kubernetes.io/name=tailscale-operator",
+	})
+	if err != nil || len(pods.Items) == 0 {
+		return false
+	}
+	for _, pod := range pods.Items {
+		if pod.Status.Phase == corev1.PodRunning {
+			return true
+		}
+	}
+	return false
 }
 
 // InstallOperator installs the Tailscale Kubernetes operator via Helm with
-// API server proxy mode enabled. It cleans up any previous operator state
-// first so reused clusters work cleanly.
+// API server proxy mode enabled. If forceReinstall is false and the operator
+// is already running, this is a no-op.
 func InstallOperator(ctx context.Context, kubeconfigData string, cfg OperatorConfig) error {
 	cs, err := ClientsetFromKubeconfig(kubeconfigData)
 	if err != nil {
 		return fmt.Errorf("create clientset: %w", err)
+	}
+
+	if !cfg.ForceReinstall && IsOperatorRunning(ctx, kubeconfigData) {
+		log.Printf("operator already running, skipping install")
+		return nil
 	}
 
 	// Clean up any previous operator installation (stale Helm release, secrets, etc.)
@@ -72,6 +99,27 @@ func InstallOperator(ctx context.Context, kubeconfigData string, cfg OperatorCon
 func cleanupPreviousOperator(ctx context.Context, cs *kubernetes.Clientset, kubeconfigData string) {
 	// Try to uninstall the Helm release (ignore errors — may not exist)
 	_ = UninstallOperator(ctx, kubeconfigData)
+
+	// Delete all proxy StatefulSets (ts-bench-echo-* from previous installs)
+	stsList, err := cs.AppsV1().StatefulSets(OperatorNamespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, sts := range stsList.Items {
+			if strings.HasPrefix(sts.Name, "ts-") {
+				log.Printf("cleaning up operator statefulset: %s/%s", OperatorNamespace, sts.Name)
+				_ = cs.AppsV1().StatefulSets(OperatorNamespace).Delete(ctx, sts.Name, metav1.DeleteOptions{})
+			}
+		}
+	}
+
+	// Delete all headless services for proxy StatefulSets
+	svcs, err := cs.CoreV1().Services(OperatorNamespace).List(ctx, metav1.ListOptions{})
+	if err == nil {
+		for _, svc := range svcs.Items {
+			if strings.HasPrefix(svc.Name, "ts-") {
+				_ = cs.CoreV1().Services(OperatorNamespace).Delete(ctx, svc.Name, metav1.DeleteOptions{})
+			}
+		}
+	}
 
 	// Delete all secrets in the operator namespace (operator state, OAuth, certs)
 	secrets, err := cs.CoreV1().Secrets(OperatorNamespace).List(ctx, metav1.ListOptions{})
@@ -161,12 +209,14 @@ func helmInstallOperator(ctx context.Context, kubeconfigData string, cfg Operato
 			"helm", "upgrade", "--install", OperatorRelease,
 			"tailscale/tailscale-operator",
 			"--namespace", OperatorNamespace,
+			"--create-namespace",
 			"--kubeconfig", tmpFile,
 			"--set", "apiServerProxyConfig.mode=true",
 			"--set", "apiServerProxyConfig.allowImpersonation=true",
 			"--set", fmt.Sprintf("operatorConfig.hostname=%s", cfg.Hostname),
 			"--set", "operatorConfig.logging=debug",
 			"--set", fmt.Sprintf("operatorConfig.defaultTags={%s}", cfg.Tag),
+			"--set", "proxyConfig.defaultTags=tag:bench-service",
 			"--set", fmt.Sprintf("oauth.clientId=%s", cfg.OAuthClientID),
 			"--set", fmt.Sprintf("oauth.clientSecret=%s", cfg.OAuthClientSecret),
 			"--wait",

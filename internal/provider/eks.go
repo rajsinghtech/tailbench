@@ -47,6 +47,7 @@ func (p *EKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
+		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -264,9 +265,14 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	if err != nil {
 		return nil, fmt.Errorf("create node group stack: %w", err)
 	}
-	stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region})
+	if err := stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region}); err != nil {
+		return nil, fmt.Errorf("set aws:region: %w", err)
+	}
 
-	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer())); err != nil {
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
+	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh()); err != nil {
 		return nil, fmt.Errorf("create node group %s: %w", opts.InstanceType, err)
 	}
 
@@ -346,11 +352,12 @@ func (p *EKSProvider) DestroyPair(ctx context.Context, instanceType string) erro
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err != nil {
-		return fmt.Errorf("select stack %s: %w", stackName, err)
+	if err == nil {
+		_ = stack.Cancel(ctx)
+		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
+		_ = stack.Workspace().RemoveStack(ctx, stackName)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
-	return err
+	return nil
 }
 
 func (p *EKSProvider) TeardownNetworking(ctx context.Context) error {
@@ -360,8 +367,10 @@ func (p *EKSProvider) TeardownNetworking(ctx context.Context) error {
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}
-	_, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()))
-	return err
+	if _, err = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
+		return fmt.Errorf("destroy cluster stack: %w", err)
+	}
+	return stack.Workspace().RemoveStack(ctx, stackName)
 }
 
 func (p *EKSProvider) ListFamilies() []string {
@@ -394,6 +403,7 @@ func (p *EKSProvider) InstallOperator(ctx context.Context, cfg OperatorInstallCo
 		OAuthClientSecret: cfg.OAuthClientSecret,
 		Hostname:          hostname,
 		Tag:               cfg.Tag,
+		ForceReinstall:    cfg.ForceReinstall,
 	}); err != nil {
 		return err
 	}

@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -35,6 +36,7 @@ func (p *AWSProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
+		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -153,10 +155,8 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		}
 
 		pg, err := ec2.NewPlacementGroup(pCtx, "tailbench-pg", &ec2.PlacementGroupArgs{
-			Name:     pulumi.String("tailbench-pg"),
 			Strategy: pulumi.String("cluster"),
 			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-pg"),
 				"Project": pulumi.String("tailbench"),
 			},
 		})
@@ -180,7 +180,10 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
+	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -285,7 +288,10 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams())
+	// Cancel any incomplete operations from a previous crashed run.
+	_ = stack.Cancel(ctx)
+
+	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -321,13 +327,12 @@ func (p *AWSProvider) DestroyPair(ctx context.Context, instanceType string) erro
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err != nil {
-		return fmt.Errorf("select stack %s: %w", stackName, err)
+	if err == nil {
+		_ = stack.Cancel(ctx)
+		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError())
+		_ = stack.Workspace().RemoveStack(ctx, stackName)
 	}
-	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams()); err != nil {
-		return fmt.Errorf("destroy stack %s: %w", stackName, err)
-	}
-	return stack.Workspace().RemoveStack(ctx, stackName)
+	return nil
 }
 
 func (p *AWSProvider) TeardownNetworking(ctx context.Context) error {
@@ -350,15 +355,17 @@ func (p *AWSProvider) ListFamilies() []string {
 }
 
 func (p *AWSProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
+	tCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
+	defer cancel()
 	filter := fmt.Sprintf("Name=instance-type,Values=%s.*", family)
-	out, err := exec.CommandContext(ctx, "aws", "ec2", "describe-instance-types",
+	out, err := exec.CommandContext(tCtx, "aws", "ec2", "describe-instance-types",
 		"--region", p.Region,
 		"--filters", filter,
 		"--query", "sort_by(InstanceTypes,&VCpuInfo.DefaultVCpus)[].[InstanceType,VCpuInfo.DefaultVCpus]",
 		"--output", "json",
 	).Output()
 	if err != nil {
-		return nil, fmt.Errorf("aws describe-instance-types: %w", err)
+		return nil, fmt.Errorf("aws describe-instance-types (%s): %w", family, err)
 	}
 
 	var raw [][]json.RawMessage

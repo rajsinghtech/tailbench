@@ -158,6 +158,9 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 		},
 	}
 	acl.TagOwners["tag:bench-service"] = []string{m.Tag}
+	if k8sOperator {
+		acl.TagOwners["tag:k8s"] = []string{m.Tag}
+	}
 	if tsnetSSH {
 		acl.SSH = []tailscale.ACLSSH{
 			{
@@ -198,13 +201,32 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 			IP:          []string{"*"},
 		})
 	}
-	acl.NodeAttrs = []tailscale.NodeAttrGrant{
-		{
-			Target: []string{"tag:k8s"},
-			Attr:   []string{"funnel"},
-		},
-	}
 	return client.PolicyFile().Set(ctx, acl, "")
+}
+
+// CleanupStaleDevices removes devices from the tailnet that match the given
+// hostname prefix (e.g. "tb-gcp-" or "tailbench-gke-operator"). This handles
+// nodes that were destroyed without a clean tailscale logout.
+func (m *Manager) CleanupStaleDevices(ctx context.Context, clientID, clientSecret, hostnamePrefix string) (int, error) {
+	client := newTailscaleClient(clientID, clientSecret)
+	devices, err := client.Devices().List(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("list devices: %w", err)
+	}
+	var cleaned int
+	for _, d := range devices {
+		if len(d.Hostname) > 0 && len(hostnamePrefix) > 0 && hasPrefix(d.Hostname, hostnamePrefix) {
+			if err := client.Devices().Delete(ctx, d.ID); err != nil {
+				return cleaned, fmt.Errorf("delete device %s (%s): %w", d.Hostname, d.ID, err)
+			}
+			cleaned++
+		}
+	}
+	return cleaned, nil
+}
+
+func hasPrefix(s, prefix string) bool {
+	return len(s) >= len(prefix) && s[:len(prefix)] == prefix
 }
 
 // EnableHTTPS enables HTTPS certificates on the tailnet.

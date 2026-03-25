@@ -1,5 +1,5 @@
-FROM golang:1.22-bookworm AS fortio-builder
-RUN go install fortio.org/fortio@latest
+FROM golang:1.24-bookworm AS fortio-builder
+RUN GOTOOLCHAIN=auto go install fortio.org/fortio@latest
 
 FROM ubuntu:24.04
 RUN apt-get update && \

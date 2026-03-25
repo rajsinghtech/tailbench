@@ -51,9 +51,10 @@ func BuildPod(name string, cfg PodConfig) *corev1.Pod {
 			},
 			Containers: []corev1.Container{
 				{
-					Name:    BenchContainer,
-					Image:   cfg.BenchImage,
-					Command: []string{"sleep", "infinity"},
+					Name:            BenchContainer,
+					Image:           cfg.BenchImage,
+					ImagePullPolicy: corev1.PullAlways,
+					Command:         []string{"sleep", "infinity"},
 				},
 				{
 					Name:  TSContainer,

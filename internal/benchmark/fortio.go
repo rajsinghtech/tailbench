@@ -3,6 +3,7 @@ package benchmark
 import (
 	"encoding/json"
 	"fmt"
+	"strings"
 
 	"github.com/rajsinghtech/tailbench/internal/result"
 )
@@ -72,6 +73,9 @@ func BuildFortioCmd(target string, h2 bool, connections, durationSec, qps int) s
 	cmd := fmt.Sprintf("fortio load -json /dev/stdout -qps %d -c %d -t %ds", qps, connections, durationSec)
 	if h2 {
 		cmd += " -h2"
+	}
+	if strings.HasPrefix(target, "https://") {
+		cmd += " -https-insecure"
 	}
 	cmd += " " + target
 	return cmd

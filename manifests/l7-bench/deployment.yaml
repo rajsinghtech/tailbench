@@ -15,6 +15,7 @@ spec:
     metadata:
       labels:
         app: bench-echo
+        app.kubernetes.io/part-of: tailbench-l7
     spec:
       containers:
       - name: fortio
@@ -32,3 +33,39 @@ spec:
           limits:
             cpu: "2"
             memory: 256Mi
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: bench-baseline
+  namespace: tailbench
+  labels:
+    app.kubernetes.io/part-of: tailbench-l7
+    app: bench-baseline
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: bench-baseline
+  template:
+    metadata:
+      labels:
+        app: bench-baseline
+        app.kubernetes.io/part-of: tailbench-l7-baseline
+    spec:
+      containers:
+      - name: tools
+        image: ubuntu:24.04
+        command: ["/bin/bash", "-c"]
+        args:
+        - |
+          apt-get update -qq && apt-get install -y -qq curl > /dev/null 2>&1
+          ARCH=$(dpkg --print-architecture)
+          curl -fsSL "https://github.com/fortio/fortio/releases/download/v1.75.0/fortio-linux_${ARCH}-1.75.0.tgz" | tar xz --strip-components=2 -C /usr/local/bin usr/bin/fortio
+          chmod +x /usr/local/bin/fortio
+          echo "fortio ready"
+          sleep infinity
+        resources:
+          requests:
+            cpu: 100m
+            memory: 64Mi
