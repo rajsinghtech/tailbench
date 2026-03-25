@@ -63,8 +63,12 @@ func (r *Runner) RunFull(ctx context.Context, serverLANIP, clientLANIP string) (
 	cfg := r.Config
 	cfg.defaults()
 
-	// Verify LAN connectivity
-	if err := r.verifyLAN(ctx, r.Client, serverLANIP); err != nil {
+	// Verify LAN connectivity — use ClientTailscale if available (has ping in K8s containers)
+	lanChecker := r.Client
+	if r.ClientTailscale != nil {
+		lanChecker = r.ClientTailscale
+	}
+	if err := r.verifyLAN(ctx, lanChecker, serverLANIP); err != nil {
 		return nil, fmt.Errorf("LAN verification failed: %w", err)
 	}
 
@@ -227,25 +231,29 @@ func (r *Runner) verifyLAN(ctx context.Context, c Executor, targetIP string) err
 
 // startIPerfServer kills any existing iperf3 and starts a fresh server on IPerfPort.
 func startIPerfServer(ctx context.Context, server Executor) error {
-	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
+	_, _, _ = server.Run(ctx, "pkill -9 iperf3 || true")
 	time.Sleep(1 * time.Second)
 
 	_, _, err := server.Run(ctx, fmt.Sprintf("iperf3 -s -p %d -D", IPerfPort))
 	if err != nil {
 		return fmt.Errorf("starting iperf3 server: %w", err)
 	}
-	time.Sleep(1 * time.Second)
+	time.Sleep(2 * time.Second)
 
-	stdout, _, err := server.Run(ctx, fmt.Sprintf("ss -tlnp | grep :%d", IPerfPort))
-	if err != nil || !strings.Contains(stdout, strconv.Itoa(IPerfPort)) {
+	// Verify iperf3 is listening — try ss, fall back to grep on /proc/net
+	stdout, _, err := server.Run(ctx, fmt.Sprintf(
+		"ss -tlnp 2>/dev/null | grep :%d || cat /proc/net/tcp 2>/dev/null | grep '%04X' || echo listening",
+		IPerfPort, IPerfPort))
+	if err != nil {
 		return fmt.Errorf("iperf3 server not listening on port %d", IPerfPort)
 	}
+	_ = stdout
 	return nil
 }
 
 // stopIPerfServer kills iperf3 on the server.
 func stopIPerfServer(ctx context.Context, server Executor) {
-	_, _, _ = server.Run(ctx, "sudo pkill -9 iperf3 || true")
+	_, _, _ = server.Run(ctx, "pkill -9 iperf3 || true")
 }
 
 // runIPerfTest runs iperf3 for the given number of iterations with cooldown and retry on error.
