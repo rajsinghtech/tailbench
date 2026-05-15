@@ -126,6 +126,8 @@ header p { font-size: 0.8rem; color: var(--text-2); margin-top: 2px; }
 }
 .chip:hover { border-color: var(--text-2); color: var(--text); }
 .chip.on { background: var(--accent-dim); border-color: var(--accent); color: var(--accent); }
+.chip.dim { opacity: 0.32; cursor: not-allowed; }
+.chip.dim:hover { border-color: var(--border); color: var(--text-2); }
 
 /* Table */
 .tbl-wrap {
@@ -317,6 +319,20 @@ footer a:hover { text-decoration: underline; }
   // Detect
   var provs = {}, fams = {}, envs = {};
   allGroups.forEach(function(g) { provs[g.provider.toUpperCase()]=1; fams[g.family.toUpperCase()]=1; envs[g.env]=1; });
+
+  // Context-aware filter availability: which providers/families have data given the current other filters
+  function availableFilters() {
+    var p = {}, f = {}, e = {};
+    allGroups.forEach(function(g) {
+      var envOK = state.env==='all' || g.env===state.env;
+      var provOK = state.provider==='all' || g.provider.toLowerCase()===state.provider;
+      var famOK = state.family==='all' || g.family.toLowerCase()===state.family;
+      if (envOK && famOK) p[g.provider.toUpperCase()]=1;
+      if (envOK && provOK) f[g.family.toUpperCase()]=1;
+      if (provOK && famOK) e[g.env]=1;
+    });
+    return {provs:p, fams:f, envs:e};
+  }
 
   var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2'];
   var maxBW = 0;
@@ -741,28 +757,37 @@ footer a:hover { text-decoration: underline; }
 
   // ===== TABLE =====
   function renderFilters() {
+    var avail = availableFilters();
     var h='';
     if(Object.keys(provs).length>1) {
       h+='<div class="fg"><label>Provider</label>';
       h+='<button class="chip'+(state.provider==='all'?' on':'')+'" data-f="provider" data-v="all">All</button>';
-      Object.keys(provs).sort().forEach(function(p){ h+='<button class="chip'+(state.provider===p.toLowerCase()?' on':'')+'" data-f="provider" data-v="'+p.toLowerCase()+'">'+p+'</button>'; });
+      Object.keys(provs).sort().forEach(function(p){
+        var disabled = !avail.provs[p];
+        var cls = 'chip'+(state.provider===p.toLowerCase()?' on':'')+(disabled?' dim':'');
+        h+='<button class="'+cls+'"'+(disabled?' disabled':'')+' data-f="provider" data-v="'+p.toLowerCase()+'">'+p+'</button>';
+      });
       h+='</div>';
     }
     if(Object.keys(fams).length>1) {
       h+='<div class="fg"><label>Family</label>';
       h+='<button class="chip'+(state.family==='all'?' on':'')+'" data-f="family" data-v="all">All</button>';
-      Object.keys(fams).sort().forEach(function(f){ h+='<button class="chip'+(state.family===f.toLowerCase()?' on':'')+'" data-f="family" data-v="'+f.toLowerCase()+'">'+f+'</button>'; });
+      Object.keys(fams).sort().forEach(function(f){
+        var disabled = !avail.fams[f];
+        var cls = 'chip'+(state.family===f.toLowerCase()?' on':'')+(disabled?' dim':'');
+        h+='<button class="'+cls+'"'+(disabled?' disabled':'')+' data-f="family" data-v="'+f.toLowerCase()+'">'+f+'</button>';
+      });
       h+='</div>';
     }
     if(Object.keys(envs).length>1) {
       h+='<div class="fg"><label>Env</label>';
       h+='<button class="chip'+(state.env==='all'?' on':'')+'" data-f="env" data-v="all">All</button>';
-      if(envs.vm) h+='<button class="chip'+(state.env==='vm'?' on':'')+'" data-f="env" data-v="vm">VM</button>';
-      if(envs.container) h+='<button class="chip'+(state.env==='container'?' on':'')+'" data-f="env" data-v="container">K8s</button>';
+      if(envs.vm) { var d=!avail.envs.vm; h+='<button class="chip'+(state.env==='vm'?' on':'')+(d?' dim':'')+'"'+(d?' disabled':'')+' data-f="env" data-v="vm">VM</button>'; }
+      if(envs.container) { var d=!avail.envs.container; h+='<button class="chip'+(state.env==='container'?' on':'')+(d?' dim':'')+'"'+(d?' disabled':'')+' data-f="env" data-v="container">K8s</button>'; }
       h+='</div>';
     }
     document.getElementById('filters').innerHTML=h;
-    document.querySelectorAll('.chip').forEach(function(b){ b.addEventListener('click',function(){ state[this.getAttribute('data-f')]=this.getAttribute('data-v'); state.expanded=null; render(); }); });
+    document.querySelectorAll('.chip').forEach(function(b){ b.addEventListener('click',function(){ if(this.disabled) return; state[this.getAttribute('data-f')]=this.getAttribute('data-v'); state.expanded=null; render(); }); });
   }
 
   function renderStats() {
