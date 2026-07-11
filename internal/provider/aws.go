@@ -1,14 +1,11 @@
+//go:build aws && !k8s && !azure && !gcp
+
 package provider
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
-	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	"github.com/pulumi/pulumi-aws/sdk/v7/go/aws/ec2"
 	"github.com/pulumi/pulumi/sdk/v3/go/auto"
@@ -26,6 +23,8 @@ type AWSProvider struct {
 	SSHUser  string
 	StateDir string
 }
+
+var _ Provider = (*AWSProvider)(nil)
 
 func (p *AWSProvider) Name() string { return "aws" }
 
@@ -116,17 +115,17 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			VpcId:       vpc.ID(),
 			Ingress: ec2.SecurityGroupIngressArray{
 				ec2.SecurityGroupIngressArgs{
-					Protocol:   pulumi.String("tcp"),
-					FromPort:   pulumi.Int(22),
-					ToPort:     pulumi.Int(22),
-					CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+					Protocol:    pulumi.String("tcp"),
+					FromPort:    pulumi.Int(22),
+					ToPort:      pulumi.Int(22),
+					CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
 					Description: pulumi.String("SSH"),
 				},
 				ec2.SecurityGroupIngressArgs{
-					Protocol:   pulumi.String("udp"),
-					FromPort:   pulumi.Int(41641),
-					ToPort:     pulumi.Int(41641),
-					CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+					Protocol:    pulumi.String("udp"),
+					FromPort:    pulumi.Int(41641),
+					ToPort:      pulumi.Int(41641),
+					CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
 					Description: pulumi.String("WireGuard"),
 				},
 				ec2.SecurityGroupIngressArgs{
@@ -351,71 +350,17 @@ func (p *AWSProvider) TeardownNetworking(ctx context.Context) error {
 }
 
 func (p *AWSProvider) ListFamilies() []string {
-	return []string{"c8gn", "c6in", "c7i", "c7gn", "c8g", "c6i", "m6i", "c7g", "m7g"}
+	return listAWSFamilies()
 }
 
 func (p *AWSProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	tCtx, cancel := context.WithTimeout(ctx, 2*time.Minute)
-	defer cancel()
-	filter := fmt.Sprintf("Name=instance-type,Values=%s.*", family)
-	out, err := exec.CommandContext(tCtx, "aws", "ec2", "describe-instance-types",
-		"--region", p.Region,
-		"--filters", filter,
-		"--query", "sort_by(InstanceTypes,&VCpuInfo.DefaultVCpus)[].[InstanceType,VCpuInfo.DefaultVCpus]",
-		"--output", "json",
-	).Output()
-	if err != nil {
-		return nil, fmt.Errorf("aws describe-instance-types (%s): %w", family, err)
-	}
-
-	var raw [][]json.RawMessage
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parse instance types: %w", err)
-	}
-
-	var instances []InstanceInfo
-	for _, pair := range raw {
-		if len(pair) < 2 {
-			continue
-		}
-		var name string
-		var vcpus int
-		if err := json.Unmarshal(pair[0], &name); err != nil {
-			continue
-		}
-		if err := json.Unmarshal(pair[1], &vcpus); err != nil {
-			continue
-		}
-		instances = append(instances, InstanceInfo{
-			Type:   name,
-			Family: GetInstanceFamily("aws", name),
-			VCPUs:  vcpus,
-		})
-	}
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].VCPUs < instances[j].VCPUs
-	})
-	return instances, nil
+	return listAWSInstances(ctx, p.Region, family)
 }
 
 func (p *AWSProvider) GetVCPUs(ctx context.Context, instanceType string) (int, error) {
-	out, err := exec.CommandContext(ctx, "aws", "ec2", "describe-instance-types",
-		"--region", p.Region,
-		"--instance-types", instanceType,
-		"--query", "InstanceTypes[0].VCpuInfo.DefaultVCpus",
-		"--output", "text",
-	).Output()
-	if err != nil {
-		return 0, fmt.Errorf("aws describe-instance-types: %w", err)
-	}
-	return strconv.Atoi(strings.TrimSpace(string(out)))
+	return getAWSVCPUs(ctx, p.Region, instanceType)
 }
 
 func (p *AWSProvider) IsQuotaError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "VcpuLimitExceeded") ||
-		strings.Contains(s, "InstanceLimitExceeded")
+	return isAWSQuotaError(err)
 }

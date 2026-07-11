@@ -1,17 +1,13 @@
+//go:build azure && !k8s && !aws && !gcp
+
 package provider
 
 import (
 	"context"
 	"encoding/base64"
-	"encoding/json"
 	"fmt"
 	"log"
-	"os/exec"
-	"regexp"
-	"sort"
-	"strconv"
 	"strings"
-	"time"
 
 	azcompute "github.com/pulumi/pulumi-azure-native-sdk/compute/v3"
 	aznetwork "github.com/pulumi/pulumi-azure-native-sdk/network/v3"
@@ -32,41 +28,7 @@ type AzureProvider struct {
 	skuCache []azureSKU // cached SKU list, loaded once
 }
 
-type azureSKU struct {
-	Name   string
-	Family string
-	VCPUs  string
-}
-
-// loadSKUCache fetches all VM SKUs once and caches them.
-func (p *AzureProvider) loadSKUCache(ctx context.Context) ([]azureSKU, error) {
-	if p.skuCache != nil {
-		return p.skuCache, nil
-	}
-	tCtx, cancel := context.WithTimeout(ctx, 5*time.Minute)
-	defer cancel()
-	out, err := exec.CommandContext(tCtx, "az", "vm", "list-skus",
-		"--location", p.Location,
-		"--resource-type", "virtualMachines",
-		"--query", "[].{name:name,family:family}",
-		"--output", "json",
-	).Output()
-	if err != nil {
-		return nil, fmt.Errorf("az vm list-skus: %w", err)
-	}
-	var raw []struct {
-		Name   string `json:"name"`
-		Family string `json:"family"`
-	}
-	if err := json.Unmarshal(out, &raw); err != nil {
-		return nil, fmt.Errorf("parse SKU list: %w", err)
-	}
-	p.skuCache = make([]azureSKU, len(raw))
-	for i, r := range raw {
-		p.skuCache[i] = azureSKU{Name: r.Name, Family: r.Family}
-	}
-	return p.skuCache, nil
-}
+var _ Provider = (*AzureProvider)(nil)
 
 func (p *AzureProvider) Name() string { return "azure" }
 
@@ -274,7 +236,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 					ImageReference: azureImageRef(opts.InstanceType),
 					OsDisk: azcompute.OSDiskArgs{
 						CreateOption: pulumi.String("FromImage"),
-						DiskSizeGB:  pulumi.Int(50),
+						DiskSizeGB:   pulumi.Int(50),
 						ManagedDisk: azcompute.ManagedDiskParametersArgs{
 							StorageAccountType: pulumi.String("Premium_LRS"),
 						},
@@ -387,77 +349,15 @@ func (p *AzureProvider) TeardownNetworking(ctx context.Context) error {
 }
 
 func (p *AzureProvider) ListFamilies() []string {
-	return []string{"dsv5", "dasv5", "dpsv6", "dsv4", "fsv2", "fasv6", "falsv6", "famsv6", "fasv7", "falsv7", "famsv7", "esv4"}
-}
-
-var azureFamilyToSKU = map[string]string{
-	"dsv5":   "standardDSv5Family",
-	"dasv5":  "standardDASv5Family",
-	"dpsv6":  "StandardDpsv6Family",
-	"dsv4":   "standardDSv4Family",
-	"fsv2":   "standardFSv2Family",
-	"fasv6":  "StandardFasv6Family",
-	"falsv6": "StandardFalsv6Family",
-	"famsv6": "StandardFamsv6Family",
-	"fasv7":  "StandardFasv7Family",
-	"falsv7": "StandardFalsv7Family",
-	"famsv7": "StandardFamsv7Family",
-	"esv4":   "standardESv4Family",
+	return listAzureFamilies()
 }
 
 func (p *AzureProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	skuFamily, ok := azureFamilyToSKU[strings.ToLower(family)]
-	if !ok {
-		return nil, fmt.Errorf("unknown azure family: %s", family)
-	}
-
-	allSKUs, err := p.loadSKUCache(ctx)
-	if err != nil {
-		return nil, err
-	}
-
-	constrainedRe := regexp.MustCompile(`[0-9]-[0-9]`)
-	var instances []InstanceInfo
-	for _, sku := range allSKUs {
-		if sku.Family != skuFamily {
-			continue
-		}
-		name := sku.Name
-		// Skip constrained vCPU variants (e.g., Standard_E16-4s_v6)
-		if constrainedRe.MatchString(name) {
-			continue
-		}
-		// Skip isolated variants (e.g., Standard_E192is_v6)
-		if strings.Contains(name, "is_v") {
-			continue
-		}
-		vcpus, _ := p.getVCPUsFromType(name)
-		instances = append(instances, InstanceInfo{
-			Type:   name,
-			Family: GetInstanceFamily("azure", name),
-			VCPUs:  vcpus,
-		})
-	}
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].VCPUs < instances[j].VCPUs
-	})
-	return instances, nil
-}
-
-// getVCPUsFromType extracts vCPU count from an Azure instance type name.
-// Standard_D4s_v4 -> 4, Standard_F16s_v2 -> 16
-func (p *AzureProvider) getVCPUsFromType(instanceType string) (int, error) {
-	name := strings.TrimPrefix(instanceType, "Standard_")
-	re := regexp.MustCompile(`[0-9]+`)
-	m := re.FindString(name)
-	if m == "" {
-		return 0, fmt.Errorf("cannot parse vcpus from %s", instanceType)
-	}
-	return strconv.Atoi(m)
+	return listAzureInstances(ctx, p.Location, family, &p.skuCache)
 }
 
 func (p *AzureProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
-	return p.getVCPUsFromType(instanceType)
+	return getAzureVCPUs(instanceType)
 }
 
 // azureImageRef returns the correct Ubuntu image for the instance type.
@@ -470,9 +370,9 @@ func azureImageRef(instanceType string) azcompute.ImageReferenceArgs {
 	}
 	return azcompute.ImageReferenceArgs{
 		Publisher: pulumi.String("Canonical"),
-		Offer:    pulumi.String("ubuntu-24_04-lts"),
-		Sku:      pulumi.String(sku),
-		Version:  pulumi.String("latest"),
+		Offer:     pulumi.String("ubuntu-24_04-lts"),
+		Sku:       pulumi.String(sku),
+		Version:   pulumi.String("latest"),
 	}
 }
 

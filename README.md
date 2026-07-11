@@ -1,190 +1,105 @@
 # Tailbench
 
-Automated Tailscale network overhead benchmarking across GCP, AWS, and Azure. Measures iperf3 throughput and MTR latency over baseline LAN vs Tailscale CGNAT, displayed on a static dashboard.
+Tailbench measures Tailscale networking overhead on virtual machines and managed Kubernetes clusters in AWS, Azure, and GCP. It uses Pulumi Automation API for infrastructure, then records iperf3, MTR, and Fortio results without combining every cloud SDK into one executable.
 
-## Quick Start
+## Executables
+
+Each executable contains exactly one Pulumi cloud provider SDK family. The managed Kubernetes binaries are cloud-specific: EKS uses AWS, AKS uses Azure, and GKE uses GCP.
+
+| Executable | Build tags | Accepted provider | Infrastructure | Runtime cloud CLI |
+|---|---|---|---|---|
+| `tailbench-aws` | `aws` | `aws` | EC2 virtual machines | `aws` |
+| `tailbench-aws-k8s` | `aws,k8s` | `eks` | EKS cluster and node groups | `aws` |
+| `tailbench-azure` | `azure` | `azure` | Azure virtual machines | `az` |
+| `tailbench-azure-k8s` | `azure,k8s` | `aks` | AKS cluster and node pools | `az` |
+| `tailbench-gcp` | `gcp` | `gcp` | Compute Engine virtual machines | `gcloud` |
+| `tailbench-gcp-k8s` | `gcp,k8s` | `gke` | GKE cluster and node pools | `gcloud` |
+
+All variants use the Pulumi core SDK and Automation API. Keeping all variants in one Go module means `go mod download` can still download modules that a particular binary does not compile or link.
+
+## Quick start
+
+Build only the variant you need:
 
 ```bash
-export TS_OAUTH_CLIENT_ID="..."
-export TS_OAUTH_CLIENT_SECRET="..."
-
-# Build
-go build -o tailbench ./cmd/tailbench/
-
-# Single instance test (GCP default)
-./tailbench --filter '^c3-standard-4$'
-
-# AWS — all families
-./tailbench --provider aws
-
-# Azure — specific family
-./tailbench --provider azure --family dsv5
-
-# All three providers in parallel
-./tailbench --providers gcp,aws,azure
-
-# Skip ephemeral tailnet, use existing credentials
-./tailbench --provider aws --no-create-tailnet
-
-# Dry run
-./tailbench --provider aws --dry-run
+make build-gcp
+make build-aws-k8s
 ```
 
-## Options
+The binaries are written under `dist/`. If `providers` is absent or empty in `config.yaml`, each binary defaults to its compiled provider:
 
-| Flag | Description |
-|------|-------------|
-| `--provider <gcp\|aws\|azure>` | Single provider (default: gcp) |
-| `--providers <gcp,aws,azure>` | Run multiple providers in parallel |
-| `--filter <regex>` | Only test matching instance types |
-| `--family <name\|all>` | Instance family (default: all) |
-| `--create-tailnet` | Create ephemeral tailnet (default) |
-| `--no-create-tailnet` | Use existing tailnet credentials directly |
-| `--cleanup-networking` | Tear down provider networking after run |
-| `--dry-run` | Preview without executing |
+```bash
+./dist/tailbench-gcp --filter '^c3-standard-4$'
+./dist/tailbench-aws --family c7i --dry-run
+./dist/tailbench-aws-k8s --provider eks --family c7i
+```
 
-### Families per provider
+An explicit provider must match the binary. For example, `tailbench-aws --provider gcp` fails rather than silently using AWS. Renaming an executable does not change its provider identity.
 
-| GCP | AWS | Azure |
-|-----|-----|-------|
+The local aggregate targets are deliberately sequential, including when invoked through `make -j`:
+
+```bash
+make build
+make test GO_TEST_FLAGS=-p=1
+make lint
+make verify-deps
+```
+
+Compiling Pulumi SDKs is memory intensive; prefer a single variant target during normal development.
+
+## Configuration and modes
+
+Tailbench reads `config.yaml` by default. Use `--config`, `--provider`, `--family`, `--filter`, `--dry-run`, and `--cleanup-networking` to override the supported command-line settings.
+
+Provider values remain `aws`, `eks`, `azure`, `aks`, `gcp`, and `gke`. These values—not executable names—continue to determine result directories, local Pulumi state paths, and stack naming. Results remain under:
+
+```text
+<provider>/<family>/results/<instance-type>-<mode>.json
+```
+
+VM binaries support VM modes such as `l4-kernel` and `l7-serve-*`. They reject Kubernetes-only modes such as `l4-lb` and `l7-ingress-*`. The `*-k8s` binaries retain pod execution, operator installation, load-balancer discovery, and L7 manifest deployment.
+
+Instance types are discovered dynamically. Current family defaults include:
+
+| GCP/GKE | AWS/EKS | Azure/AKS |
+|---|---|---|
 | c4, c4a, c3d, n4, c3, n2, c2 | c8gn, c6in, c7i, c7gn, c8g, c6i, m6i, c7g, m7g | dsv5, dasv5, dpsv6, dsv4, fsv2, fasv6, falsv6, famsv6, fasv7, falsv7, famsv7, esv4 |
 
-Instance types within each family are discovered dynamically from each provider's API.
+## Runtime prerequisites
 
-## What It Does
+Every binary requires:
 
-For each instance type, creates a pair of identical VMs in the same zone/subnet using Pulumi, then:
+- the Go version declared in `go.mod` to build from source;
+- the Pulumi CLI on `PATH` at runtime;
+- authenticated Tailscale credentials configured in `config.yaml` or its referenced environment file;
+- the applicable authenticated cloud CLI shown in the executable table.
 
-1. **Baseline**: 3x iperf3 runs over LAN IP (multi-stream + single-stream) + MTR trace
-2. Installs Tailscale and waits for a direct connection (warns if DERP-relayed)
-3. **Tailscale**: 3x iperf3 runs over CGNAT IP (multi-stream + single-stream) + MTR trace
-4. Computes overhead percentage and writes result JSON
-5. Destroys the VM pair stack and moves to the next type
+The managed Kubernetes variants also require permissions to create clusters, node pools or node groups, load balancers, and the resources used by the Tailscale Kubernetes operator. Cloud and Pulumi CLIs are runtime prerequisites and are not embedded in release archives.
 
-If provisioning hits a quota error, remaining instance types in that family are automatically skipped. Existing results are skipped for resume support.
+## Infrastructure lifecycle
 
-Results go to `<provider>/<family>/results/<type>.json` and are aggregated into `website/data.generated.js`.
+For each selected instance type, Tailbench provisions a server/client pair, runs the applicable benchmark modes, writes compatible JSON results, and destroys the pair. Provider networking or cluster infrastructure is reused unless `--cleanup-networking` is set. Existing results are skipped for resume support, and quota failures skip the remaining types in the affected family.
 
-## Architecture
+Local Pulumi state remains in `state/<provider>`. Generated benchmark data continues to aggregate into `website/data.generated.js`.
 
-The Go binary uses **Pulumi Automation API** for infrastructure provisioning and **native Go SSH** for benchmark execution:
+## Development
 
-- **Networking stacks** (long-lived): VPC/VNet per provider, created once and reused
-- **VM pair stacks** (ephemeral): 2 identical VMs per instance type, created and destroyed per test
-- **tailscale-client-go-v2**: manages auth keys, ACLs, and ephemeral tailnet lifecycle
-- **Cloud-init**: single shell template embedded in the binary — installs Tailscale, iperf3, mtr, tunes TCP/GRO
-
-```
-cmd/tailbench/          # CLI entry point
-internal/
-├── config/             # CLI flags, env var defaults
-├── provider/           # Provider interface + GCP/AWS/Azure Pulumi implementations
-├── tailnet/            # Tailscale API: tailnets, auth keys, ACLs
-├── cloudinit/          # Embedded cloud-init template
-├── sshclient/          # SSH client with retry and wait-for-ready
-├── benchmark/          # iperf3/MTR parsers, Tailscale helpers, benchmark runner
-├── result/             # Result types, writer, data.generated.js aggregator
-└── orchestrator/       # Main loop: iterate instances, multi-provider, resume
-website/                # Static dashboard (index.html + data.generated.js)
-```
-
-## Networking
-
-**GCP** uses the pre-existing default VPC. No setup needed.
-
-**AWS** and **Azure** networking is managed by Pulumi stacks that persist across runs. On the first run, resources are created declaratively. Subsequent runs are no-ops (Pulumi detects no changes).
-
-| | AWS | Azure |
-|-|-----|-------|
-| **Creates** | VPC, subnet, IGW, route table, security group, cluster placement group | VNet + subnet, NSG with SSH/internal/WireGuard rules |
-| **CIDR** | 10.0.0.0/16 (VPC), 10.0.1.0/24 (subnet) | 10.0.0.0/16 (VNet), 10.0.1.0/24 (subnet) |
-| **State** | Local Pulumi state (`file://./state`) | Local Pulumi state (`file://./state`) |
-
-Use `--cleanup-networking` to destroy networking stacks after the run:
+The Makefile is the supported developer interface:
 
 ```bash
-./tailbench --provider aws --cleanup-networking
+make help
+make fmt
+make test-azure
+make lint-gcp-k8s
+make verify-deps VARIANT=aws
 ```
 
-## Performance Optimizations
+`make golangci-lint` is the only target that installs the pinned linter into `.tools/bin`; build targets do not download tools. `make clean` removes only `dist/` and `.tools/`.
 
-Each VM is configured via cloud-init with Tailscale's recommended performance best practices:
+Exactly one cloud tag—`aws`, `azure`, or `gcp`—is required. Adding `k8s` selects that cloud's managed Kubernetes implementation. New provider implementation code must use the mutually exclusive cloud/workload constraint, keep shared interfaces and dependency-free helpers untagged, and update `scripts/verify-deps.sh` whenever dependency boundaries change. Every supported tag combination must remain covered by CI.
 
-- **UDP GRO forwarding** (`ethtool -K $NETDEV rx-udp-gro-forwarding on`) — highest-impact optimization for Tailscale throughput
-- **TCP BBR** congestion control + 64MB buffer tuning
-- **CPU governor** pinned to performance mode
-- **AWS cluster placement group** — removes the 5 Gbps single-flow cap between instances
-
-See [Tailscale KB: Performance best practices](https://tailscale.com/kb/1320/performance-best-practices).
-
-## Ephemeral Tailnets
-
-By default, the orchestrator:
-
-1. Creates an API-only tailnet using org-level OAuth credentials
-2. Gets new OAuth credentials from the created tailnet
-3. Applies a minimal ACL policy allowing tagged devices to communicate
-4. Runs all benchmarks using the ephemeral tailnet
-5. Deletes the tailnet on exit (including on Ctrl-C / SIGTERM)
-
-Requires org-level OAuth credentials with `tailnets` scope.
-
-## Environment Variables
-
-### Required
-
-| Variable | Description |
-|----------|-------------|
-| `TS_OAUTH_CLIENT_ID` | Tailscale OAuth client ID |
-| `TS_OAUTH_CLIENT_SECRET` | Tailscale OAuth client secret |
-
-### Tailscale
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `TS_TAG` | `tag:bench` | ACL tag for benchmark nodes |
-
-### GCP
-
-| Variable | Default |
-|----------|---------|
-| `GCP_PROJECT` | `tailscale-sandbox` |
-| `GCP_ZONE` | `us-central1-a` |
-
-### AWS
-
-| Variable | Default |
-|----------|---------|
-| `AWS_REGION` | `us-east-1` |
-| `AWS_AZ` | `us-east-1a` |
-| `AWS_KEY_NAME` | `raj_macbook` |
-| `AWS_SSH_KEY_PATH` | `~/.ssh/raj_macbook.pem` |
-
-### Azure
-
-| Variable | Default |
-|----------|---------|
-| `AZURE_LOCATION` | `eastus` |
-| `AZURE_RESOURCE_GROUP` | `tailbench-rg` |
-
-### Test Parameters
-
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `IPERF_DURATION` | `30` | Seconds per iperf3 run |
-| `IPERF_PARALLEL` | `4` | Parallel TCP streams |
-| `IPERF_ITERATIONS` | `3` | Runs per test |
-| `MTR_CYCLES` | `100` | MTR probe count |
-
-## Requirements
-
-- **Go 1.22+**
-- **Pulumi CLI** on PATH (for plugin management)
-- At least one cloud provider CLI, authenticated:
-  - GCP: `gcloud` — also used for instance type listing
-  - AWS: `aws` — also used for instance type listing
-  - Azure: `az` — also used for instance type listing
+The CI matrix lints, tests, verifies dependencies, and builds each variant independently. It does not run Pulumi updates or cloud provisioning. Tagged releases package the six Linux AMD64 executables separately and publish SHA-256 checksums.
 
 ## Dashboard
 
-Open `website/index.html` locally or visit the deployed GitHub Pages site.
+Open `website/index.html` locally to view aggregated results, or use the repository's deployed GitHub Pages site.

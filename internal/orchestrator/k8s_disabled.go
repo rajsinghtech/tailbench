@@ -1,0 +1,33 @@
+//go:build !k8s
+
+package orchestrator
+
+import (
+	"context"
+	"fmt"
+
+	"github.com/rajsinghtech/tailbench/internal/benchmark"
+	"github.com/rajsinghtech/tailbench/internal/config"
+	"github.com/rajsinghtech/tailbench/internal/logger"
+	"github.com/rajsinghtech/tailbench/internal/provider"
+)
+
+func validateWorkloadConfig(cfg *config.Config) error {
+	for _, mode := range cfg.Modes {
+		if !benchmark.ModeAppliesTo(mode, "vm") {
+			return fmt.Errorf("kubernetes-only benchmark mode %q requires a k8s-enabled binary", mode)
+		}
+	}
+	return nil
+}
+
+func (o *Orchestrator) setupK8s(context.Context, provider.Provider, *provider.NetworkingOutput, *logger.Logger) {
+}
+
+func discoverIngressFQDN(context.Context, string, string) string   { return "" }
+func discoverServiceLBFQDN(context.Context, string, string) string { return "" }
+func discoverEchoPodIP(context.Context, string, string) string     { return "" }
+
+func (o *Orchestrator) runK8sBenchmark(context.Context, provider.Provider, *provider.PairOutput, provider.InstanceInfo, string, *logger.Logger, string, string, string) error {
+	return fmt.Errorf("kubernetes benchmark execution requires a k8s-enabled binary")
+}

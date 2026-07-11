@@ -1,0 +1,38 @@
+version: "2"
+
+run:
+  timeout: 15m
+  tests: true
+
+linters:
+  default: none
+  enable:
+    - bodyclose
+    - copyloopvar
+    - errcheck
+    - govet
+    - ineffassign
+    - misspell
+    - staticcheck
+    - unconvert
+    - unused
+  exclusions:
+    rules:
+      # Legacy parser code intentionally ignores a best-effort numeric parse.
+      - path: internal/benchmark/fortio\.go
+        linters: [errcheck]
+        text: "fmt.Sscanf"
+      # Legacy transport cleanup is best-effort; tightening it is outside this refactor.
+      - path: internal/(sshclient/sshclient|tailnet/tailnet)\.go
+        linters: [errcheck]
+        text: "Close"
+      # Provider teardown paths predate this split and intentionally make cleanup best-effort.
+      - path: internal/provider/(aws|eks|azure|aks|gcp|gke)\.go
+        linters: [errcheck]
+      # Kubernetes cleanup and API response closes are likewise best-effort legacy paths.
+      - path: internal/k8s/.*\.go
+        linters: [errcheck]
+
+formatters:
+  enable:
+    - gofmt

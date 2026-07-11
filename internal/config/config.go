@@ -44,14 +44,14 @@ type Config struct {
 	StateDir           string
 	BenchImage         string
 	TSImage            string
-	FortioDuration    int
-	FortioConnections int
-	FortioQPS         int
-	FortioIterations  int
-	Modes             []string
-	IngressFQDN       string
-	ServeFQDN         string
-	ClusterLabel      string
+	FortioDuration     int
+	FortioConnections  int
+	FortioQPS          int
+	FortioIterations   int
+	Modes              []string
+	IngressFQDN        string
+	ServeFQDN          string
+	ClusterLabel       string
 }
 
 type yamlConfig struct {
@@ -132,7 +132,7 @@ func loadEnvFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -144,7 +144,9 @@ func loadEnvFile(path string) error {
 		if !ok {
 			continue
 		}
-		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
+		if err := os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v)); err != nil {
+			return fmt.Errorf("set environment variable: %w", err)
+		}
 	}
 	return scanner.Err()
 }
@@ -167,14 +169,21 @@ func orInt(vals ...int) int {
 	return 0
 }
 
-func Parse() (*Config, error) {
-	configFile := flag.String("config", "config.yaml", "Path to config.yaml")
-	providerFlag := flag.String("provider", "", "Provider override (comma-separated)")
-	familyFlag := flag.String("family", "", "Instance family override")
-	filterFlag := flag.String("filter", "", "Regex filter for instance types")
-	dryRun := flag.Bool("dry-run", false, "Preview what would run")
-	cleanup := flag.Bool("cleanup-networking", false, "Tear down clusters after run")
-	flag.Parse()
+func Parse(defaultProvider string) (*Config, error) {
+	return ParseArgs(defaultProvider, os.Args[1:])
+}
+
+func ParseArgs(defaultProvider string, args []string) (*Config, error) {
+	flags := flag.NewFlagSet("tailbench", flag.ContinueOnError)
+	configFile := flags.String("config", "config.yaml", "Path to config.yaml")
+	providerFlag := flags.String("provider", "", "Provider override")
+	familyFlag := flags.String("family", "", "Instance family override")
+	filterFlag := flags.String("filter", "", "Regex filter for instance types")
+	dryRun := flags.Bool("dry-run", false, "Preview what would run")
+	cleanup := flags.Bool("cleanup-networking", false, "Tear down clusters after run")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
 
 	data, err := os.ReadFile(*configFile)
 	if err != nil {
@@ -274,7 +283,7 @@ func Parse() (*Config, error) {
 		cfg.Providers = strings.Split(*providerFlag, ",")
 	}
 	if len(cfg.Providers) == 0 {
-		cfg.Providers = []string{"gcp"}
+		cfg.Providers = []string{defaultProvider}
 	}
 
 	return cfg, nil

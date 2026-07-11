@@ -3,7 +3,9 @@
 
 env_file: .env  # sources OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 
-providers: [gcp, aws, azure, gke, eks, aks]
+# Empty selects the provider compiled into the executable. A non-empty value
+# must match that executable (aws, eks, azure, aks, gcp, or gke).
+providers: []
 family: all
 filter: ""
 
@@ -25,9 +27,6 @@ benchmark:
   fortio_iterations: 3
   modes:
     - l4-kernel
-    - l4-lb
-    - l7-ingress-h1
-    - l7-ingress-h2
     - l7-serve-h1
     - l7-serve-h2
 

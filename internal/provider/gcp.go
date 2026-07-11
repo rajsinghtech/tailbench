@@ -1,11 +1,10 @@
+//go:build gcp && !k8s && !aws && !azure
+
 package provider
 
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/compute"
@@ -27,6 +26,8 @@ type GCPProvider struct {
 	SSHUser   string
 	StateDir  string
 }
+
+var _ Provider = (*GCPProvider)(nil)
 
 func (p *GCPProvider) Name() string { return "gcp" }
 
@@ -183,57 +184,17 @@ func (p *GCPProvider) TeardownNetworking(_ context.Context) error {
 }
 
 func (p *GCPProvider) ListFamilies() []string {
-	return []string{"c4", "c4a", "c3d", "n4", "c3", "n2", "c2"}
+	return listGCPFamilies()
 }
 
 func (p *GCPProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	filter := fmt.Sprintf("zone:%s AND name ~ '^%s-standard-[0-9]+$'", p.Zone, family)
-	out, err := exec.CommandContext(ctx, "gcloud", "compute", "machine-types", "list",
-		"--project="+p.Project,
-		"--filter="+filter,
-		"--format=value(name)",
-	).Output()
-	if err != nil {
-		return nil, fmt.Errorf("gcloud list machine-types: %w", err)
-	}
-
-	var instances []InstanceInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		vcpus, _ := p.getVCPUsFromType(line)
-		instances = append(instances, InstanceInfo{
-			Type:   line,
-			Family: GetInstanceFamily("gcp", line),
-			VCPUs:  vcpus,
-		})
-	}
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].VCPUs < instances[j].VCPUs
-	})
-	return instances, nil
-}
-
-func (p *GCPProvider) getVCPUsFromType(instanceType string) (int, error) {
-	parts := strings.Split(instanceType, "-")
-	if len(parts) >= 3 {
-		return strconv.Atoi(parts[len(parts)-1])
-	}
-	return 0, fmt.Errorf("cannot parse vcpus from %s", instanceType)
+	return listGCPInstances(ctx, p.Project, p.Zone, family)
 }
 
 func (p *GCPProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
-	return p.getVCPUsFromType(instanceType)
+	return getGCPVCPUs(instanceType)
 }
 
 func (p *GCPProvider) IsQuotaError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "QUOTA_EXCEEDED") ||
-		strings.Contains(s, "ZONE_RESOURCE_POOL_EXHAUSTED") ||
-		(strings.Contains(s, "Quota") && strings.Contains(s, "exceeded")) ||
-		strings.Contains(s, "increase quotas")
+	return isGCPQuotaError(err)
 }

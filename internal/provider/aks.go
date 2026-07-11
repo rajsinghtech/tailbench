@@ -1,3 +1,5 @@
+//go:build azure && k8s && !aws && !gcp
+
 package provider
 
 import (
@@ -29,7 +31,10 @@ type AKSProvider struct {
 	clusterName  string
 	tsnetSrv     *tsnet.Server
 	operatorFQDN string
+	skuCache     []azureSKU
 }
+
+var _ K8sOperatorProvider = (*AKSProvider)(nil)
 
 func (p *AKSProvider) Name() string { return "aks" }
 
@@ -281,18 +286,21 @@ func (p *AKSProvider) TeardownNetworking(ctx context.Context) error {
 }
 
 func (p *AKSProvider) ListFamilies() []string {
-	return (&AzureProvider{}).ListFamilies()
+	return listAzureFamilies()
 }
 
 func (p *AKSProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	return (&AzureProvider{Location: p.Location}).ListInstances(ctx, family)
+	return listAzureInstances(ctx, p.Location, family, &p.skuCache)
 }
 
-func (p *AKSProvider) GetVCPUs(ctx context.Context, instanceType string) (int, error) {
-	return (&AzureProvider{Location: p.Location}).GetVCPUs(ctx, instanceType)
+func (p *AKSProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
+	return getAzureVCPUs(instanceType)
 }
 
 func (p *AKSProvider) IsQuotaError(err error) bool {
+	if err == nil {
+		return false
+	}
 	s := err.Error()
 	return strings.Contains(s, "QuotaExceeded") ||
 		strings.Contains(s, "SkuNotAvailable") ||
