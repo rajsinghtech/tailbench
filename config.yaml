@@ -3,7 +3,9 @@
 
 env_file: .env  # sources OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
 
-providers: [gcp, aws, azure, gke, eks, aks]
+# Empty selects the provider compiled into the executable. A non-empty value
+# must match that executable (aws, eks, azure, aks, gcp, or gke).
+providers: []
 family: all
 filter: ""
 
@@ -23,13 +25,18 @@ benchmark:
   fortio_connections: 16
   fortio_qps: 0
   fortio_iterations: 3
+  # Usable forwarding-pps sweep (forward-pps-exit mode). Optional overrides;
+  # defaults are datagram sizes 64/340/1400 B, 0.1% loss threshold, 15s/step,
+  # and a 2,000,000 pps ceiling on the offered-rate search.
+  pps_datagram_sizes: [64, 340, 1400]
+  pps_loss_threshold_pct: 0.1
+  pps_duration_sec: 15
+  pps_max_rate_pps: 2000000
   modes:
     - l4-kernel
-    - l4-lb
-    - l7-ingress-h1
-    - l7-ingress-h2
     - l7-serve-h1
     - l7-serve-h2
+    # - forward-pps-exit   # 3-node exit-node forwarding pps (VM only); opt-in
 
 ssh:
   timeout: 120

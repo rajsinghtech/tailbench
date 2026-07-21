@@ -149,40 +149,53 @@ func newTailscaleClient(clientID, clientSecret string) *tailscale.Client {
 // When k8sOperator is true, adds auto-approvers for Tailscale Services (operator API server proxy).
 func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, tsnetSSH, k8sOperator bool) error {
 	client := newTailscaleClient(clientID, clientSecret)
+	return client.PolicyFile().Set(ctx, buildACL(m.Tag, tsnetSSH, k8sOperator), "")
+}
+
+// buildACL constructs the benchmark ACL policy. It is separated from the API
+// call so it can be unit-tested. Exit-node auto-approval is set unconditionally
+// (harmless until a node advertises an exit node); the K8s route approver and
+// grants are merged in only for the operator case.
+func buildACL(tag string, tsnetSSH, k8sOperator bool) tailscale.ACL {
 	acl := tailscale.ACL{
 		ACLs: []tailscale.ACLEntry{
 			{Action: "accept", Source: []string{"*"}, Destination: []string{"*:*"}},
 		},
 		TagOwners: map[string][]string{
-			m.Tag: {m.Tag},
+			tag: {tag},
 		},
 	}
-	acl.TagOwners["tag:bench-service"] = []string{m.Tag}
+	acl.TagOwners["tag:bench-service"] = []string{tag}
 	if k8sOperator {
-		acl.TagOwners["tag:k8s"] = []string{m.Tag}
+		acl.TagOwners["tag:k8s"] = []string{tag}
 	}
 	if tsnetSSH {
 		acl.SSH = []tailscale.ACLSSH{
 			{
 				Action:      "accept",
-				Source:      []string{m.Tag},
-				Destination: []string{m.Tag},
+				Source:      []string{tag},
+				Destination: []string{tag},
 				Users:       []string{"root", "autogroup:nonroot"},
 			},
 		}
 	}
+	// Auto-approve tagged nodes as exit nodes so the forwarding-pps router comes
+	// up approved without manual admin action. Set unconditionally, then merge
+	// K8s route approval below so the operator's 0.0.0.0/0 entry is preserved
+	// rather than overwritten.
+	acl.AutoApprovers = &tailscale.ACLAutoApprovers{
+		ExitNode: []string{tag},
+	}
 	if k8sOperator {
-		acl.AutoApprovers = &tailscale.ACLAutoApprovers{
-			Routes: map[string][]string{
-				"0.0.0.0/0": {m.Tag},
-			},
+		acl.AutoApprovers.Routes = map[string][]string{
+			"0.0.0.0/0": {tag},
 		}
 		// Grant the orchestrator tag the tailscale.com/cap/kubernetes app cap
 		// so the operator API server proxy can impersonate as system:masters.
 		acl.Grants = []tailscale.Grant{
 			{
-				Source:      []string{m.Tag},
-				Destination: []string{m.Tag},
+				Source:      []string{tag},
+				Destination: []string{tag},
 				IP:          []string{"*"},
 				App: map[string][]map[string]any{
 					"tailscale.com/cap/kubernetes": {
@@ -196,12 +209,12 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 			},
 		}
 		acl.Grants = append(acl.Grants, tailscale.Grant{
-			Source:      []string{m.Tag},
+			Source:      []string{tag},
 			Destination: []string{"tag:bench-service"},
 			IP:          []string{"*"},
 		})
 	}
-	return client.PolicyFile().Set(ctx, acl, "")
+	return acl
 }
 
 // CleanupStaleDevices removes devices from the tailnet that match the given

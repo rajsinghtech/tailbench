@@ -1,3 +1,5 @@
+//go:build gcp && k8s && !aws && !azure
+
 package provider
 
 import (
@@ -27,11 +29,13 @@ type GKEProvider struct {
 	Zone     string
 	StateDir string
 
-	kubeconfig     string // populated after SetupNetworking
-	clusterName    string // populated after SetupNetworking
-	tsnetSrv       *tsnet.Server
-	operatorFQDN   string // populated after InstallOperator
+	kubeconfig   string // populated after SetupNetworking
+	clusterName  string // populated after SetupNetworking
+	tsnetSrv     *tsnet.Server
+	operatorFQDN string // populated after InstallOperator
 }
+
+var _ K8sOperatorProvider = (*GKEProvider)(nil)
 
 func (p *GKEProvider) Name() string { return "gke" }
 
@@ -55,7 +59,7 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	program := func(pCtx *pulumi.Context) error {
 		// Create a VPC + subnet (default network may use manual subnet mode)
 		network, err := compute.NewNetwork(pCtx, "tailbench-gke-vpc", &compute.NetworkArgs{
-			Project:                pulumi.String(p.Project),
+			Project:               pulumi.String(p.Project),
 			AutoCreateSubnetworks: pulumi.Bool(false),
 		})
 		if err != nil {
@@ -330,22 +334,26 @@ func (p *GKEProvider) TeardownNetworking(ctx context.Context) error {
 }
 
 func (p *GKEProvider) ListFamilies() []string {
-	return (&GCPProvider{}).ListFamilies()
+	return listGCPFamilies()
 }
 
 func (p *GKEProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	return (&GCPProvider{Project: p.Project, Zone: p.Zone}).ListInstances(ctx, family)
+	return listGCPInstances(ctx, p.Project, p.Zone, family)
 }
 
-func (p *GKEProvider) GetVCPUs(ctx context.Context, instanceType string) (int, error) {
-	return (&GCPProvider{Project: p.Project, Zone: p.Zone}).GetVCPUs(ctx, instanceType)
+func (p *GKEProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
+	return getGCPVCPUs(instanceType)
 }
 
 func (p *GKEProvider) IsQuotaError(err error) bool {
+	if isGCPQuotaError(err) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
 	s := err.Error()
-	return strings.Contains(s, "QUOTA_EXCEEDED") ||
-		strings.Contains(s, "ZONE_RESOURCE_POOL_EXHAUSTED") ||
-		strings.Contains(s, "insufficient") ||
+	return strings.Contains(s, "insufficient") ||
 		strings.Contains(s, "Unschedulable")
 }
 

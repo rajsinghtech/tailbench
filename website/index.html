@@ -295,12 +295,13 @@ footer a:hover { text-decoration: underline; }
       var k = d.instance_type + '|' + (d.cloud_provider||'gcp') + '|' + (d.environment||'vm');
       if (!m[k]) m[k] = {
         type: d.instance_type, family: d.instance_family, provider: d.cloud_provider||'gcp',
-        env: d.environment||'vm', vcpus: d.vcpus||0, region: d.region, zone: d.zone,
+        env: d.environment||'vm', vcpus: d.vcpus||0, price: d.price_per_hour||0, region: d.region, zone: d.zone,
         tsver: d.tailscale_version, date: d.date, modes: {}
       };
       var g = m[k];
       g.modes[d.transport_mode||'l4-kernel'] = d;
       if (d.vcpus && !g.vcpus) g.vcpus = d.vcpus;
+      if (d.price_per_hour && !g.price) g.price = d.price_per_hour;
       if (d.tailscale_version && !g.tsver) g.tsver = d.tailscale_version;
       if (d.date && !g.date) g.date = d.date;
     });
@@ -351,6 +352,8 @@ footer a:hover { text-decoration: underline; }
   // Helpers
   function gbps(m) { return (m/1000).toFixed(2); }
   function fq(q) { return q>=1000?(q/1000).toFixed(1)+'k':q.toFixed(0); }
+  function usd(p) { return p>=10?'$'+p.toFixed(2):'$'+p.toFixed(4); }
+  function ppsFmt(v) { return v>=1e6?(v/1e6).toFixed(2)+'M':v>=1e3?(v/1e3).toFixed(0)+'k':v.toFixed(0); }
   function ohc(p) { return p<5?'oh-g':p<=15?'oh-y':'oh-r'; }
 
   // Summary values per group
@@ -358,6 +361,20 @@ footer a:hover { text-decoration: underline; }
   function bestQPS(g) { var max=0; Object.values(g.modes).forEach(function(d){ if(d.fortio_result&&d.fortio_result.qps>max) max=d.fortio_result.qps; }); return max; }
   function bestP99(g) { var min=Infinity; Object.values(g.modes).forEach(function(d){ if(d.fortio_result&&d.fortio_result.p99_latency_ms<min) min=d.fortio_result.p99_latency_ms; }); return min===Infinity?0:min; }
   function iperfOH(g) { var e=g.modes['l4-kernel']||g.modes['l4-userspace']; return e&&e.overhead?e.overhead.bandwidth_pct:null; }
+  // Usable forwarding pps — headline is the IMIX-average size from the exit-node
+  // forwarding test; falls back to the max usable size if imix isn't present.
+  function forwardPPSSize(d) {
+    if (!d || !d.forward_pps || !d.forward_pps.sizes) return 0;
+    var sizes = d.forward_pps.sizes;
+    var imix = sizes.filter(function(s){ return s.label==='imix-avg'; })[0];
+    if (imix) return imix;
+    return sizes.reduce(function(best,s){ return !best||s.usable_pps>best.usable_pps?s:best; }, null);
+  }
+  function forwardPPS(g) {
+    var size = forwardPPSSize(g.modes['forward-pps-exit']);
+    return size ? size.usable_pps : 0;
+  }
+  function ppsPerDollar(g) { var p=forwardPPS(g); return (p&&g.price)?p/g.price:0; }
 
   // Sort
   function sortVal(g) {
@@ -365,10 +382,13 @@ footer a:hover { text-decoration: underline; }
       case 'type': return g.type;
       case 'provider': return g.provider;
       case 'vcpus': return vcpu(g);
+      case 'price': return g.price?g.price:999999;
       case 'bw': return bestBW(g);
       case 'qps': return bestQPS(g);
       case 'p99': var p=bestP99(g); return p?p:999999;
       case 'overhead': var o=iperfOH(g); return o!==null?o:999;
+      case 'fpps': return forwardPPS(g);
+      case 'ppsdollar': return ppsPerDollar(g);
       default: return 0;
     }
   }
@@ -380,6 +400,8 @@ footer a:hover { text-decoration: underline; }
   // ===== CHARTS =====
   var chart = null;
   var hasL7Bytes = TAILBENCH_DATA.some(function(d){ return d.fortio_result && d.fortio_result.bytes_per_sec > 0; });
+  // Only surface usable-pps / pps-$ columns once forwarding (exit-node) results exist.
+  var hasForwardPPS = TAILBENCH_DATA.some(function(d){ return d.forward_pps; });
   var tabs = [
     {id:'radar',label:'Provider Radar'},
     {id:'vmvsk8s',label:'VM vs K8s'},
@@ -806,14 +828,22 @@ footer a:hover { text-decoration: underline; }
     document.getElementById('stats').innerHTML=h;
   }
 
-  function renderHead() {
+  // Column definitions shared by the header and the detail-row colspan. pps
+  // columns are gated on the presence of forwarding data (see hasForwardPPS).
+  function tableCols() {
     var cols=[
       {k:'type',l:'Instance'},{k:'provider',l:'Cloud'},{k:'vcpus',l:'vCPU'},
+      {k:'price',l:'$/hr'},
       {k:'bw',l:'L4 Throughput'},{k:'overhead',l:'Overhead'},
-      {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'},
-      {k:'',l:'Mode Breakdown'},
-      {k:'',l:''}
+      {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'}
     ];
+    if (hasForwardPPS) cols.push({k:'fpps',l:'Usable pps'},{k:'ppsdollar',l:'pps/$'});
+    cols.push({k:'',l:'Mode Breakdown'},{k:'',l:''});
+    return cols;
+  }
+
+  function renderHead() {
+    var cols=tableCols();
     var h='<tr>';
     cols.forEach(function(c){
       var s=c.k===state.sort; var a=s?(state.dir==='asc'?'\u25B2':'\u25BC'):'\u25B2';
@@ -842,6 +872,8 @@ footer a:hover { text-decoration: underline; }
       h+='<td><span class="inst">'+g.type+'</span><span class="tag tf">'+g.family.toUpperCase()+'</span><span class="tag '+(g.env==='container'?'tc':'te')+'">'+(g.env==='container'?'K8s':'VM')+'</span></td>';
       h+='<td><span class="tag tp">'+g.provider.toUpperCase()+'</span></td>';
       h+='<td class="m">'+v+'</td>';
+      // Cost — on-demand $/hr (dash when unpriced)
+      h+='<td class="m">'+(g.price?usd(g.price):'—')+'</td>';
       // L4 throughput — show if iperf data exists
       h+='<td class="m bw-cell">'+(bw?'<div class="bw-bar bl" style="width:'+blW+'%"></div><div class="bw-bar ts" style="width:'+bwW+'%"></div><span class="bw-v">'+gbps(bw)+'<small>Gbps</small></span>':'\u2014')+'</td>';
       // Overhead — show iperf overhead
@@ -850,6 +882,12 @@ footer a:hover { text-decoration: underline; }
       h+='<td class="m">'+(qps?fq(qps)+'<small style="color:var(--text-3);margin-left:1px">qps</small>':'\u2014')+'</td>';
       // Best P99
       h+='<td class="m">'+(p99?p99.toFixed(1)+'<small style="color:var(--text-3);margin-left:1px">ms</small>':'\u2014')+'</td>';
+      // Usable forwarding pps + pps/$ \u2014 only rendered when forwarding data exists
+      if (hasForwardPPS) {
+        var fp=forwardPPS(g); var ppd=ppsPerDollar(g);
+        h+='<td class="m">'+(fp?ppsFmt(fp)+'<small style="color:var(--text-3);margin-left:1px">pps</small>':'\u2014')+'</td>';
+        h+='<td class="m">'+(ppd?ppsFmt(ppd)+'<small style="color:var(--text-3);margin-left:1px">/$</small>':'\u2014')+'</td>';
+      }
       // Mode breakdown — compact per-mode summary
       var mbHtml = '<div style="display:flex;flex-direction:column;gap:2px">';
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});
@@ -873,6 +911,12 @@ footer a:hover { text-decoration: underline; }
           if (d.overhead) {
             mbHtml += '<span class="oh '+ohc(d.overhead.bandwidth_pct)+'" style="font-size:0.55rem">'+d.overhead.bandwidth_pct.toFixed(1)+'%</span>';
           }
+        } else if (d.forward_pps) {
+          var ps = forwardPPSSize(d);
+          if (ps) {
+            mbHtml += '<span class="m" style="font-size:0.68rem">'+ppsFmt(ps.usable_pps)+'<small style="color:var(--text-3);margin-left:1px">pps</small></span>';
+            mbHtml += '<span class="m" style="font-size:0.62rem;color:var(--text-3)">'+ps.datagram_bytes+'B</span>';
+          }
         }
         mbHtml += '</div>';
       });
@@ -882,7 +926,7 @@ footer a:hover { text-decoration: underline; }
       h+='</tr>';
 
       // Detail row
-      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="9"><div class="detail-content">';
+      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="'+tableCols().length+'"><div class="detail-content">';
 
       // Mode detail rows
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});
@@ -906,6 +950,14 @@ footer a:hover { text-decoration: underline; }
           h+='<div class="md-m">'+fr.p999_latency_ms.toFixed(1)+'<small>ms p999</small></div>';
           h+='</div>';
           if(d.l7_overhead){var dp=Math.abs(d.l7_overhead.qps.delta_pct); h+='<span class="oh '+ohc(dp)+'">'+dp.toFixed(1)+'%</span>';}
+        } else if (d.forward_pps) {
+          h+='<div class="md-metrics">';
+          d.forward_pps.sizes.forEach(function(s) {
+            var sizeLabel=s.label==='imix-avg'?'IMIX':s.label==='mtu'?'MTU':s.label+'B';
+            h+='<div class="md-m">'+ppsFmt(s.usable_pps)+'<small>pps '+sizeLabel+' ('+s.datagram_bytes+'B), '+s.loss_pct.toFixed(3)+'% loss</small></div>';
+          });
+          h+='</div>';
+          h+='<span class="oh oh-g">&le;'+d.forward_pps.loss_threshold_pct.toFixed(3)+'% loss</span>';
         }
         h+='</div>';
       });

@@ -1,11 +1,10 @@
+//go:build gcp && !k8s && !aws && !azure
+
 package provider
 
 import (
 	"context"
 	"fmt"
-	"os/exec"
-	"sort"
-	"strconv"
 	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/compute"
@@ -27,6 +26,8 @@ type GCPProvider struct {
 	SSHUser   string
 	StateDir  string
 }
+
+var _ Provider = (*GCPProvider)(nil)
 
 func (p *GCPProvider) Name() string { return "gcp" }
 
@@ -69,13 +70,37 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 	serverName := fmt.Sprintf("tb-%s-server", safeType)
 	clientName := fmt.Sprintf("tb-%s-client", safeType)
+	routerName := fmt.Sprintf("tb-%s-router", safeType)
 	diskType, imageFamily := p.gcpInstanceProps(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
-		for _, name := range []string{serverName, clientName} {
+		if opts.WantRouter {
+			// The GCP network is bring-your-own, so open the iperf3 port for the
+			// forwarding-pps sink (public IP, reached via the exit node) here.
+			if _, err := compute.NewFirewall(pCtx, fmt.Sprintf("tb-%s-pps", safeType), &compute.FirewallArgs{
+				Network:   pulumi.String(p.Network),
+				Direction: pulumi.String("INGRESS"),
+				Allows: compute.FirewallAllowArray{
+					compute.FirewallAllowArgs{Protocol: pulumi.String("tcp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
+					compute.FirewallAllowArgs{Protocol: pulumi.String("udp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
+				},
+				SourceRanges: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			}); err != nil {
+				return err
+			}
+		}
+
+		nodes := []string{serverName, clientName}
+		if opts.WantRouter {
+			nodes = append(nodes, routerName)
+		}
+		for _, name := range nodes {
 			ud := opts.UserData
-			if name == clientName {
+			switch name {
+			case clientName:
 				ud = opts.ClientUD()
+			case routerName:
+				ud = opts.RouterUD()
 			}
 			inst, err := compute.NewInstance(pCtx, name, &compute.InstanceArgs{
 				MachineType: pulumi.String(opts.InstanceType),
@@ -109,8 +134,11 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			}
 
 			prefix := "server"
-			if name == clientName {
+			switch name {
+			case clientName:
 				prefix = "client"
+			case routerName:
+				prefix = "router"
 			}
 			pCtx.Export(prefix+"_ip",
 				inst.NetworkInterfaces.Index(pulumi.Int(0)).AccessConfigs().Index(pulumi.Int(0)).NatIp())
@@ -152,7 +180,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return s
 	}
 
-	return &PairOutput{
+	out := &PairOutput{
 		ServerName:  serverName,
 		ClientName:  clientName,
 		ServerIP:    getOutput("server_ip"),
@@ -160,7 +188,13 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		ServerLANIP: getOutput("server_lan_ip"),
 		ClientLANIP: getOutput("client_lan_ip"),
 		StackName:   stackName,
-	}, nil
+	}
+	if opts.WantRouter {
+		out.RouterName = routerName
+		out.RouterIP = getOutput("router_ip")
+		out.RouterLANIP = getOutput("router_lan_ip")
+	}
+	return out, nil
 }
 
 func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) error {
@@ -183,57 +217,17 @@ func (p *GCPProvider) TeardownNetworking(_ context.Context) error {
 }
 
 func (p *GCPProvider) ListFamilies() []string {
-	return []string{"c4", "c4a", "c3d", "n4", "c3", "n2", "c2"}
+	return listGCPFamilies()
 }
 
 func (p *GCPProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	filter := fmt.Sprintf("zone:%s AND name ~ '^%s-standard-[0-9]+$'", p.Zone, family)
-	out, err := exec.CommandContext(ctx, "gcloud", "compute", "machine-types", "list",
-		"--project="+p.Project,
-		"--filter="+filter,
-		"--format=value(name)",
-	).Output()
-	if err != nil {
-		return nil, fmt.Errorf("gcloud list machine-types: %w", err)
-	}
-
-	var instances []InstanceInfo
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
-		if line == "" {
-			continue
-		}
-		vcpus, _ := p.getVCPUsFromType(line)
-		instances = append(instances, InstanceInfo{
-			Type:   line,
-			Family: GetInstanceFamily("gcp", line),
-			VCPUs:  vcpus,
-		})
-	}
-	sort.Slice(instances, func(i, j int) bool {
-		return instances[i].VCPUs < instances[j].VCPUs
-	})
-	return instances, nil
-}
-
-func (p *GCPProvider) getVCPUsFromType(instanceType string) (int, error) {
-	parts := strings.Split(instanceType, "-")
-	if len(parts) >= 3 {
-		return strconv.Atoi(parts[len(parts)-1])
-	}
-	return 0, fmt.Errorf("cannot parse vcpus from %s", instanceType)
+	return listGCPInstances(ctx, p.Project, p.Zone, family)
 }
 
 func (p *GCPProvider) GetVCPUs(_ context.Context, instanceType string) (int, error) {
-	return p.getVCPUsFromType(instanceType)
+	return getGCPVCPUs(instanceType)
 }
 
 func (p *GCPProvider) IsQuotaError(err error) bool {
-	if err == nil {
-		return false
-	}
-	s := err.Error()
-	return strings.Contains(s, "QUOTA_EXCEEDED") ||
-		strings.Contains(s, "ZONE_RESOURCE_POOL_EXHAUSTED") ||
-		(strings.Contains(s, "Quota") && strings.Contains(s, "exceeded")) ||
-		strings.Contains(s, "increase quotas")
+	return isGCPQuotaError(err)
 }

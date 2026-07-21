@@ -15,7 +15,6 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/benchmark"
 	"github.com/rajsinghtech/tailbench/internal/cloudinit"
 	"github.com/rajsinghtech/tailbench/internal/config"
-	"github.com/rajsinghtech/tailbench/internal/k8s"
 	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/provider"
 	"github.com/rajsinghtech/tailbench/internal/result"
@@ -32,70 +31,25 @@ type Orchestrator struct {
 	tailnetDNS string // e.g. "tailXXXX.ts.net"
 }
 
-func New(cfg *config.Config) (*Orchestrator, error) {
+type ProviderFactory func(name string, cfg *config.Config) (provider.Provider, error)
+
+func New(cfg *config.Config, factory ProviderFactory) (*Orchestrator, error) {
+	if factory == nil {
+		return nil, fmt.Errorf("provider factory is required")
+	}
+	if err := validateWorkloadConfig(cfg); err != nil {
+		return nil, err
+	}
 	o := &Orchestrator{cfg: cfg}
 
 	for _, name := range cfg.Providers {
-		p, err := buildProvider(name, cfg)
+		p, err := factory(name, cfg)
 		if err != nil {
 			return nil, fmt.Errorf("provider %s: %w", name, err)
 		}
 		o.providers = append(o.providers, p)
 	}
 	return o, nil
-}
-
-func buildProvider(name string, cfg *config.Config) (provider.Provider, error) {
-	switch name {
-	case "gcp":
-		region := cfg.GCPZone
-		if idx := strings.LastIndex(cfg.GCPZone, "-"); idx > 0 {
-			region = cfg.GCPZone[:idx]
-		}
-		return &provider.GCPProvider{
-			Project:  cfg.GCPProject,
-			Zone:     cfg.GCPZone,
-			Region:   region,
-			Network:  "default",
-			Subnet:   "default",
-			StateDir: providerStateDir(cfg.StateDir, name),
-		}, nil
-	case "aws":
-		return &provider.AWSProvider{
-			Region:   cfg.AWSRegion,
-			AZ:       cfg.AWSAZ,
-			KeyName:  cfg.AWSKeyName,
-			StateDir: providerStateDir(cfg.StateDir, name),
-		}, nil
-	case "azure":
-		return &provider.AzureProvider{
-			Location:      cfg.AzureLocation,
-			ResourceGroup: cfg.AzureResourceGroup,
-			SSHUser:       cfg.AzureSSHUser,
-			SSHPubKey:     cfg.AzureSSHPubKey,
-			StateDir:      providerStateDir(cfg.StateDir, name),
-		}, nil
-	case "eks":
-		return &provider.EKSProvider{
-			Region:   cfg.AWSRegion,
-			AZ:       cfg.AWSAZ,
-			StateDir: providerStateDir(cfg.StateDir, name),
-		}, nil
-	case "gke":
-		return &provider.GKEProvider{
-			Project:  cfg.GCPProject,
-			Zone:     cfg.GCPZone,
-			StateDir: providerStateDir(cfg.StateDir, name),
-		}, nil
-	case "aks":
-		return &provider.AKSProvider{
-			Location:      cfg.AzureLocation,
-			ResourceGroup: cfg.AzureResourceGroup,
-			StateDir:      providerStateDir(cfg.StateDir, name),
-		}, nil
-	default:
-		return nil, fmt.Errorf("unknown provider: %s", name)
-	}
 }
 
 func (o *Orchestrator) Run(ctx context.Context) error {
@@ -111,7 +65,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 	if locks, err := filepath.Glob(lockPattern); err == nil {
 		for _, lf := range locks {
 			log.Printf("removing stale pulumi lock: %s", lf)
-			os.Remove(lf)
+			if err := os.Remove(lf); err != nil && !os.IsNotExist(err) {
+				log.Printf("warning: remove stale pulumi lock %s: %v", lf, err)
+			}
 		}
 	}
 
@@ -183,7 +139,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 				if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
 					log.Printf("warning: tailnet deletion failed: %v", err)
 				}
-				os.Remove(tailnetStateFile)
+				if err := os.Remove(tailnetStateFile); err != nil && !os.IsNotExist(err) {
+					log.Printf("warning: remove tailnet state: %v", err)
+				}
 			}()
 		}
 
@@ -196,7 +154,9 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 		// Ephemeral node — no state to preserve between runs.
 		tsnetDir := filepath.Join(".tailbench", "tsnet")
-		os.RemoveAll(tsnetDir)
+		if err := os.RemoveAll(tsnetDir); err != nil {
+			return fmt.Errorf("remove stale tsnet state: %w", err)
+		}
 		o.tsnetSrv = &tsnet.Server{
 			Dir:           tsnetDir,
 			Hostname:      "tailbench-orchestrator",
@@ -208,7 +168,11 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		if _, err := o.tsnetSrv.Up(ctx); err != nil {
 			return fmt.Errorf("tsnet up: %w", err)
 		}
-		defer o.tsnetSrv.Close()
+		defer func() {
+			if err := o.tsnetSrv.Close(); err != nil {
+				log.Printf("warning: close tsnet server: %v", err)
+			}
+		}()
 		log.Println("tsnet server joined tailnet")
 	}
 
@@ -262,7 +226,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	// Clean up stale tailnet devices from previous crashed runs
 	if o.cfg.CreateTailnet {
 		for _, prefix := range []string{
-			fmt.Sprintf("tb-%s-", p.Name()),           // benchmark VMs/pods
+			fmt.Sprintf("tb-%s-", p.Name()),                // benchmark VMs/pods
 			fmt.Sprintf("tailbench-%s-operator", p.Name()), // operator node
 		} {
 			if n, err := o.tailnet.CleanupStaleDevices(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret, prefix); err != nil {
@@ -273,54 +237,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		}
 	}
 
-	// Install Tailscale operator on K8s clusters for L7 ingress/LB
-	if kop, ok := p.(provider.K8sOperatorProvider); ok {
-		lg.Step("setup", "Tailscale operator")
-		if err := kop.InstallOperator(ctx, provider.OperatorInstallConfig{
-			OAuthClientID:     o.cfg.OAuthClientID,
-			OAuthClientSecret: o.cfg.OAuthClientSecret,
-			Tag:               o.cfg.Tag,
-			TailnetDNS:        o.tailnetDNS,
-			TsnetSrv:          o.tsnetSrv,
-			ForceReinstall:    o.cfg.CleanupNetworking,
-		}); err != nil {
-			lg.Warnf("operator install: %v (L7 modes may not work)", err)
-		}
-	}
-
-	// Deploy L7 bench manifests to K8s clusters (fortio echo + ingress + LB)
-	if kubeconfig := net.Values["kubeconfig"]; kubeconfig != "" && hasL7Modes(o.cfg.Modes) {
-		lg.Step("setup", "L7 bench manifests")
-		if err := k8s.DeployL7Bench(ctx, kubeconfig, o.cfg.RootDir); err != nil {
-			lg.Warnf("L7 bench deploy: %v (L7 modes may not work)", err)
-		}
-
-		// Wait for the operator LB proxy to get a FQDN before starting benchmarks.
-		lg.Step("setup", "waiting for LB FQDN")
-		cs, csErr := k8s.ClientsetFromKubeconfig(kubeconfig)
-		if csErr != nil {
-			lg.Warnf("kubeconfig parse for LB wait: %v", csErr)
-		} else {
-			const pollInterval = 10 * time.Second
-			const pollTimeout = 3 * time.Minute
-			deadline := time.Now().Add(pollTimeout)
-			for time.Now().Before(deadline) {
-				fqdn, err := k8s.DiscoverServiceLBFQDN(ctx, cs, o.cfg.ClusterLabel)
-				if err == nil && fqdn != "" {
-					lg.Infof("LB FQDN ready: %s", fqdn)
-					break
-				}
-				lg.Infof("LB FQDN not yet available, retrying in %v...", pollInterval)
-				select {
-				case <-ctx.Done():
-				case <-time.After(pollInterval):
-				}
-				if ctx.Err() != nil {
-					break
-				}
-			}
-		}
-	}
+	o.setupK8s(ctx, p, net, lg)
 
 	instances, err := o.listInstancesCached(ctx, p, lg)
 	if err != nil {
@@ -373,8 +290,14 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		suffix := fmt.Sprintf("%d", time.Now().Unix()%10000)
 		serverHostname := fmt.Sprintf("tb-%s-s-%s-%s", p.Name(), safeType, suffix)
 		clientHostname := fmt.Sprintf("tb-%s-c-%s-%s", p.Name(), safeType, suffix)
+		routerHostname := fmt.Sprintf("tb-%s-r-%s-%s", p.Name(), safeType, suffix)
 
-		var userData, clientUserData string
+		// forward-pps-exit is VM-only and needs a 3rd node (the exit-node router).
+		// Base this on the work left for this instance so reruns don't provision an
+		// unused router after its forwarding result has already been written.
+		wantRouter := !isK8sProvider(p.Name()) && hasForwardMode(pendingModes)
+
+		var userData, clientUserData, routerUserData string
 		if isK8sProvider(p.Name()) {
 			userData = *authKey
 		} else {
@@ -405,6 +328,19 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 				continue
 			}
 			clientUserData = clientUD
+			if wantRouter {
+				routerUD, err := cloudinit.Render(cloudinit.Config{
+					AuthKey:           *authKey,
+					Hostname:          routerHostname,
+					EnableSSH:         true,
+					AdvertiseExitNode: true,
+				})
+				if err != nil {
+					lg.Errf("cloud-init (router) for %s: %v", inst.Type, err)
+					continue
+				}
+				routerUserData = routerUD
+			}
 		}
 
 		// Pre-cleanup: destroy any leftover resources from a previous run.
@@ -418,6 +354,8 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			InstanceType:   inst.Type,
 			UserData:       userData,
 			ClientUserData: clientUserData,
+			RouterUserData: routerUserData,
+			WantRouter:     wantRouter,
 			Networking:     net,
 			BenchImage:     o.cfg.BenchImage,
 			TSImage:        o.cfg.TSImage,
@@ -436,7 +374,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			continue
 		}
 
-		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, *authKey)
+		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
 
 		lg.Step("teardown", inst.Type)
 		if err := p.DestroyPair(ctx, inst.Type); err != nil {
@@ -472,7 +410,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	return nil
 }
 
-func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, authKey string) error {
+func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, routerHostname, authKey string) error {
 	if pair.Namespace != "" {
 		return o.runK8sBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, authKey)
 	}
@@ -482,14 +420,22 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	if err != nil {
 		return fmt.Errorf("ssh dial server: %w", err)
 	}
-	defer serverSSH.Close()
+	defer func() {
+		if err := serverSSH.Close(); err != nil {
+			lg.Warnf("close server SSH: %v", err)
+		}
+	}()
 
 	lg.Step("ssh", fmt.Sprintf("connecting to %s", clientHostname))
 	clientSSH, err := sshclient.Dial(o.tsnetSrv, clientHostname, "root", o.cfg.SSHTimeout, lg)
 	if err != nil {
 		return fmt.Errorf("ssh dial client: %w", err)
 	}
-	defer clientSSH.Close()
+	defer func() {
+		if err := clientSSH.Close(); err != nil {
+			lg.Warnf("close client SSH: %v", err)
+		}
+	}()
 
 	lg.Step("ssh", "waiting for cloud-init ready")
 	if err := serverSSH.WaitForReady(ctx); err != nil {
@@ -499,23 +445,43 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		return fmt.Errorf("client ready: %w", err)
 	}
 
+	// Router (exit-node under test) — only provisioned for forwarding-pps runs.
+	var routerSSH benchmark.Executor
+	if pair.RouterIP != "" {
+		lg.Step("ssh", fmt.Sprintf("connecting to %s", routerHostname))
+		rSSH, err := sshclient.Dial(o.tsnetSrv, routerHostname, "root", o.cfg.SSHTimeout, lg)
+		if err != nil {
+			return fmt.Errorf("ssh dial router: %w", err)
+		}
+		defer rSSH.Close()
+		if err := rSSH.WaitForReady(ctx); err != nil {
+			return fmt.Errorf("router ready: %w", err)
+		}
+		routerSSH = rSSH
+	}
+
 	runner := &benchmark.Runner{
 		Server:          serverSSH,
 		Client:          clientSSH,
 		ServerTailscale: serverSSH,
 		ClientTailscale: clientSSH,
+		Router:          routerSSH,
 		Log:             lg,
 		Config: benchmark.RunConfig{
-			IPerfDuration:      o.cfg.IPerfDuration,
-			IPerfParallel:      o.cfg.IPerfParallel,
-			IPerfIterations:    o.cfg.IPerfIterations,
-			MTRCycles:          o.cfg.MTRCycles,
-			CooldownSec:        o.cfg.CooldownSec,
-			CreditRetrySec:     o.cfg.CreditRetrySec,
-			AuthKey:            authKey,
-			ServerHostname:     serverHostname,
-			ClientHostname:     clientHostname,
-			SkipTailscaleSetup: true,
+			IPerfDuration:       o.cfg.IPerfDuration,
+			IPerfParallel:       o.cfg.IPerfParallel,
+			IPerfIterations:     o.cfg.IPerfIterations,
+			MTRCycles:           o.cfg.MTRCycles,
+			CooldownSec:         o.cfg.CooldownSec,
+			CreditRetrySec:      o.cfg.CreditRetrySec,
+			AuthKey:             authKey,
+			ServerHostname:      serverHostname,
+			ClientHostname:      clientHostname,
+			SkipTailscaleSetup:  true,
+			PPSDatagramSizes:    o.cfg.PPSDatagramSizes,
+			PPSLossThresholdPct: o.cfg.PPSLossThresholdPct,
+			PPSDurationSec:      o.cfg.PPSDurationSec,
+			PPSMaxRatePPS:       o.cfg.PPSMaxRatePPS,
 		},
 	}
 
@@ -575,6 +541,34 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				FortioResult: ts,
 				L7Overhead:   result.ComputeL7Overhead(baseline, ts),
 			}
+		case benchmark.ModeUsesForwardPPS(mode):
+			if runner.Router == nil {
+				log.Printf("%s skipping mode %s: no router provisioned", prefix, mode)
+				continue
+			}
+			routerTSIP, err := benchmark.GetTailscaleIP(ctx, runner.Router)
+			if err != nil {
+				log.Printf("%s mode %s: router tailscale IP: %v (continuing)", prefix, mode, err)
+				continue
+			}
+			log.Printf("%s forwarding-pps: routing client egress via exit node %s", prefix, routerTSIP)
+			if err := benchmark.SetExitNode(ctx, runner.Client, routerTSIP); err != nil {
+				log.Printf("%s mode %s: set exit node: %v", prefix, mode, err)
+				continue
+			}
+			// Client -> router (exit node) -> server public IP (a non-tailnet
+			// address, so it egresses through the router rather than direct).
+			pps, ppsErr := runner.RunForwardingPPS(ctx, runner.Client, runner.Server, pair.ServerIP)
+			_ = benchmark.ClearExitNode(ctx, runner.Client)
+			if ppsErr != nil {
+				log.Printf("%s forward-pps mode %s failed: %v", prefix, mode, ppsErr)
+				continue
+			}
+			br = &result.BenchmarkResult{
+				ForwardPPS:  pps,
+				ForwardRole: "exit-node",
+				TestConfig:  forwardPPSTestConfig(pps),
+			}
 		case benchmark.ModeUsesTsnet(mode):
 			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
 			continue
@@ -618,26 +612,12 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 	return nil
 }
 
-// providerStateDir returns a per-provider Pulumi state directory and ensures it exists.
-func providerStateDir(baseDir, providerName string) string {
-	url := baseDir + "/" + providerName
-	// Create the filesystem directory (strip file:// prefix)
-	dir := strings.TrimPrefix(url, "file://")
-	os.MkdirAll(dir, 0o755)
-	return url
-}
-
 func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *provider.PairOutput, mc modeContext) (target, baseline string) {
 	switch {
 	case strings.HasPrefix(mode, "l7-ingress"):
 		fqdn := o.cfg.IngressFQDN
 		if fqdn == "" && mc.kubeconfig != "" {
-			if cs, err := k8s.ClientsetFromKubeconfig(mc.kubeconfig); err == nil {
-				if discovered, err := k8s.DiscoverIngressFQDN(ctx, cs, o.cfg.ClusterLabel); err == nil {
-					fqdn = discovered
-					log.Printf("discovered ingress FQDN: %s", fqdn)
-				}
-			}
+			fqdn = discoverIngressFQDN(ctx, mc.kubeconfig, o.cfg.ClusterLabel)
 		}
 		if fqdn != "" {
 			target = "https://" + fqdn
@@ -663,32 +643,13 @@ func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *
 
 	case mode == "l4-lb":
 		if mc.kubeconfig != "" {
-			if cs, err := k8s.ClientsetFromKubeconfig(mc.kubeconfig); err == nil {
-				if discovered, err := k8s.DiscoverServiceLBFQDN(ctx, cs, o.cfg.ClusterLabel); err == nil {
-					target = "http://" + discovered + ":8080"
-					log.Printf("discovered service LB FQDN: %s", discovered)
-				}
+			if discovered := discoverServiceLBFQDN(ctx, mc.kubeconfig, o.cfg.ClusterLabel); discovered != "" {
+				target = "http://" + discovered + ":8080"
 			}
 		}
 		baseline = discoverEchoPodIP(ctx, mc.kubeconfig, o.cfg.ClusterLabel)
 	}
 	return
-}
-
-func discoverEchoPodIP(ctx context.Context, kubeconfig, labelSelector string) string {
-	if kubeconfig == "" {
-		return ""
-	}
-	cs, err := k8s.ClientsetFromKubeconfig(kubeconfig)
-	if err != nil {
-		return ""
-	}
-	ip, err := k8s.DiscoverPodIP(ctx, cs, labelSelector)
-	if err != nil {
-		log.Printf("could not discover echo pod IP: %v", err)
-		return ""
-	}
-	return "http://" + ip + ":8080"
 }
 
 func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Executor, target string) error {
@@ -746,13 +707,27 @@ func hasL7ServeMode(modes []string) bool {
 	return false
 }
 
-func hasL7Modes(modes []string) bool {
+func hasForwardMode(modes []string) bool {
 	for _, m := range modes {
-		if strings.HasPrefix(m, "l7-") || m == "l4-lb" {
+		if benchmark.ModeUsesForwardPPS(m) {
 			return true
 		}
 	}
 	return false
+}
+
+func forwardPPSTestConfig(pps *result.PPSResult) *result.TestConfig {
+	if pps == nil {
+		return nil
+	}
+	sizes := make([]int, 0, len(pps.Sizes))
+	for _, size := range pps.Sizes {
+		sizes = append(sizes, size.DatagramBytes)
+	}
+	return &result.TestConfig{
+		PPSDatagramSizes:    sizes,
+		PPSLossThresholdPct: pps.LossThresholdPct,
+	}
 }
 
 func safeHostname(instanceType string) string {
@@ -776,69 +751,6 @@ func (o *Orchestrator) hasK8sProviders() bool {
 		}
 	}
 	return false
-}
-
-func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, authKey string) error {
-	lg.Step("k8s-exec", "constructing transport")
-
-	// Use direct kubeconfig for kubectl exec (SPDY protocol doesn't work
-	// through the operator API proxy due to TLS upgrade issues).
-	// The operator is still installed for tailnet membership.
-	serverBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.BenchContainer)
-	if err != nil {
-		return fmt.Errorf("server bench executor: %w", err)
-	}
-	clientBench, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.BenchContainer)
-	if err != nil {
-		return fmt.Errorf("client bench executor: %w", err)
-	}
-	serverTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ServerName, k8s.TSContainer)
-	if err != nil {
-		return fmt.Errorf("server tailscale executor: %w", err)
-	}
-	clientTS, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, pair.ClientName, k8s.TSContainer)
-	if err != nil {
-		return fmt.Errorf("client tailscale executor: %w", err)
-	}
-
-	// Create a baseline executor from the bench-baseline pod (no tailscale sidecar).
-	// The tailscale sidecar in bench pods hijacks networking, so direct pod-to-pod
-	// fortio baseline must run from a separate pod without tailscale.
-	var baselineClient benchmark.Executor
-	if cs, err := k8s.ClientsetFromKubeconfig(pair.Kubeconfig); err == nil {
-		if baselinePod, err := k8s.DiscoverPodName(ctx, cs, "app.kubernetes.io/part-of=tailbench-l7-baseline"); err == nil {
-			if exec, err := k8s.NewKubeExecExecutor(pair.Kubeconfig, pair.Namespace, baselinePod, "tools"); err == nil {
-				baselineClient = exec
-				lg.Infof("using baseline pod %s for L7 tests", baselinePod)
-			}
-		}
-	}
-
-	runner := &benchmark.Runner{
-		Server:          serverBench,
-		Client:          clientBench,
-		BaselineClient:  baselineClient,
-		ServerTailscale: serverTS,
-		ClientTailscale: clientTS,
-		Log:             lg,
-		Config: benchmark.RunConfig{
-			IPerfDuration:      o.cfg.IPerfDuration,
-			IPerfParallel:      o.cfg.IPerfParallel,
-			IPerfIterations:    o.cfg.IPerfIterations,
-			MTRCycles:          o.cfg.MTRCycles,
-			CooldownSec:        o.cfg.CooldownSec,
-			CreditRetrySec:     o.cfg.CreditRetrySec,
-			AuthKey:            authKey,
-			ServerHostname:     serverHostname,
-			ClientHostname:     clientHostname,
-			SkipTailscaleSetup: true,
-		},
-	}
-
-	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", modeContext{
-		kubeconfig: pair.Kubeconfig,
-	})
 }
 
 // tailnetState is persisted between runs to reuse infrastructure.
@@ -909,7 +821,9 @@ func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provi
 	if len(instances) > 0 {
 		if err := os.MkdirAll(filepath.Dir(cachePath), 0o755); err == nil {
 			if data, err := json.MarshalIndent(instances, "", "  "); err == nil {
-				os.WriteFile(cachePath, data, 0o644)
+				if err := os.WriteFile(cachePath, data, 0o644); err != nil {
+					lg.Warnf("write instance cache %s: %v", cachePath, err)
+				}
 				lg.Infof("cached %d instance types to %s", len(instances), cachePath)
 			}
 		}

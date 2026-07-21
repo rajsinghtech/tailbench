@@ -13,45 +13,49 @@ import (
 )
 
 type Config struct {
-	Providers          []string
-	Family             string
-	Filter             string
-	CreateTailnet      bool
-	OAuthClientID      string
-	OAuthClientSecret  string
-	Tag                string
-	IPerfDuration      int
-	IPerfParallel      int
-	IPerfIterations    int
-	MTRCycles          int
-	CooldownSec        int
-	CreditRetrySec     int
-	SSHTimeout         int
-	ReadyTimeout       int
-	AWSRegion          string
-	AWSAZ              string
-	AWSKeyName         string
-	GCPProject         string
-	GCPZone            string
-	AzureLocation      string
-	AzureResourceGroup string
-	AzureSSHUser       string
-	AzureSSHPubKey     string
-	CleanupNetworking  bool
-	DryRun             bool
-	AuthKeyRefreshSec  int
-	RootDir            string
-	StateDir           string
-	BenchImage         string
-	TSImage            string
-	FortioDuration    int
-	FortioConnections int
-	FortioQPS         int
-	FortioIterations  int
-	Modes             []string
-	IngressFQDN       string
-	ServeFQDN         string
-	ClusterLabel      string
+	Providers           []string
+	Family              string
+	Filter              string
+	CreateTailnet       bool
+	OAuthClientID       string
+	OAuthClientSecret   string
+	Tag                 string
+	IPerfDuration       int
+	IPerfParallel       int
+	IPerfIterations     int
+	MTRCycles           int
+	CooldownSec         int
+	CreditRetrySec      int
+	SSHTimeout          int
+	ReadyTimeout        int
+	AWSRegion           string
+	AWSAZ               string
+	AWSKeyName          string
+	GCPProject          string
+	GCPZone             string
+	AzureLocation       string
+	AzureResourceGroup  string
+	AzureSSHUser        string
+	AzureSSHPubKey      string
+	CleanupNetworking   bool
+	DryRun              bool
+	AuthKeyRefreshSec   int
+	RootDir             string
+	StateDir            string
+	BenchImage          string
+	TSImage             string
+	FortioDuration      int
+	FortioConnections   int
+	FortioQPS           int
+	FortioIterations    int
+	PPSDatagramSizes    []int
+	PPSLossThresholdPct float64
+	PPSDurationSec      int
+	PPSMaxRatePPS       int
+	Modes               []string
+	IngressFQDN         string
+	ServeFQDN           string
+	ClusterLabel        string
 }
 
 type yamlConfig struct {
@@ -68,16 +72,20 @@ type yamlConfig struct {
 	} `yaml:"tailscale"`
 
 	Benchmark struct {
-		IPerfDuration     int      `yaml:"iperf_duration"`
-		IPerfParallel     int      `yaml:"iperf_parallel"`
-		IPerfIterations   int      `yaml:"iperf_iterations"`
-		MTRCycles         int      `yaml:"mtr_cycles"`
-		CooldownSec       int      `yaml:"cooldown_sec"`
-		FortioDuration    int      `yaml:"fortio_duration"`
-		FortioConnections int      `yaml:"fortio_connections"`
-		FortioQPS         int      `yaml:"fortio_qps"`
-		FortioIterations  int      `yaml:"fortio_iterations"`
-		Modes             []string `yaml:"modes"`
+		IPerfDuration       int      `yaml:"iperf_duration"`
+		IPerfParallel       int      `yaml:"iperf_parallel"`
+		IPerfIterations     int      `yaml:"iperf_iterations"`
+		MTRCycles           int      `yaml:"mtr_cycles"`
+		CooldownSec         int      `yaml:"cooldown_sec"`
+		FortioDuration      int      `yaml:"fortio_duration"`
+		FortioConnections   int      `yaml:"fortio_connections"`
+		FortioQPS           int      `yaml:"fortio_qps"`
+		FortioIterations    int      `yaml:"fortio_iterations"`
+		PPSDatagramSizes    []int    `yaml:"pps_datagram_sizes"`
+		PPSLossThresholdPct float64  `yaml:"pps_loss_threshold_pct"`
+		PPSDurationSec      int      `yaml:"pps_duration_sec"`
+		PPSMaxRatePPS       int      `yaml:"pps_max_rate_pps"`
+		Modes               []string `yaml:"modes"`
 	} `yaml:"benchmark"`
 
 	SSH struct {
@@ -132,7 +140,7 @@ func loadEnvFile(path string) error {
 	if err != nil {
 		return err
 	}
-	defer f.Close()
+	defer func() { _ = f.Close() }()
 
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
@@ -144,7 +152,9 @@ func loadEnvFile(path string) error {
 		if !ok {
 			continue
 		}
-		os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v))
+		if err := os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v)); err != nil {
+			return fmt.Errorf("set environment variable: %w", err)
+		}
 	}
 	return scanner.Err()
 }
@@ -167,14 +177,21 @@ func orInt(vals ...int) int {
 	return 0
 }
 
-func Parse() (*Config, error) {
-	configFile := flag.String("config", "config.yaml", "Path to config.yaml")
-	providerFlag := flag.String("provider", "", "Provider override (comma-separated)")
-	familyFlag := flag.String("family", "", "Instance family override")
-	filterFlag := flag.String("filter", "", "Regex filter for instance types")
-	dryRun := flag.Bool("dry-run", false, "Preview what would run")
-	cleanup := flag.Bool("cleanup-networking", false, "Tear down clusters after run")
-	flag.Parse()
+func Parse(defaultProvider string) (*Config, error) {
+	return ParseArgs(defaultProvider, os.Args[1:])
+}
+
+func ParseArgs(defaultProvider string, args []string) (*Config, error) {
+	flags := flag.NewFlagSet("tailbench", flag.ContinueOnError)
+	configFile := flags.String("config", "config.yaml", "Path to config.yaml")
+	providerFlag := flags.String("provider", "", "Provider override")
+	familyFlag := flags.String("family", "", "Instance family override")
+	filterFlag := flags.String("filter", "", "Regex filter for instance types")
+	dryRun := flags.Bool("dry-run", false, "Preview what would run")
+	cleanup := flags.Bool("cleanup-networking", false, "Tear down clusters after run")
+	if err := flags.Parse(args); err != nil {
+		return nil, err
+	}
 
 	data, err := os.ReadFile(*configFile)
 	if err != nil {
@@ -218,11 +235,17 @@ func Parse() (*Config, error) {
 		FortioConnections: orInt(yc.Benchmark.FortioConnections, 16),
 		FortioQPS:         yc.Benchmark.FortioQPS,
 		FortioIterations:  orInt(yc.Benchmark.FortioIterations, 3),
-		Modes:             yc.Benchmark.Modes,
-		IngressFQDN:       yc.L7Endpoints.IngressFQDN,
-		ServeFQDN:         yc.L7Endpoints.ServeFQDN,
-		ClusterLabel:      or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
-		AuthKeyRefreshSec: 1800,
+		// PPS params forwarded raw; benchmark.RunConfig.defaults() supplies
+		// defaults (sizes 64/340/1400, 0.1% loss, 15s, 2M pps ceiling).
+		PPSDatagramSizes:    yc.Benchmark.PPSDatagramSizes,
+		PPSLossThresholdPct: yc.Benchmark.PPSLossThresholdPct,
+		PPSDurationSec:      yc.Benchmark.PPSDurationSec,
+		PPSMaxRatePPS:       yc.Benchmark.PPSMaxRatePPS,
+		Modes:               yc.Benchmark.Modes,
+		IngressFQDN:         yc.L7Endpoints.IngressFQDN,
+		ServeFQDN:           yc.L7Endpoints.ServeFQDN,
+		ClusterLabel:        or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
+		AuthKeyRefreshSec:   1800,
 
 		SSHTimeout:   orInt(yc.SSH.Timeout, 120),
 		ReadyTimeout: orInt(yc.SSH.ReadyTimeout, 300),
@@ -274,7 +297,7 @@ func Parse() (*Config, error) {
 		cfg.Providers = strings.Split(*providerFlag, ",")
 	}
 	if len(cfg.Providers) == 0 {
-		cfg.Providers = []string{"gcp"}
+		cfg.Providers = []string{defaultProvider}
 	}
 
 	return cfg, nil

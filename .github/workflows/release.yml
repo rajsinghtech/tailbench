@@ -1,0 +1,59 @@
+name: Release provider binaries
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - {binary: tailbench-aws, make_suffix: aws}
+          - {binary: tailbench-aws-k8s, make_suffix: aws-k8s}
+          - {binary: tailbench-azure, make_suffix: azure}
+          - {binary: tailbench-azure-k8s, make_suffix: azure-k8s}
+          - {binary: tailbench-gcp, make_suffix: gcp}
+          - {binary: tailbench-gcp-k8s, make_suffix: gcp-k8s}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Build
+        run: make build-${{ matrix.make_suffix }} VERSION=${GITHUB_REF_NAME#v}
+      - name: Verify dependency metadata
+        run: ./scripts/verify-binary.sh ${{ matrix.make_suffix }} dist/${{ matrix.binary }}
+      - name: Package
+        env:
+          BINARY: ${{ matrix.binary }}
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          archive="${BINARY}_${version}_linux_amd64.tar.gz"
+          tar -C dist -czf "$archive" "$BINARY"
+          sha256sum "$archive" >"$archive.sha256"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: release-${{ matrix.binary }}
+          path: |
+            ${{ matrix.binary }}_*.tar.gz
+            ${{ matrix.binary }}_*.tar.gz.sha256
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: release-*
+          path: release
+          merge-multiple: true
+      - uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: release/*

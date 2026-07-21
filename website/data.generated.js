@@ -90,6 +90,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 69.95382882140406,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-16-l4-kernel.json",
     "system_config": {
@@ -232,6 +233,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-16-l7-serve-h1.json",
     "system_config": null,
@@ -289,6 +291,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-16-l7-serve-h2.json",
     "system_config": null,
@@ -392,6 +395,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 70.70188847075956,
       "retransmits_pct": 0
     },
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-30-l4-kernel.json",
     "system_config": {
@@ -534,6 +538,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-30-l7-serve-h1.json",
     "system_config": null,
@@ -591,6 +596,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-30-l7-serve-h2.json",
     "system_config": null,
@@ -694,6 +700,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 66.81486812047493,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-4-l4-kernel.json",
     "system_config": {
@@ -836,6 +843,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -893,6 +901,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-4-l7-serve-h2.json",
     "system_config": null,
@@ -996,6 +1005,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.7519278415911,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-8-l4-kernel.json",
     "system_config": {
@@ -1138,6 +1148,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -1195,6 +1206,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gcp/c2/results/c2-standard-8-l7-serve-h2.json",
     "system_config": null,
@@ -1298,6 +1310,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 77.07008938207423,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-4-l4-kernel.json",
     "system_config": {
@@ -1440,6 +1453,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -1497,6 +1511,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-4-l7-serve-h2.json",
     "system_config": null,
@@ -1600,6 +1615,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 75.03335522652975,
       "retransmits_pct": -401.33333333333337
     },
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-8-l4-kernel.json",
     "system_config": {
@@ -1742,6 +1758,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -1799,6 +1816,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gcp/c3/results/c3-standard-8-l7-serve-h2.json",
     "system_config": null,
@@ -1902,6 +1920,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 62.94616493280615,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gcp/c3d/results/c3d-standard-4-l4-kernel.json",
     "system_config": {
@@ -2044,6 +2063,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gcp/c3d/results/c3d-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -2101,6 +2121,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gcp/c3d/results/c3d-standard-4-l7-serve-h2.json",
     "system_config": null,
@@ -2204,6 +2225,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 59.65290617857819,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.3648,
     "region": "us-central1",
     "source": "gcp/c3d/results/c3d-standard-8-l4-kernel.json",
     "system_config": {
@@ -2346,6 +2368,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3648,
     "region": "us-central1",
     "source": "gcp/c3d/results/c3d-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -2449,6 +2472,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 57.89824335248819,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gcp/c4/results/c4-standard-2-l4-kernel.json",
     "system_config": {
@@ -2591,6 +2615,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gcp/c4/results/c4-standard-2-l7-serve-h1.json",
     "system_config": null,
@@ -2694,6 +2719,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.66387346409921,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gcp/c4/results/c4-standard-4-l4-kernel.json",
     "system_config": {
@@ -2836,6 +2862,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gcp/c4/results/c4-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -2939,6 +2966,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 79.29733599771123,
       "retransmits_pct": 100
     },
+    "price_per_hour": 0.0428,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-1-l4-kernel.json",
     "system_config": {
@@ -3081,6 +3109,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.0428,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-1-l7-serve-h1.json",
     "system_config": null,
@@ -3138,6 +3167,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.0428,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-1-l7-serve-h2.json",
     "system_config": null,
@@ -3241,6 +3271,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 65.59425465458429,
       "retransmits_pct": 57.042910447761194
     },
+    "price_per_hour": 0.0856,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-2-l4-kernel.json",
     "system_config": {
@@ -3383,6 +3414,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.0856,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-2-l7-serve-h1.json",
     "system_config": null,
@@ -3440,6 +3472,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.0856,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-2-l7-serve-h2.json",
     "system_config": null,
@@ -3543,6 +3576,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 76.47285783840924,
       "retransmits_pct": 83.91725352112675
     },
+    "price_per_hour": 0.1712,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-4-l4-kernel.json",
     "system_config": {
@@ -3685,6 +3719,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1712,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -3742,6 +3777,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1712,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-4-l7-serve-h2.json",
     "system_config": null,
@@ -3845,6 +3881,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 72.3970229658924,
       "retransmits_pct": 100
     },
+    "price_per_hour": 0.3424,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-8-l4-kernel.json",
     "system_config": {
@@ -3987,6 +4024,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3424,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -4044,6 +4082,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3424,
     "region": "us-central1",
     "source": "gcp/c4a/results/c4a-standard-8-l7-serve-h2.json",
     "system_config": null,
@@ -4147,6 +4186,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 76.26246843038251,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.09712,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-2-l4-kernel.json",
     "system_config": {
@@ -4274,6 +4314,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09712,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-2-l7-serve-h1.json",
     "system_config": null,
@@ -4377,6 +4418,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 70.77014114587158,
       "retransmits_pct": -15389.147286821704
     },
+    "price_per_hour": 0.19424,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-4-l4-kernel.json",
     "system_config": {
@@ -4519,6 +4561,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19424,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -4622,6 +4665,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 79.47208090911305,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-8-l4-kernel.json",
     "system_config": {
@@ -4764,6 +4808,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gcp/n2/results/n2-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -4867,6 +4912,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 67.87860045174324,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-2-l4-kernel.json",
     "system_config": {
@@ -5009,6 +5055,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-2-l7-serve-h1.json",
     "system_config": null,
@@ -5112,6 +5159,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 52.76571387202645,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-4-l4-kernel.json",
     "system_config": {
@@ -5254,6 +5302,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-4-l7-serve-h1.json",
     "system_config": null,
@@ -5357,6 +5406,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 69.00874868468631,
       "retransmits_pct": 73.7190082644628
     },
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-8-l4-kernel.json",
     "system_config": {
@@ -5499,6 +5549,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gcp/n4/results/n4-standard-8-l7-serve-h1.json",
     "system_config": null,
@@ -5602,6 +5653,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 37.49940960370532,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.12xlarge-l4-kernel.json",
     "system_config": {
@@ -5744,6 +5796,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.12xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -5801,6 +5854,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.12xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -5904,6 +5958,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 35.679073035258426,
       "retransmits_pct": 0
     },
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.16xlarge-l4-kernel.json",
     "system_config": {
@@ -6046,6 +6101,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.16xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -6103,6 +6159,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.16xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -6206,6 +6263,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 58.25639168246725,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.2xlarge-l4-kernel.json",
     "system_config": {
@@ -6348,6 +6406,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.2xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -6405,6 +6464,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.2xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -6508,6 +6568,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 39.812285512905504,
       "retransmits_pct": 0
     },
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.32xlarge-l4-kernel.json",
     "system_config": {
@@ -6650,6 +6711,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.32xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -6707,6 +6769,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.32xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -6810,6 +6873,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 40.80957573359745,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.4xlarge-l4-kernel.json",
     "system_config": {
@@ -6952,6 +7016,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.4xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -7009,6 +7074,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.4xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -7112,6 +7178,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 34.72131056981196,
       "retransmits_pct": 0
     },
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.8xlarge-l4-kernel.json",
     "system_config": {
@@ -7254,6 +7321,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.8xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -7311,6 +7379,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.8xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -7414,6 +7483,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 52.93073084965037,
       "retransmits_pct": 0
     },
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.metal-l4-kernel.json",
     "system_config": {
@@ -7556,6 +7626,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.metal-l7-serve-h1.json",
     "system_config": null,
@@ -7613,6 +7684,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.metal-l7-serve-h2.json",
     "system_config": null,
@@ -7716,6 +7788,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 59.797906995770944,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.xlarge-l4-kernel.json",
     "system_config": {
@@ -7858,6 +7931,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -7915,6 +7989,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "aws/c6in/results/c6in.xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -8018,6 +8093,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 36.63932999894746,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.142,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.12xlarge-l4-kernel.json",
     "system_config": {
@@ -8160,6 +8236,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.142,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.12xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -8217,6 +8294,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.142,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.12xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -8320,6 +8398,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 41.542495470765296,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.856,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.16xlarge-l4-kernel.json",
     "system_config": {
@@ -8462,6 +8541,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.856,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.16xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -8519,6 +8599,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.856,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.16xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -8622,6 +8703,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 53.82918257243031,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.357,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.2xlarge-l4-kernel.json",
     "system_config": {
@@ -8764,6 +8846,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.357,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.2xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -8821,6 +8904,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.357,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.2xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -8924,6 +9008,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 14.927065682864974,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.714,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.4xlarge-l4-kernel.json",
     "system_config": {
@@ -9066,6 +9151,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.714,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.4xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -9123,6 +9209,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.714,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.4xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -9226,6 +9313,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 40.49767289471392,
       "retransmits_pct": 0
     },
+    "price_per_hour": 1.428,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.8xlarge-l4-kernel.json",
     "system_config": {
@@ -9368,6 +9456,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.428,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.8xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -9425,6 +9514,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.428,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.8xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -9528,6 +9618,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 67.9688514891098,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.large-l4-kernel.json",
     "system_config": {
@@ -9670,6 +9761,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.large-l7-serve-h1.json",
     "system_config": null,
@@ -9727,6 +9819,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.large-l7-serve-h2.json",
     "system_config": null,
@@ -9830,6 +9923,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 35.34001483040284,
       "retransmits_pct": 0
     },
+    "price_per_hour": 4.284,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.metal-24xl-l4-kernel.json",
     "system_config": {
@@ -9972,6 +10066,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 4.284,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.metal-24xl-l7-serve-h1.json",
     "system_config": null,
@@ -10029,6 +10124,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 4.284,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.metal-24xl-l7-serve-h2.json",
     "system_config": null,
@@ -10132,6 +10228,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 52.64403736951906,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.xlarge-l4-kernel.json",
     "system_config": {
@@ -10274,6 +10371,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -10331,6 +10429,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "aws/c7i/results/c7i.xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -10434,6 +10533,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 41.012803516767846,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.77488,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l4-kernel.json",
     "system_config": {
@@ -10576,6 +10676,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.77488,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -10633,6 +10734,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.77488,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -10736,6 +10838,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 41.542877885307504,
       "retransmits_pct": 0
     },
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l4-kernel.json",
     "system_config": {
@@ -10878,6 +10981,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -10935,6 +11039,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11038,6 +11143,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.89666855281838,
       "retransmits_pct": 0
     },
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l4-kernel.json",
     "system_config": {
@@ -11180,6 +11286,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11237,6 +11344,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11340,6 +11448,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 45.79702616477191,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l4-kernel.json",
     "system_config": {
@@ -11482,6 +11591,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11539,6 +11649,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11642,6 +11753,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 48.93385460764241,
       "retransmits_pct": 0
     },
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l4-kernel.json",
     "system_config": {
@@ -11784,6 +11896,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11841,6 +11954,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11944,6 +12058,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.84619833791311,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l4-kernel.json",
     "system_config": {
@@ -12086,6 +12201,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -12143,6 +12259,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -12246,6 +12363,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.187113206334274,
       "retransmits_pct": 0
     },
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l4-kernel.json",
     "system_config": {
@@ -12388,6 +12506,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -12445,6 +12564,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -12548,6 +12668,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 68.48973832749465,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l4-kernel.json",
     "system_config": {
@@ -12690,6 +12811,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l7-serve-h1.json",
     "system_config": null,
@@ -12747,6 +12869,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l7-serve-h2.json",
     "system_config": null,
@@ -12850,6 +12973,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 78.68140367609118,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l4-kernel.json",
     "system_config": {
@@ -12992,6 +13116,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l7-serve-h1.json",
     "system_config": null,
@@ -13049,6 +13174,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l7-serve-h2.json",
     "system_config": null,
@@ -13152,6 +13278,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 49.56947330697873,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l4-kernel.json",
     "system_config": {
@@ -13294,6 +13421,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -13351,6 +13479,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -13454,6 +13583,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 58.87351817896791,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "azure/d2sv4/results/Standard_D2s_v4-l4-kernel.json",
     "system_config": {
@@ -13596,6 +13726,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "azure/d2sv4/results/Standard_D2s_v4-l7-serve-h1.json",
     "system_config": null,
@@ -13699,6 +13830,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 67.47617145785149,
       "retransmits_pct": 99.98009225048673
     },
+    "price_per_hour": 0.14,
     "region": "eastus",
     "source": "azure/d4psv6/results/Standard_D4ps_v6-l4-kernel.json",
     "system_config": {
@@ -13841,6 +13973,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.14,
     "region": "eastus",
     "source": "azure/d4psv6/results/Standard_D4ps_v6-l7-serve-h1.json",
     "system_config": null,
@@ -13944,6 +14077,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 72.997206976537,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "azure/d4sv4/results/Standard_D4s_v4-l4-kernel.json",
     "system_config": {
@@ -14086,6 +14220,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "azure/d4sv4/results/Standard_D4s_v4-l7-serve-h1.json",
     "system_config": null,
@@ -14189,6 +14324,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 22.708553132882834,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.677,
     "region": "eastus",
     "source": "azure/f16sv2/results/Standard_F16s_v2-l4-kernel.json",
     "system_config": {
@@ -14331,6 +14467,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.677,
     "region": "eastus",
     "source": "azure/f16sv2/results/Standard_F16s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -14434,6 +14571,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 59.311825073499236,
       "retransmits_pct": 99.90060838398367
     },
+    "price_per_hour": 0.137,
     "region": "eastus",
     "source": "azure/f2asv6/results/Standard_F2as_v6-l4-kernel.json",
     "system_config": {
@@ -14576,6 +14714,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.137,
     "region": "eastus",
     "source": "azure/f2asv6/results/Standard_F2as_v6-l7-serve-h1.json",
     "system_config": null,
@@ -14679,6 +14818,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 17.20603866854012,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.0846,
     "region": "eastus",
     "source": "azure/f2sv2/results/Standard_F2s_v2-l4-kernel.json",
     "system_config": {
@@ -14821,6 +14961,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.0846,
     "region": "eastus",
     "source": "azure/f2sv2/results/Standard_F2s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -14924,6 +15065,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 34.60898177673298,
       "retransmits_pct": 0
     },
+    "price_per_hour": 1.353,
     "region": "eastus",
     "source": "azure/f32sv2/results/Standard_F32s_v2-l4-kernel.json",
     "system_config": {
@@ -15051,6 +15193,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.353,
     "region": "eastus",
     "source": "azure/f32sv2/results/Standard_F32s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -15154,6 +15297,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.24957228931844,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.03,
     "region": "eastus",
     "source": "azure/f48sv2/results/Standard_F48s_v2-l4-kernel.json",
     "system_config": {
@@ -15296,6 +15440,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.03,
     "region": "eastus",
     "source": "azure/f48sv2/results/Standard_F48s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -15399,6 +15544,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 46.448431167036745,
       "retransmits_pct": 99.84510791627335
     },
+    "price_per_hour": 0.273,
     "region": "eastus",
     "source": "azure/f4asv6/results/Standard_F4as_v6-l4-kernel.json",
     "system_config": {
@@ -15541,6 +15687,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.273,
     "region": "eastus",
     "source": "azure/f4asv6/results/Standard_F4as_v6-l7-serve-h1.json",
     "system_config": null,
@@ -15644,6 +15791,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 10.074131565909548,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.169,
     "region": "eastus",
     "source": "azure/f4sv2/results/Standard_F4s_v2-l4-kernel.json",
     "system_config": {
@@ -15786,6 +15934,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.169,
     "region": "eastus",
     "source": "azure/f4sv2/results/Standard_F4s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -15889,6 +16038,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 44.95657036970462,
       "retransmits_pct": 99.6857224733996
     },
+    "price_per_hour": 0.546,
     "region": "eastus",
     "source": "azure/f8asv6/results/Standard_F8as_v6-l4-kernel.json",
     "system_config": {
@@ -16031,6 +16181,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.546,
     "region": "eastus",
     "source": "azure/f8asv6/results/Standard_F8as_v6-l7-serve-h1.json",
     "system_config": null,
@@ -16134,6 +16285,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 20.37188750225244,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.338,
     "region": "eastus",
     "source": "azure/f8sv2/results/Standard_F8s_v2-l4-kernel.json",
     "system_config": {
@@ -16261,6 +16413,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.338,
     "region": "eastus",
     "source": "azure/f8sv2/results/Standard_F8s_v2-l7-serve-h1.json",
     "system_config": null,
@@ -16386,6 +16539,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 91.47061316850578,
       "retransmits_pct": 98.55433752010823
     },
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-16-l4-kernel.json",
     "system_config": {
@@ -16527,6 +16681,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-16-l4-lb.json",
     "system_config": null,
@@ -16585,6 +16740,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-16-l7-ingress-h1.json",
     "system_config": null,
@@ -16644,6 +16800,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.8354,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-16-l7-ingress-h2.json",
     "system_config": null,
@@ -16769,6 +16926,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 91.35055604656318,
       "retransmits_pct": 98.72647093257712
     },
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-30-l4-kernel.json",
     "system_config": {
@@ -16910,6 +17068,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-30-l4-lb.json",
     "system_config": null,
@@ -16968,6 +17127,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-30-l7-ingress-h1.json",
     "system_config": null,
@@ -17026,6 +17186,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.5663,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-30-l7-ingress-h2.json",
     "system_config": null,
@@ -17151,6 +17312,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 86.21107693455713,
       "retransmits_pct": 99.9571169062276
     },
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-4-l4-kernel.json",
     "system_config": {
@@ -17292,6 +17454,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-4-l4-lb.json",
     "system_config": null,
@@ -17350,6 +17513,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -17408,6 +17572,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2088,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -17533,6 +17698,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 89.89181204954366,
       "retransmits_pct": 99.11938002781423
     },
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-8-l4-kernel.json",
     "system_config": {
@@ -17674,6 +17840,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-8-l4-lb.json",
     "system_config": null,
@@ -17732,6 +17899,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-8-l7-ingress-h1.json",
     "system_config": null,
@@ -17790,6 +17958,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4177,
     "region": "us-central1",
     "source": "gke/c2/results/c2-standard-8-l7-ingress-h2.json",
     "system_config": null,
@@ -17915,6 +18084,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 92.02783546102876,
       "retransmits_pct": 92.6297714964998
     },
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-4-l4-kernel.json",
     "system_config": {
@@ -18056,6 +18226,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-4-l4-lb.json",
     "system_config": null,
@@ -18114,6 +18285,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -18172,6 +18344,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2096,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -18297,6 +18470,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 89.98744057111733,
       "retransmits_pct": 61.86222763567465
     },
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-8-l4-kernel.json",
     "system_config": {
@@ -18438,6 +18612,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-8-l4-lb.json",
     "system_config": null,
@@ -18496,6 +18671,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-8-l7-ingress-h1.json",
     "system_config": null,
@@ -18554,6 +18730,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4193,
     "region": "us-central1",
     "source": "gke/c3/results/c3-standard-8-l7-ingress-h2.json",
     "system_config": null,
@@ -18679,6 +18856,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 93.38303595615656,
       "retransmits_pct": 91.34366268732538
     },
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-4-l4-kernel.json",
     "system_config": {
@@ -18820,6 +18998,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-4-l4-lb.json",
     "system_config": null,
@@ -18878,6 +19057,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -18936,6 +19116,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1824,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -18992,6 +19173,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3648,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-8-l4-lb.json",
     "system_config": null,
@@ -19050,6 +19232,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3648,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-8-l7-ingress-h1.json",
     "system_config": null,
@@ -19108,6 +19291,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.3648,
     "region": "us-central1",
     "source": "gke/c3d/results/c3d-standard-8-l7-ingress-h2.json",
     "system_config": null,
@@ -19233,6 +19417,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 88.02646178406623,
       "retransmits_pct": -1021.1764705882354
     },
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-2-l4-kernel.json",
     "system_config": {
@@ -19374,6 +19559,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-2-l4-lb.json",
     "system_config": null,
@@ -19432,6 +19618,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-2-l7-ingress-h1.json",
     "system_config": null,
@@ -19490,6 +19677,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09842,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-2-l7-ingress-h2.json",
     "system_config": null,
@@ -19615,6 +19803,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 87.4404298447924,
       "retransmits_pct": 43.228391528334285
     },
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-4-l4-kernel.json",
     "system_config": {
@@ -19756,6 +19945,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-4-l4-lb.json",
     "system_config": null,
@@ -19814,6 +20004,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -19872,6 +20063,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19684,
     "region": "us-central1",
     "source": "gke/c4/results/c4-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -19928,6 +20120,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.77696,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-16-l4-lb.json",
     "system_config": null,
@@ -19986,6 +20179,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.77696,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-16-l7-ingress-h1.json",
     "system_config": null,
@@ -20044,6 +20238,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.77696,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-16-l7-ingress-h2.json",
     "system_config": null,
@@ -20100,6 +20295,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09712,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-2-l4-lb.json",
     "system_config": null,
@@ -20158,6 +20354,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09712,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-2-l7-ingress-h1.json",
     "system_config": null,
@@ -20216,6 +20413,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09712,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-2-l7-ingress-h2.json",
     "system_config": null,
@@ -20272,6 +20470,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19424,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-4-l4-lb.json",
     "system_config": null,
@@ -20330,6 +20529,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19424,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -20388,6 +20588,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.19424,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -20513,6 +20714,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 90.42604443485855,
       "retransmits_pct": 99.69180609860986
     },
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-8-l4-kernel.json",
     "system_config": {
@@ -20654,6 +20856,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-8-l4-lb.json",
     "system_config": null,
@@ -20712,6 +20915,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-8-l7-ingress-h1.json",
     "system_config": null,
@@ -20771,6 +20975,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.38848,
     "region": "us-central1",
     "source": "gke/n2/results/n2-standard-8-l7-ingress-h2.json",
     "system_config": null,
@@ -20896,6 +21101,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 88.4188475923893,
       "retransmits_pct": 98.55965851506515
     },
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-2-l4-kernel.json",
     "system_config": {
@@ -21037,6 +21243,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-2-l4-lb.json",
     "system_config": null,
@@ -21095,6 +21302,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-2-l7-ingress-h1.json",
     "system_config": null,
@@ -21153,6 +21361,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.09274,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-2-l7-ingress-h2.json",
     "system_config": null,
@@ -21278,6 +21487,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 83.8169964101871,
       "retransmits_pct": 99.44216861648152
     },
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-4-l4-kernel.json",
     "system_config": {
@@ -21419,6 +21629,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-4-l4-lb.json",
     "system_config": null,
@@ -21477,6 +21688,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-4-l7-ingress-h1.json",
     "system_config": null,
@@ -21535,6 +21747,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.18548,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-4-l7-ingress-h2.json",
     "system_config": null,
@@ -21660,6 +21873,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 86.76887119831078,
       "retransmits_pct": 98.30694206144429
     },
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-8-l4-kernel.json",
     "system_config": {
@@ -21801,6 +22015,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-8-l4-lb.json",
     "system_config": null,
@@ -21859,6 +22074,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-8-l7-ingress-h1.json",
     "system_config": null,
@@ -21917,6 +22133,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.37096,
     "region": "us-central1",
     "source": "gke/n4/results/n4-standard-8-l7-ingress-h2.json",
     "system_config": null,
@@ -22042,6 +22259,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 27.86079495445631,
       "retransmits_pct": 0
     },
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.12xlarge-l4-kernel.json",
     "system_config": {
@@ -22183,6 +22401,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.12xlarge-l4-lb.json",
     "system_config": null,
@@ -22241,6 +22460,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.12xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -22299,6 +22519,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 2.7216,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.12xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -22424,6 +22645,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 30.623653623113533,
       "retransmits_pct": -1638.4615384615386
     },
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.16xlarge-l4-kernel.json",
     "system_config": {
@@ -22565,6 +22787,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.16xlarge-l4-lb.json",
     "system_config": null,
@@ -22623,6 +22846,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.16xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -22681,6 +22905,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.6288,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.16xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -22806,6 +23031,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 31.393293532164478,
       "retransmits_pct": -83319.99999999999
     },
+    "price_per_hour": 5.4432,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.24xlarge-l4-kernel.json",
     "system_config": {
@@ -22947,6 +23173,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.4432,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.24xlarge-l4-lb.json",
     "system_config": null,
@@ -23005,6 +23232,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.4432,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.24xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -23063,6 +23291,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.4432,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.24xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -23188,6 +23417,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 56.93900540679498,
       "retransmits_pct": -2821.4285714285716
     },
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.2xlarge-l4-kernel.json",
     "system_config": {
@@ -23329,6 +23559,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.2xlarge-l4-lb.json",
     "system_config": null,
@@ -23387,6 +23618,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.2xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -23445,6 +23677,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.4536,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.2xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -23570,6 +23803,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 34.0719431325539,
       "retransmits_pct": -4767.34693877551
     },
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.32xlarge-l4-kernel.json",
     "system_config": {
@@ -23711,6 +23945,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.32xlarge-l4-lb.json",
     "system_config": null,
@@ -23769,6 +24004,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.32xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -23827,6 +24063,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.32xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -23952,6 +24189,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 45.48686883948224,
       "retransmits_pct": -44776.923076923085
     },
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.4xlarge-l4-kernel.json",
     "system_config": {
@@ -24093,6 +24331,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.4xlarge-l4-lb.json",
     "system_config": null,
@@ -24151,6 +24390,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.4xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -24209,6 +24449,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.9072,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.4xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -24334,6 +24575,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 29.234095427793154,
       "retransmits_pct": -56311.76470588236
     },
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.8xlarge-l4-kernel.json",
     "system_config": {
@@ -24475,6 +24717,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.8xlarge-l4-lb.json",
     "system_config": null,
@@ -24533,6 +24776,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.8xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -24591,6 +24835,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.8144,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.8xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -24716,6 +24961,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 82.73112719472343,
       "retransmits_pct": -91.0891089108911
     },
+    "price_per_hour": 0.1134,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.large-l4-kernel.json",
     "system_config": {
@@ -24857,6 +25103,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1134,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.large-l4-lb.json",
     "system_config": null,
@@ -24914,6 +25161,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1134,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.large-l7-ingress-h1.json",
     "system_config": null,
@@ -24971,6 +25219,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1134,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.large-l7-ingress-h2.json",
     "system_config": null,
@@ -25096,6 +25345,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 32.966678805520914,
       "retransmits_pct": -5178.160919540231
     },
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.metal-l4-kernel.json",
     "system_config": {
@@ -25237,6 +25487,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.metal-l4-lb.json",
     "system_config": null,
@@ -25295,6 +25546,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.metal-l7-ingress-h1.json",
     "system_config": null,
@@ -25353,6 +25605,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 7.2576,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.metal-l7-ingress-h2.json",
     "system_config": null,
@@ -25478,6 +25731,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 68.90605795818573,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.xlarge-l4-kernel.json",
     "system_config": {
@@ -25619,6 +25873,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.xlarge-l4-lb.json",
     "system_config": null,
@@ -25677,6 +25932,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -25735,6 +25991,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.2268,
     "region": "us-west-2",
     "source": "eks/c6in/results/c6in.xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -25860,6 +26117,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 88.80003430050276,
       "retransmits_pct": 97.59829598556804
     },
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.large-l4-kernel.json",
     "system_config": {
@@ -26001,6 +26259,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.large-l4-lb.json",
     "system_config": null,
@@ -26058,6 +26317,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.large-l7-ingress-h1.json",
     "system_config": null,
@@ -26115,6 +26375,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.08925,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.large-l7-ingress-h2.json",
     "system_config": null,
@@ -26240,6 +26501,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 62.71672695601582,
       "retransmits_pct": -817.1102661596958
     },
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.xlarge-l4-kernel.json",
     "system_config": {
@@ -26381,6 +26643,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.xlarge-l4-lb.json",
     "system_config": null,
@@ -26439,6 +26702,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -26497,6 +26761,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.1785,
     "region": "us-west-2",
     "source": "eks/c7i/results/c7i.xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -26622,6 +26887,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.70943017548814,
       "retransmits_pct": 100
     },
+    "price_per_hour": 2.77488,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.12xlarge-l4-kernel.json",
     "system_config": {
@@ -26832,6 +27098,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 73.65367042885352,
       "retransmits_pct": 100
     },
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l4-kernel.json",
     "system_config": {
@@ -26973,6 +27240,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l4-lb.json",
     "system_config": null,
@@ -27031,6 +27299,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -27089,6 +27358,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 3.69984,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -27214,6 +27484,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.57897190766923,
       "retransmits_pct": 100
     },
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l4-kernel.json",
     "system_config": {
@@ -27355,6 +27626,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l4-lb.json",
     "system_config": null,
@@ -27413,6 +27685,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -27471,6 +27744,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 5.54976,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -27596,6 +27870,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 53.6163837016993,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l4-kernel.json",
     "system_config": {
@@ -27737,6 +28012,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l4-lb.json",
     "system_config": null,
@@ -27794,6 +28070,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -27851,6 +28128,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.46248,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -27976,6 +28254,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 79.10309559176905,
       "retransmits_pct": 100
     },
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l4-kernel.json",
     "system_config": {
@@ -28117,6 +28396,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l4-lb.json",
     "system_config": null,
@@ -28174,6 +28454,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28231,6 +28512,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 11.09952,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -28356,6 +28638,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 52.169994640285545,
       "retransmits_pct": 100
     },
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l4-kernel.json",
     "system_config": {
@@ -28498,6 +28781,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l4-lb.json",
     "system_config": null,
@@ -28555,6 +28839,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28612,6 +28897,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.92496,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -28737,6 +29023,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.70146661166024,
       "retransmits_pct": 100
     },
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l4-kernel.json",
     "system_config": {
@@ -28878,6 +29165,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l4-lb.json",
     "system_config": null,
@@ -28935,6 +29223,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28992,6 +29281,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 1.84992,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -29117,6 +29407,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 71.4532102297983,
       "retransmits_pct": -686.8131868131868
     },
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l4-kernel.json",
     "system_config": {
@@ -29258,6 +29549,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l4-lb.json",
     "system_config": null,
@@ -29315,6 +29607,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l7-ingress-h1.json",
     "system_config": null,
@@ -29372,6 +29665,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.11562,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l7-ingress-h2.json",
     "system_config": null,
@@ -29497,6 +29791,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 82.7037143437098,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l4-kernel.json",
     "system_config": {
@@ -29638,6 +29933,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l4-lb.json",
     "system_config": null,
@@ -29695,6 +29991,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l7-ingress-h1.json",
     "system_config": null,
@@ -29752,6 +30049,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.05781,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l7-ingress-h2.json",
     "system_config": null,
@@ -29877,6 +30175,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 59.859275617948185,
       "retransmits_pct": 0
     },
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l4-kernel.json",
     "system_config": {
@@ -30018,6 +30317,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l4-lb.json",
     "system_config": null,
@@ -30075,6 +30375,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -30132,6 +30433,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.23124,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -30257,6 +30559,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 86.05528926310892,
       "retransmits_pct": 72.7605633802817
     },
+    "price_per_hour": 0.0702,
     "region": "eastus",
     "source": "aks/d2psv6/results/Standard_D2ps_v6-l4-kernel.json",
     "system_config": {
@@ -30467,6 +30770,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 78.35484380868347,
       "retransmits_pct": 99.59742655874166
     },
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "aks/d2sv4/results/Standard_D2s_v4-l4-kernel.json",
     "system_config": {
@@ -30608,6 +30912,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "aks/d2sv4/results/Standard_D2s_v4-l4-lb.json",
     "system_config": null,
@@ -30665,6 +30970,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "aks/d2sv4/results/Standard_D2s_v4-l7-ingress-h1.json",
     "system_config": null,
@@ -30722,6 +31028,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.096,
     "region": "eastus",
     "source": "aks/d2sv4/results/Standard_D2s_v4-l7-ingress-h2.json",
     "system_config": null,
@@ -30847,6 +31154,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 81.62845843159384,
       "retransmits_pct": 98.8782493422248
     },
+    "price_per_hour": 0.14,
     "region": "eastus",
     "source": "aks/d4psv6/results/Standard_D4ps_v6-l4-kernel.json",
     "system_config": {
@@ -31042,6 +31350,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 82.46671663191042,
       "retransmits_pct": -6.887755102040817
     },
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "aks/d4sv4/results/Standard_D4s_v4-l4-kernel.json",
     "system_config": {
@@ -31183,6 +31492,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "aks/d4sv4/results/Standard_D4s_v4-l4-lb.json",
     "system_config": null,
@@ -31240,6 +31550,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "aks/d4sv4/results/Standard_D4s_v4-l7-ingress-h1.json",
     "system_config": null,
@@ -31297,6 +31608,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
+    "price_per_hour": 0.192,
     "region": "eastus",
     "source": "aks/d4sv4/results/Standard_D4s_v4-l7-ingress-h2.json",
     "system_config": null,

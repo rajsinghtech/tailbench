@@ -28,6 +28,8 @@ type BenchmarkResult struct {
 	HAMode             string        `json:"ha_mode,omitempty"`
 	FortioResult       *FortioResult `json:"fortio_result,omitempty"`
 	L7Overhead         *L7Overhead   `json:"l7_overhead,omitempty"`
+	ForwardPPS         *PPSResult    `json:"forward_pps,omitempty"`
+	ForwardRole        string        `json:"forward_role,omitempty"` // e.g. "exit-node"
 }
 
 type SystemConfig struct {
@@ -43,10 +45,38 @@ type SystemConfig struct {
 }
 
 type TestConfig struct {
-	IPerfDurationSec     int `json:"iperf_duration_sec"`
-	IPerfParallelStreams int `json:"iperf_parallel_streams"`
-	IPerfIterations      int `json:"iperf_iterations"`
-	MTRCycles            int `json:"mtr_cycles"`
+	IPerfDurationSec     int     `json:"iperf_duration_sec"`
+	IPerfParallelStreams int     `json:"iperf_parallel_streams"`
+	IPerfIterations      int     `json:"iperf_iterations"`
+	MTRCycles            int     `json:"mtr_cycles"`
+	PPSDatagramSizes     []int   `json:"pps_datagram_sizes,omitempty"`
+	PPSLossThresholdPct  float64 `json:"pps_loss_threshold_pct,omitempty"`
+}
+
+// PPSResult holds usable packets-per-second measurements for a forwarding role
+// (e.g. an exit node), captured at several packet sizes. "Usable pps" for a size
+// is the highest offered UDP rate sustained at or below the loss threshold.
+//
+// Note: iperf3 cannot emit a true mixed IMIX stream, so the IMIX figure uses a
+// single IMIX-average datagram size and is labeled accordingly.
+type PPSResult struct {
+	Sizes            []PPSSizeResult `json:"sizes"`
+	LossThresholdPct float64         `json:"loss_threshold_pct"`
+	// LimitingResource records what capped the rate: "node-cpu",
+	// "instance-pps-cap", or "unknown". A benchmark near the instance cap is not
+	// measuring the node's own capacity.
+	LimitingResource string `json:"limiting_resource,omitempty"`
+}
+
+// PPSSizeResult is the usable pps measured at one packet size.
+type PPSSizeResult struct {
+	Label         string  `json:"label"`          // "64", "imix-avg", "mtu"
+	DatagramBytes int     `json:"datagram_bytes"` // UDP payload bytes offered to iperf3 (-l)
+	OfferedPPS    float64 `json:"offered_pps"`    // offered rate at the accepted step
+	UsablePPS     float64 `json:"usable_pps"`     // achieved rate at that step (loss <= threshold)
+	LossPct       float64 `json:"loss_pct"`
+	JitterMs      float64 `json:"jitter_ms"`
+	Mbps          float64 `json:"mbps"`
 }
 
 type TCPResult struct {

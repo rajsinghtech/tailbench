@@ -6,8 +6,15 @@
 *.pem
 .env
 .tailbench/
-# Go binary
-tailbench
+# Go binaries
+/tailbench
+/aggregate
+/pricing-refresh
+/dist/
+/.tools/
+
+# PR drafts
+PR_MESSAGE.md
 
 # Pulumi state
 state/

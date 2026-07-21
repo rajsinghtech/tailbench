@@ -1,3 +1,5 @@
+//go:build aws && k8s && !azure && !gcp
+
 package provider
 
 import (
@@ -37,6 +39,8 @@ type EKSProvider struct {
 	tsnetSrv     *tsnet.Server
 	operatorFQDN string
 }
+
+var _ K8sOperatorProvider = (*EKSProvider)(nil)
 
 func (p *EKSProvider) Name() string { return "eks" }
 
@@ -374,22 +378,26 @@ func (p *EKSProvider) TeardownNetworking(ctx context.Context) error {
 }
 
 func (p *EKSProvider) ListFamilies() []string {
-	return (&AWSProvider{}).ListFamilies()
+	return listAWSFamilies()
 }
 
 func (p *EKSProvider) ListInstances(ctx context.Context, family string) ([]InstanceInfo, error) {
-	return (&AWSProvider{Region: p.Region}).ListInstances(ctx, family)
+	return listAWSInstances(ctx, p.Region, family)
 }
 
 func (p *EKSProvider) GetVCPUs(ctx context.Context, instanceType string) (int, error) {
-	return (&AWSProvider{Region: p.Region}).GetVCPUs(ctx, instanceType)
+	return getAWSVCPUs(ctx, p.Region, instanceType)
 }
 
 func (p *EKSProvider) IsQuotaError(err error) bool {
+	if isAWSQuotaError(err) {
+		return true
+	}
+	if err == nil {
+		return false
+	}
 	s := err.Error()
-	return strings.Contains(s, "VcpuLimitExceeded") ||
-		strings.Contains(s, "InstanceLimitExceeded") ||
-		strings.Contains(s, "insufficient") ||
+	return strings.Contains(s, "insufficient") ||
 		strings.Contains(s, "Unschedulable")
 }
 

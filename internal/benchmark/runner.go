@@ -19,6 +19,7 @@ type Runner struct {
 	ServerTailscale Executor
 	ClientTailscale Executor
 	BaselineClient  Executor // optional: non-tailscale client for L7 baseline (K8s only)
+	Router          Executor // optional: the exit-node router under test (forwarding-pps)
 	Config          RunConfig
 	Log             *logger.Logger
 }
@@ -35,6 +36,13 @@ type RunConfig struct {
 	ServerHostname     string
 	ClientHostname     string
 	SkipTailscaleSetup bool
+
+	// Usable-pps (forwarding) parameters.
+	PPSDatagramSizes    []int   // UDP payload sizes to sweep, default [64, 340, 1400]
+	PPSLossThresholdPct float64 // max loss to count a rate "usable", default 0.1
+	PPSDurationSec      int     // seconds per sweep step, default 15
+	PPSWarmupSec        int     // omitted warmup seconds per step, default 2
+	PPSMaxRatePPS       int     // upper bound of the offered-rate search, default 2_000_000
 }
 
 func (c *RunConfig) defaults() {
@@ -55,6 +63,21 @@ func (c *RunConfig) defaults() {
 	}
 	if c.CreditRetrySec == 0 {
 		c.CreditRetrySec = 60
+	}
+	if len(c.PPSDatagramSizes) == 0 {
+		c.PPSDatagramSizes = []int{64, 340, 1400}
+	}
+	if c.PPSLossThresholdPct == 0 {
+		c.PPSLossThresholdPct = 0.1
+	}
+	if c.PPSDurationSec == 0 {
+		c.PPSDurationSec = 15
+	}
+	if c.PPSWarmupSec == 0 {
+		c.PPSWarmupSec = 2
+	}
+	if c.PPSMaxRatePPS == 0 {
+		c.PPSMaxRatePPS = 2_000_000
 	}
 }
 
@@ -313,6 +336,153 @@ func (r *Runner) runIPerfTest(ctx context.Context, c Executor, targetIP string, 
 		runs = append(runs, *run)
 	}
 	return runs, nil
+}
+
+// probeUDPRate offers `pps` datagrams/sec of `datagramBytes` payload for one
+// trial and returns the datagram-level UDP stats. iperf3's control channel is
+// TCP and its data channel is UDP (-u); -b takes a bitrate, so the offered
+// packet rate is converted to bits/sec (pps * bytes * 8). -P 1 keeps the run on
+// a single tunnel (one core for WireGuard crypto — extra streams don't raise the
+// forwarding pps ceiling); -O omits warmup seconds so ramp-up isn't counted.
+func probeUDPRate(ctx context.Context, c Executor, targetIP string, datagramBytes, pps, durationSec, warmupSec int) (*UDPStats, error) {
+	bitsPerSec := int64(pps) * int64(datagramBytes) * 8
+	cmd := fmt.Sprintf("iperf3 -c %s -p %d -u -l %d -b %d -P 1 -O %d -t %d -J",
+		targetIP, IPerfPort, datagramBytes, bitsPerSec, warmupSec, durationSec)
+	stdout, _, err := c.Run(ctx, cmd)
+	if err != nil {
+		return nil, err
+	}
+	if iperfErr := IPerfError([]byte(stdout)); iperfErr != nil {
+		return nil, iperfErr
+	}
+	return ParseIPerfUDPJSON([]byte(stdout))
+}
+
+// runUDPSweep finds the "usable pps" for one datagram size: the highest offered
+// rate whose measured loss stays at or below cfg.PPSLossThresholdPct. It runs an
+// RFC-2544-style binary search on the offered rate, bounded by cfg.PPSMaxRatePPS.
+//
+// The search probes the ceiling first (if the path sustains the max offered rate
+// within the loss budget, the node is faster than our cap and we stop), then
+// bisects the [lo, hi] bracket — lo is the highest rate proven usable, hi the
+// lowest rate proven lossy — until the bracket is within bracketTolerancePct or
+// maxSteps trials are spent. Each trial is a real ~PPSDurationSec benchmark, so
+// the step budget is deliberately small.
+func (r *Runner) runUDPSweep(ctx context.Context, c Executor, targetIP string, datagramBytes int, cfg RunConfig) (result.PPSSizeResult, error) {
+	const maxSteps = 8
+	const bracketTolerancePct = 5.0
+
+	threshold := cfg.PPSLossThresholdPct
+	lo, hi := 0, cfg.PPSMaxRatePPS
+	var best result.PPSSizeResult
+	found := false
+
+	for step := 0; step <= maxSteps; step++ {
+		rate := (lo + hi) / 2
+		if step == 0 {
+			rate = hi // probe the ceiling first
+		}
+		if rate <= 0 {
+			break
+		}
+
+		stats, err := probeUDPRate(ctx, c, targetIP, datagramBytes, rate, cfg.PPSDurationSec, cfg.PPSWarmupSec)
+		if err != nil {
+			return best, fmt.Errorf("udp probe at %d pps (%dB): %w", rate, datagramBytes, err)
+		}
+
+		usablePPS := 0.0
+		if stats.Seconds > 0 {
+			usablePPS = float64(stats.Packets-stats.LostPackets) / stats.Seconds
+		}
+		r.Log.Infof("pps %dB: offered %d pps -> loss %.3f%%, usable %.0f pps, jitter %.2f ms",
+			datagramBytes, rate, stats.LossPct, usablePPS, stats.JitterMs)
+
+		if stats.LossPct <= threshold {
+			found = true
+			best = result.PPSSizeResult{
+				DatagramBytes: datagramBytes,
+				OfferedPPS:    float64(rate),
+				UsablePPS:     usablePPS,
+				LossPct:       stats.LossPct,
+				JitterMs:      stats.JitterMs,
+				Mbps:          stats.BitsPerSec / 1e6,
+			}
+			lo = rate
+			if step == 0 {
+				break // sustained the ceiling; bounded by our cap, not the node
+			}
+		} else {
+			hi = rate
+		}
+		if lo > 0 && float64(hi-lo)/float64(lo)*100 <= bracketTolerancePct {
+			break
+		}
+	}
+
+	if !found {
+		return best, fmt.Errorf("no offered rate sustained loss <= %.3f%% for %dB (floor above %d pps?)",
+			threshold, datagramBytes, cfg.PPSMaxRatePPS)
+	}
+	return best, nil
+}
+
+// RunForwardingPPS measures usable forwarding pps from the client to
+// sinkPublicIP, which must route through the router under test (e.g. via an exit
+// node). The sink runs the iperf3 server; the client offers UDP at each
+// configured datagram size. 64B is labeled worst-case, ~MTU best-case, and the
+// middle IMIX-average size is the headline.
+//
+// Note: distinguishing a node-CPU (softirq) ceiling from a cloud per-instance
+// pps cap needs router-side telemetry that isn't wired yet, so LimitingResource
+// is only set to "config-max-rate" when a sweep sustained our own PPSMaxRatePPS
+// ceiling (meaning: raise the cap, the node can do more).
+func (r *Runner) RunForwardingPPS(ctx context.Context, client, sink Executor, sinkPublicIP string) (*result.PPSResult, error) {
+	cfg := r.Config
+	cfg.defaults()
+
+	if err := startIPerfServer(ctx, sink); err != nil {
+		return nil, fmt.Errorf("starting sink iperf3 server: %w", err)
+	}
+	defer stopIPerfServer(ctx, sink)
+
+	out := &result.PPSResult{LossThresholdPct: cfg.PPSLossThresholdPct}
+	for _, dgram := range cfg.PPSDatagramSizes {
+		size, err := r.runUDPSweep(ctx, client, sinkPublicIP, dgram, cfg)
+		if err != nil {
+			return nil, err
+		}
+		size.Label = ppsSizeLabel(dgram, cfg.PPSDatagramSizes)
+		if size.OfferedPPS >= float64(cfg.PPSMaxRatePPS) {
+			out.LimitingResource = "config-max-rate"
+		}
+		out.Sizes = append(out.Sizes, size)
+	}
+	return out, nil
+}
+
+// ppsSizeLabel names a datagram size for the dashboard: the smallest configured
+// size is the worst-case small packet (labeled with its byte count, e.g. "64"),
+// the largest is the ~MTU best case, and any middle size is the IMIX-average
+// headline.
+func ppsSizeLabel(dgram int, sizes []int) string {
+	lo, hi := sizes[0], sizes[0]
+	for _, s := range sizes {
+		if s < lo {
+			lo = s
+		}
+		if s > hi {
+			hi = s
+		}
+	}
+	switch dgram {
+	case lo:
+		return strconv.Itoa(dgram)
+	case hi:
+		return "mtu"
+	default:
+		return "imix-avg"
+	}
 }
 
 // runMTR executes mtr and parses the output.

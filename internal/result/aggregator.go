@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/rajsinghtech/tailbench/internal/pricing"
 )
 
 // Aggregate reads all result JSON files under {rootDir}/{gcp,aws,azure}/**/results/*.json
@@ -48,6 +50,17 @@ func Aggregate(rootDir string) error {
 			}
 			sourceJSON, _ := json.Marshal(rel)
 			obj["source"] = sourceJSON
+
+			// Inject on-demand $/hr from the curated pricing dataset so the
+			// dashboard can show cost without re-running any benchmark.
+			var provider, region, itype string
+			_ = json.Unmarshal(obj["cloud_provider"], &provider)
+			_ = json.Unmarshal(obj["region"], &region)
+			_ = json.Unmarshal(obj["instance_type"], &itype)
+			if price, ok := pricing.Lookup(provider, region, itype); ok {
+				priceJSON, _ := json.Marshal(price)
+				obj["price_per_hour"] = priceJSON
+			}
 
 			merged, err := json.Marshal(obj)
 			if err != nil {

@@ -3,14 +3,15 @@ package benchmark
 import "strings"
 
 var validModes = map[string]bool{
-	"tsnet-userspace": true,
-	"l4-kernel":       true,
-	"l4-userspace":    true,
-	"l4-lb":           true,
-	"l7-ingress-h1":   true,
-	"l7-ingress-h2":   true,
-	"l7-serve-h1":     true,
-	"l7-serve-h2":     true,
+	"tsnet-userspace":  true,
+	"l4-kernel":        true,
+	"l4-userspace":     true,
+	"l4-lb":            true,
+	"l7-ingress-h1":    true,
+	"l7-ingress-h2":    true,
+	"l7-serve-h1":      true,
+	"l7-serve-h2":      true,
+	"forward-pps-exit": true,
 }
 
 func IsValidMode(mode string) bool {
@@ -21,7 +22,7 @@ func ModeAppliesTo(mode, env string) bool {
 	switch mode {
 	case "l4-lb", "l7-ingress-h1", "l7-ingress-h2":
 		return env == "container"
-	case "l7-serve-h1", "l7-serve-h2":
+	case "l7-serve-h1", "l7-serve-h2", "forward-pps-exit":
 		return env == "vm"
 	default:
 		return true
@@ -30,6 +31,12 @@ func ModeAppliesTo(mode, env string) bool {
 
 func ModeUsesIperf(mode string) bool {
 	return mode == "l4-kernel" || mode == "l4-userspace"
+}
+
+// ModeUsesForwardPPS reports whether the mode measures usable forwarding pps
+// through a router node (e.g. an exit node), rather than endpoint-to-endpoint.
+func ModeUsesForwardPPS(mode string) bool {
+	return mode == "forward-pps-exit"
 }
 
 func ModeUsesFortio(mode string) bool {

@@ -10,10 +10,15 @@ import (
 var tmplFS embed.FS
 
 type Config struct {
-	AuthKey      string
-	Hostname     string
-	EnableSSH    bool
-	EnableServe  bool // install fortio and run tailscale serve --https for L7 benchmarks
+	AuthKey     string
+	Hostname    string
+	EnableSSH   bool
+	EnableServe bool // install fortio and run tailscale serve --https for L7 benchmarks
+	// AdvertiseExitNode makes this node come up as an exit node (the router under
+	// test in the forwarding-pps benchmark). AdvertiseRoutes advertises subnet
+	// routes (reserved for the future subnet-router variant; empty otherwise).
+	AdvertiseExitNode bool
+	AdvertiseRoutes   string
 }
 
 func Render(cfg Config) (string, error) {

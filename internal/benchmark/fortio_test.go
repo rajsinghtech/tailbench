@@ -70,17 +70,17 @@ func TestBuildFortioCmd(t *testing.T) {
 		want     string
 	}{
 		{
-			name: "h1 max throughput",
+			name:   "h1 max throughput",
 			target: "https://bench-echo.ts.net", h2: false, conns: 16, duration: 30, qps: 0,
-			want: "fortio load -json /dev/stdout -qps 0 -c 16 -t 30s https://bench-echo.ts.net",
+			want: "fortio load -json /dev/stdout -qps 0 -c 16 -t 30s -https-insecure https://bench-echo.ts.net",
 		},
 		{
-			name: "h2 max throughput",
+			name:   "h2 max throughput",
 			target: "https://bench-echo.ts.net", h2: true, conns: 16, duration: 30, qps: 0,
-			want: "fortio load -json /dev/stdout -qps 0 -c 16 -t 30s -h2 https://bench-echo.ts.net",
+			want: "fortio load -json /dev/stdout -qps 0 -c 16 -t 30s -h2 -https-insecure https://bench-echo.ts.net",
 		},
 		{
-			name: "fixed qps",
+			name:   "fixed qps",
 			target: "http://10.0.0.5:8080", h2: false, conns: 8, duration: 10, qps: 1000,
 			want: "fortio load -json /dev/stdout -qps 1000 -c 8 -t 10s http://10.0.0.5:8080",
 		},

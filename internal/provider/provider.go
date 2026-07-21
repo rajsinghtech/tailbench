@@ -49,12 +49,26 @@ type PairOptions struct {
 	Networking     *NetworkingOutput
 	BenchImage     string // K8s benchmark container image (empty = provider default)
 	TSImage        string // K8s tailscale sidecar image (empty = provider default)
+
+	// WantRouter provisions a 3rd VM (the router/exit-node under test) for the
+	// forwarding-pps benchmark. RouterUserData is its cloud-init; if empty,
+	// UserData is used.
+	WantRouter     bool
+	RouterUserData string
 }
 
 // ClientUD returns the user-data to use for the client VM.
 func (o PairOptions) ClientUD() string {
 	if o.ClientUserData != "" {
 		return o.ClientUserData
+	}
+	return o.UserData
+}
+
+// RouterUD returns the user-data to use for the router VM.
+func (o PairOptions) RouterUD() string {
+	if o.RouterUserData != "" {
+		return o.RouterUserData
 	}
 	return o.UserData
 }
@@ -72,6 +86,11 @@ type PairOutput struct {
 	ClientInstanceID string
 	ServerENIID      string
 	ClientENIID      string
+	// Router/exit-node under test (populated only when PairOptions.WantRouter).
+	RouterName       string
+	RouterIP         string // public IP (the pps sink target routes here via the exit node)
+	RouterLANIP      string
+	RouterInstanceID string
 	// K8s-specific (empty for VM providers)
 	Namespace  string
 	Kubeconfig string
