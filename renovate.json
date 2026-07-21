@@ -1,0 +1,29 @@
+{
+  "$schema": "https://docs.renovatebot.com/renovate-schema.json",
+  "extends": ["config:recommended", ":dependencyDashboard"],
+  "schedule": ["before 6am on Monday"],
+  "timezone": "America/Los_Angeles",
+  "labels": ["dependencies"],
+  "separateMinorPatch": true,
+  "packageRules": [
+    {
+      "matchManagers": ["gomod"],
+      "groupName": "go-dependencies"
+    },
+    {
+      "matchManagers": ["gomod"],
+      "matchUpdateTypes": ["minor", "patch", "digest"],
+      "automerge": true
+    },
+    {
+      "matchManagers": ["github-actions"],
+      "groupName": "github-actions",
+      "automerge": true
+    },
+    {
+      "matchManagers": ["dockerfile"],
+      "groupName": "docker",
+      "automerge": true
+    }
+  ]
+}
