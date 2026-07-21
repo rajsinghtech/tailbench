@@ -290,8 +290,14 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		suffix := fmt.Sprintf("%d", time.Now().Unix()%10000)
 		serverHostname := fmt.Sprintf("tb-%s-s-%s-%s", p.Name(), safeType, suffix)
 		clientHostname := fmt.Sprintf("tb-%s-c-%s-%s", p.Name(), safeType, suffix)
+		routerHostname := fmt.Sprintf("tb-%s-r-%s-%s", p.Name(), safeType, suffix)
 
-		var userData, clientUserData string
+		// forward-pps-exit is VM-only and needs a 3rd node (the exit-node router).
+		// Base this on the work left for this instance so reruns don't provision an
+		// unused router after its forwarding result has already been written.
+		wantRouter := !isK8sProvider(p.Name()) && hasForwardMode(pendingModes)
+
+		var userData, clientUserData, routerUserData string
 		if isK8sProvider(p.Name()) {
 			userData = *authKey
 		} else {
@@ -322,6 +328,19 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 				continue
 			}
 			clientUserData = clientUD
+			if wantRouter {
+				routerUD, err := cloudinit.Render(cloudinit.Config{
+					AuthKey:           *authKey,
+					Hostname:          routerHostname,
+					EnableSSH:         true,
+					AdvertiseExitNode: true,
+				})
+				if err != nil {
+					lg.Errf("cloud-init (router) for %s: %v", inst.Type, err)
+					continue
+				}
+				routerUserData = routerUD
+			}
 		}
 
 		// Pre-cleanup: destroy any leftover resources from a previous run.
@@ -335,6 +354,8 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			InstanceType:   inst.Type,
 			UserData:       userData,
 			ClientUserData: clientUserData,
+			RouterUserData: routerUserData,
+			WantRouter:     wantRouter,
 			Networking:     net,
 			BenchImage:     o.cfg.BenchImage,
 			TSImage:        o.cfg.TSImage,
@@ -353,7 +374,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			continue
 		}
 
-		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, *authKey)
+		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
 
 		lg.Step("teardown", inst.Type)
 		if err := p.DestroyPair(ctx, inst.Type); err != nil {
@@ -389,7 +410,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 	return nil
 }
 
-func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, authKey string) error {
+func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, routerHostname, authKey string) error {
 	if pair.Namespace != "" {
 		return o.runK8sBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, authKey)
 	}
@@ -424,23 +445,43 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		return fmt.Errorf("client ready: %w", err)
 	}
 
+	// Router (exit-node under test) — only provisioned for forwarding-pps runs.
+	var routerSSH benchmark.Executor
+	if pair.RouterIP != "" {
+		lg.Step("ssh", fmt.Sprintf("connecting to %s", routerHostname))
+		rSSH, err := sshclient.Dial(o.tsnetSrv, routerHostname, "root", o.cfg.SSHTimeout, lg)
+		if err != nil {
+			return fmt.Errorf("ssh dial router: %w", err)
+		}
+		defer rSSH.Close()
+		if err := rSSH.WaitForReady(ctx); err != nil {
+			return fmt.Errorf("router ready: %w", err)
+		}
+		routerSSH = rSSH
+	}
+
 	runner := &benchmark.Runner{
 		Server:          serverSSH,
 		Client:          clientSSH,
 		ServerTailscale: serverSSH,
 		ClientTailscale: clientSSH,
+		Router:          routerSSH,
 		Log:             lg,
 		Config: benchmark.RunConfig{
-			IPerfDuration:      o.cfg.IPerfDuration,
-			IPerfParallel:      o.cfg.IPerfParallel,
-			IPerfIterations:    o.cfg.IPerfIterations,
-			MTRCycles:          o.cfg.MTRCycles,
-			CooldownSec:        o.cfg.CooldownSec,
-			CreditRetrySec:     o.cfg.CreditRetrySec,
-			AuthKey:            authKey,
-			ServerHostname:     serverHostname,
-			ClientHostname:     clientHostname,
-			SkipTailscaleSetup: true,
+			IPerfDuration:       o.cfg.IPerfDuration,
+			IPerfParallel:       o.cfg.IPerfParallel,
+			IPerfIterations:     o.cfg.IPerfIterations,
+			MTRCycles:           o.cfg.MTRCycles,
+			CooldownSec:         o.cfg.CooldownSec,
+			CreditRetrySec:      o.cfg.CreditRetrySec,
+			AuthKey:             authKey,
+			ServerHostname:      serverHostname,
+			ClientHostname:      clientHostname,
+			SkipTailscaleSetup:  true,
+			PPSDatagramSizes:    o.cfg.PPSDatagramSizes,
+			PPSLossThresholdPct: o.cfg.PPSLossThresholdPct,
+			PPSDurationSec:      o.cfg.PPSDurationSec,
+			PPSMaxRatePPS:       o.cfg.PPSMaxRatePPS,
 		},
 	}
 
@@ -499,6 +540,34 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 			br = &result.BenchmarkResult{
 				FortioResult: ts,
 				L7Overhead:   result.ComputeL7Overhead(baseline, ts),
+			}
+		case benchmark.ModeUsesForwardPPS(mode):
+			if runner.Router == nil {
+				log.Printf("%s skipping mode %s: no router provisioned", prefix, mode)
+				continue
+			}
+			routerTSIP, err := benchmark.GetTailscaleIP(ctx, runner.Router)
+			if err != nil {
+				log.Printf("%s mode %s: router tailscale IP: %v (continuing)", prefix, mode, err)
+				continue
+			}
+			log.Printf("%s forwarding-pps: routing client egress via exit node %s", prefix, routerTSIP)
+			if err := benchmark.SetExitNode(ctx, runner.Client, routerTSIP); err != nil {
+				log.Printf("%s mode %s: set exit node: %v", prefix, mode, err)
+				continue
+			}
+			// Client -> router (exit node) -> server public IP (a non-tailnet
+			// address, so it egresses through the router rather than direct).
+			pps, ppsErr := runner.RunForwardingPPS(ctx, runner.Client, runner.Server, pair.ServerIP)
+			_ = benchmark.ClearExitNode(ctx, runner.Client)
+			if ppsErr != nil {
+				log.Printf("%s forward-pps mode %s failed: %v", prefix, mode, ppsErr)
+				continue
+			}
+			br = &result.BenchmarkResult{
+				ForwardPPS:  pps,
+				ForwardRole: "exit-node",
+				TestConfig:  forwardPPSTestConfig(pps),
 			}
 		case benchmark.ModeUsesTsnet(mode):
 			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
@@ -636,6 +705,29 @@ func hasL7ServeMode(modes []string) bool {
 		}
 	}
 	return false
+}
+
+func hasForwardMode(modes []string) bool {
+	for _, m := range modes {
+		if benchmark.ModeUsesForwardPPS(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func forwardPPSTestConfig(pps *result.PPSResult) *result.TestConfig {
+	if pps == nil {
+		return nil
+	}
+	sizes := make([]int, 0, len(pps.Sizes))
+	for _, size := range pps.Sizes {
+		sizes = append(sizes, size.DatagramBytes)
+	}
+	return &result.TestConfig{
+		PPSDatagramSizes:    sizes,
+		PPSLossThresholdPct: pps.LossThresholdPct,
+	}
 }
 
 func safeHostname(instanceType string) string {

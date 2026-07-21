@@ -132,6 +132,25 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 			return err
 		}
 
+		// iperf3 control (TCP) + data (UDP) for the forwarding-pps sink, reached
+		// on its public IP via the exit node. Protocol "*" covers both.
+		_, err = aznetwork.NewSecurityRule(pCtx, "AllowIperfPPS", &aznetwork.SecurityRuleArgs{
+			ResourceGroupName:        pulumi.String(p.ResourceGroup),
+			NetworkSecurityGroupName: nsg.Name,
+			SecurityRuleName:         pulumi.String("AllowIperfPPS"),
+			Priority:                 pulumi.Int(1300),
+			Protocol:                 pulumi.String("*"),
+			Access:                   pulumi.String("Allow"),
+			Direction:                pulumi.String("Inbound"),
+			SourceAddressPrefix:      pulumi.String("*"),
+			SourcePortRange:          pulumi.String("*"),
+			DestinationAddressPrefix: pulumi.String("*"),
+			DestinationPortRange:     pulumi.String("15201"),
+		})
+		if err != nil {
+			return err
+		}
+
 		pCtx.Export("vnet_name", vnet.Name)
 		pCtx.Export("subnet_id", subnet.ID())
 		pCtx.Export("nsg_id", nsg.ID())
@@ -174,17 +193,26 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 
 	serverName := fmt.Sprintf("tb-%s-server", safeType)
 	clientName := fmt.Sprintf("tb-%s-client", safeType)
+	routerName := fmt.Sprintf("tb-%s-router", safeType)
 
 	subnetID := opts.Networking.Values["subnet_id"]
 	nsgID := opts.Networking.Values["nsg_id"]
 	serverUserData := base64.StdEncoding.EncodeToString([]byte(opts.UserData))
 	clientUserData := base64.StdEncoding.EncodeToString([]byte(opts.ClientUD()))
+	routerUserData := base64.StdEncoding.EncodeToString([]byte(opts.RouterUD()))
 
 	program := func(pCtx *pulumi.Context) error {
-		for _, name := range []string{serverName, clientName} {
+		nodes := []string{serverName, clientName}
+		if opts.WantRouter {
+			nodes = append(nodes, routerName)
+		}
+		for _, name := range nodes {
 			encodedUserData := serverUserData
-			if name == clientName {
+			switch name {
+			case clientName:
 				encodedUserData = clientUserData
+			case routerName:
+				encodedUserData = routerUserData
 			}
 			pip, err := aznetwork.NewPublicIPAddress(pCtx, name+"-pip", &aznetwork.PublicIPAddressArgs{
 				ResourceGroupName:        pulumi.String(p.ResourceGroup),
@@ -273,8 +301,11 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 			}
 
 			prefix := "server"
-			if name == clientName {
+			switch name {
+			case clientName:
 				prefix = "client"
+			case routerName:
+				prefix = "router"
 			}
 			pCtx.Export(prefix+"_ip", pip.IpAddress)
 			pCtx.Export(prefix+"_lan_ip",
@@ -309,7 +340,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 		return s
 	}
 
-	return &PairOutput{
+	out := &PairOutput{
 		ServerName:  serverName,
 		ClientName:  clientName,
 		ServerIP:    getStr("server_ip"),
@@ -317,7 +348,13 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 		ServerLANIP: getStr("server_lan_ip"),
 		ClientLANIP: getStr("client_lan_ip"),
 		StackName:   stackName,
-	}, nil
+	}
+	if opts.WantRouter {
+		out.RouterName = routerName
+		out.RouterIP = getStr("router_ip")
+		out.RouterLANIP = getStr("router_lan_ip")
+	}
+	return out, nil
 }
 
 func (p *AzureProvider) DestroyPair(ctx context.Context, instanceType string) error {

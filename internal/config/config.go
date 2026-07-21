@@ -13,45 +13,49 @@ import (
 )
 
 type Config struct {
-	Providers          []string
-	Family             string
-	Filter             string
-	CreateTailnet      bool
-	OAuthClientID      string
-	OAuthClientSecret  string
-	Tag                string
-	IPerfDuration      int
-	IPerfParallel      int
-	IPerfIterations    int
-	MTRCycles          int
-	CooldownSec        int
-	CreditRetrySec     int
-	SSHTimeout         int
-	ReadyTimeout       int
-	AWSRegion          string
-	AWSAZ              string
-	AWSKeyName         string
-	GCPProject         string
-	GCPZone            string
-	AzureLocation      string
-	AzureResourceGroup string
-	AzureSSHUser       string
-	AzureSSHPubKey     string
-	CleanupNetworking  bool
-	DryRun             bool
-	AuthKeyRefreshSec  int
-	RootDir            string
-	StateDir           string
-	BenchImage         string
-	TSImage            string
-	FortioDuration     int
-	FortioConnections  int
-	FortioQPS          int
-	FortioIterations   int
-	Modes              []string
-	IngressFQDN        string
-	ServeFQDN          string
-	ClusterLabel       string
+	Providers           []string
+	Family              string
+	Filter              string
+	CreateTailnet       bool
+	OAuthClientID       string
+	OAuthClientSecret   string
+	Tag                 string
+	IPerfDuration       int
+	IPerfParallel       int
+	IPerfIterations     int
+	MTRCycles           int
+	CooldownSec         int
+	CreditRetrySec      int
+	SSHTimeout          int
+	ReadyTimeout        int
+	AWSRegion           string
+	AWSAZ               string
+	AWSKeyName          string
+	GCPProject          string
+	GCPZone             string
+	AzureLocation       string
+	AzureResourceGroup  string
+	AzureSSHUser        string
+	AzureSSHPubKey      string
+	CleanupNetworking   bool
+	DryRun              bool
+	AuthKeyRefreshSec   int
+	RootDir             string
+	StateDir            string
+	BenchImage          string
+	TSImage             string
+	FortioDuration      int
+	FortioConnections   int
+	FortioQPS           int
+	FortioIterations    int
+	PPSDatagramSizes    []int
+	PPSLossThresholdPct float64
+	PPSDurationSec      int
+	PPSMaxRatePPS       int
+	Modes               []string
+	IngressFQDN         string
+	ServeFQDN           string
+	ClusterLabel        string
 }
 
 type yamlConfig struct {
@@ -68,16 +72,20 @@ type yamlConfig struct {
 	} `yaml:"tailscale"`
 
 	Benchmark struct {
-		IPerfDuration     int      `yaml:"iperf_duration"`
-		IPerfParallel     int      `yaml:"iperf_parallel"`
-		IPerfIterations   int      `yaml:"iperf_iterations"`
-		MTRCycles         int      `yaml:"mtr_cycles"`
-		CooldownSec       int      `yaml:"cooldown_sec"`
-		FortioDuration    int      `yaml:"fortio_duration"`
-		FortioConnections int      `yaml:"fortio_connections"`
-		FortioQPS         int      `yaml:"fortio_qps"`
-		FortioIterations  int      `yaml:"fortio_iterations"`
-		Modes             []string `yaml:"modes"`
+		IPerfDuration       int      `yaml:"iperf_duration"`
+		IPerfParallel       int      `yaml:"iperf_parallel"`
+		IPerfIterations     int      `yaml:"iperf_iterations"`
+		MTRCycles           int      `yaml:"mtr_cycles"`
+		CooldownSec         int      `yaml:"cooldown_sec"`
+		FortioDuration      int      `yaml:"fortio_duration"`
+		FortioConnections   int      `yaml:"fortio_connections"`
+		FortioQPS           int      `yaml:"fortio_qps"`
+		FortioIterations    int      `yaml:"fortio_iterations"`
+		PPSDatagramSizes    []int    `yaml:"pps_datagram_sizes"`
+		PPSLossThresholdPct float64  `yaml:"pps_loss_threshold_pct"`
+		PPSDurationSec      int      `yaml:"pps_duration_sec"`
+		PPSMaxRatePPS       int      `yaml:"pps_max_rate_pps"`
+		Modes               []string `yaml:"modes"`
 	} `yaml:"benchmark"`
 
 	SSH struct {
@@ -227,11 +235,17 @@ func ParseArgs(defaultProvider string, args []string) (*Config, error) {
 		FortioConnections: orInt(yc.Benchmark.FortioConnections, 16),
 		FortioQPS:         yc.Benchmark.FortioQPS,
 		FortioIterations:  orInt(yc.Benchmark.FortioIterations, 3),
-		Modes:             yc.Benchmark.Modes,
-		IngressFQDN:       yc.L7Endpoints.IngressFQDN,
-		ServeFQDN:         yc.L7Endpoints.ServeFQDN,
-		ClusterLabel:      or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
-		AuthKeyRefreshSec: 1800,
+		// PPS params forwarded raw; benchmark.RunConfig.defaults() supplies
+		// defaults (sizes 64/340/1400, 0.1% loss, 15s, 2M pps ceiling).
+		PPSDatagramSizes:    yc.Benchmark.PPSDatagramSizes,
+		PPSLossThresholdPct: yc.Benchmark.PPSLossThresholdPct,
+		PPSDurationSec:      yc.Benchmark.PPSDurationSec,
+		PPSMaxRatePPS:       yc.Benchmark.PPSMaxRatePPS,
+		Modes:               yc.Benchmark.Modes,
+		IngressFQDN:         yc.L7Endpoints.IngressFQDN,
+		ServeFQDN:           yc.L7Endpoints.ServeFQDN,
+		ClusterLabel:        or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
+		AuthKeyRefreshSec:   1800,
 
 		SSHTimeout:   orInt(yc.SSH.Timeout, 120),
 		ReadyTimeout: orInt(yc.SSH.ReadyTimeout, 300),

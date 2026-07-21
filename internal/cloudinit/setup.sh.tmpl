@@ -38,7 +38,7 @@ curl -fsSL "https://github.com/fortio/fortio/releases/download/v${FORTIO_VERSION
 {{- end }}
 
 {{- if .AuthKey }}
-tailscale up --authkey={{ .AuthKey }} --hostname={{ .Hostname }}
+tailscale up --authkey={{ .AuthKey }} --hostname={{ .Hostname }}{{ if .AdvertiseExitNode }} --advertise-exit-node{{ end }}{{ if .AdvertiseRoutes }} --advertise-routes={{ .AdvertiseRoutes }}{{ end }}
 {{- if .EnableSSH }}
 tailscale set --ssh
 {{- end }}

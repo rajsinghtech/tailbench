@@ -82,6 +82,43 @@ For each selected instance type, Tailbench provisions a server/client pair, runs
 
 Local Pulumi state remains in `state/<provider>`. Generated benchmark data continues to aggregate into `website/data.generated.js`.
 
+## Forwarding pps (exit-node sizing)
+
+For **subnet routers and exit nodes** the bottleneck is per-packet CPU work
+(WireGuard does an AEAD op per datagram and a single tunnel is pinned to one
+core), so the sizing metric is **packets/second, not Gbps** — and it must be
+**measured** with small UDP packets, never derived from TCP throughput.
+
+The `forward-pps-exit` mode (VM only, opt-in) provisions a **third node** — a
+router advertising `--advertise-exit-node` — and measures the router's usable
+forwarding pps on the path `client -> router (exit node) -> server (sink public
+IP)`. The router is the device under test; its instance type, vCPUs, and price
+are what the result records.
+
+- **Usable pps** = the highest offered UDP rate sustaining **≤0.1% loss**, found
+  by an RFC-2544-style binary search (`iperf3 -u -b <bits/s>`, single stream),
+  reported at **64 B** (worst case), an **IMIX-average** size (headline), and
+  **~MTU** (best case).
+- Enable it by adding `forward-pps-exit` to `benchmark.modes` in `config.yaml`
+  (see the `pps_*` tuning keys there), then run e.g.
+  `./dist/tailbench-aws --filter '^c6in\.xlarge$'`.
+- The dashboard shows **Usable pps** and **pps/$** columns, rendered **only when
+  forwarding data exists**. This is exit-node **forwarding** pps — distinct from
+  endpoint-to-endpoint host pps (see `docs/cost-forward-pps-plan.md`).
+
+## Instance pricing
+
+Each result is annotated at aggregation time with an on-demand **$/hr** price
+from a curated dataset (`internal/pricing/data.json`) — no price is stored in the
+result JSON, so re-pricing every historical result is just a re-aggregate. Prices
+assume **Linux, shared tenancy, on-demand** in each provider's canonical region.
+Refresh them (no cloud credentials required) with:
+
+```bash
+go run ./cmd/pricing-refresh   # AWS bulk list + Azure retail; GCP curated
+go run ./cmd/aggregate/        # re-inject price_per_hour into data.generated.js
+```
+
 ## Development
 
 The Makefile is the supported developer interface:

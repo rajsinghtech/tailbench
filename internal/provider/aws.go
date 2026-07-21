@@ -129,6 +129,20 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					Description: pulumi.String("WireGuard"),
 				},
 				ec2.SecurityGroupIngressArgs{
+					Protocol:    pulumi.String("tcp"),
+					FromPort:    pulumi.Int(15201),
+					ToPort:      pulumi.Int(15201),
+					CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+					Description: pulumi.String("iperf3 control (forwarding-pps sink, routed via exit node)"),
+				},
+				ec2.SecurityGroupIngressArgs{
+					Protocol:    pulumi.String("udp"),
+					FromPort:    pulumi.Int(15201),
+					ToPort:      pulumi.Int(15201),
+					CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+					Description: pulumi.String("iperf3 UDP data (forwarding-pps sink, routed via exit node)"),
+				},
+				ec2.SecurityGroupIngressArgs{
 					Protocol:    pulumi.String("-1"),
 					FromPort:    pulumi.Int(0),
 					ToPort:      pulumi.Int(0),
@@ -210,6 +224,7 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 	serverName := fmt.Sprintf("tb-%s-server", safeType)
 	clientName := fmt.Sprintf("tb-%s-client", safeType)
+	routerName := fmt.Sprintf("tb-%s-router", safeType)
 
 	net := opts.Networking
 	subnetID := net.Values["subnet_id"]
@@ -238,10 +253,17 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			return fmt.Errorf("lookup AMI: %w", err)
 		}
 
-		for _, name := range []string{serverName, clientName} {
+		nodes := []string{serverName, clientName}
+		if opts.WantRouter {
+			nodes = append(nodes, routerName)
+		}
+		for _, name := range nodes {
 			ud := opts.UserData
-			if name == clientName {
+			switch name {
+			case clientName:
 				ud = opts.ClientUD()
+			case routerName:
+				ud = opts.RouterUD()
 			}
 			inst, err := ec2.NewInstance(pCtx, name, &ec2.InstanceArgs{
 				Ami:          pulumi.String(ami.Id),
@@ -267,8 +289,11 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			}
 
 			prefix := "server"
-			if name == clientName {
+			switch name {
+			case clientName:
 				prefix = "client"
+			case routerName:
+				prefix = "router"
 			}
 			pCtx.Export(prefix+"_ip", inst.PublicIp)
 			pCtx.Export(prefix+"_lan_ip", inst.PrivateIp)
@@ -304,7 +329,7 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return s
 	}
 
-	return &PairOutput{
+	out := &PairOutput{
 		ServerName:       serverName,
 		ClientName:       clientName,
 		ServerIP:         getOutput("server_ip"),
@@ -316,7 +341,14 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		ClientInstanceID: getOutput("client_instance_id"),
 		ServerENIID:      getOutput("server_eni_id"),
 		ClientENIID:      getOutput("client_eni_id"),
-	}, nil
+	}
+	if opts.WantRouter {
+		out.RouterName = routerName
+		out.RouterIP = getOutput("router_ip")
+		out.RouterLANIP = getOutput("router_lan_ip")
+		out.RouterInstanceID = getOutput("router_instance_id")
+	}
+	return out, nil
 }
 
 func (p *AWSProvider) DestroyPair(ctx context.Context, instanceType string) error {

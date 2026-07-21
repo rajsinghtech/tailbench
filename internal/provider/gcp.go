@@ -70,13 +70,37 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 	serverName := fmt.Sprintf("tb-%s-server", safeType)
 	clientName := fmt.Sprintf("tb-%s-client", safeType)
+	routerName := fmt.Sprintf("tb-%s-router", safeType)
 	diskType, imageFamily := p.gcpInstanceProps(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
-		for _, name := range []string{serverName, clientName} {
+		if opts.WantRouter {
+			// The GCP network is bring-your-own, so open the iperf3 port for the
+			// forwarding-pps sink (public IP, reached via the exit node) here.
+			if _, err := compute.NewFirewall(pCtx, fmt.Sprintf("tb-%s-pps", safeType), &compute.FirewallArgs{
+				Network:   pulumi.String(p.Network),
+				Direction: pulumi.String("INGRESS"),
+				Allows: compute.FirewallAllowArray{
+					compute.FirewallAllowArgs{Protocol: pulumi.String("tcp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
+					compute.FirewallAllowArgs{Protocol: pulumi.String("udp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
+				},
+				SourceRanges: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+			}); err != nil {
+				return err
+			}
+		}
+
+		nodes := []string{serverName, clientName}
+		if opts.WantRouter {
+			nodes = append(nodes, routerName)
+		}
+		for _, name := range nodes {
 			ud := opts.UserData
-			if name == clientName {
+			switch name {
+			case clientName:
 				ud = opts.ClientUD()
+			case routerName:
+				ud = opts.RouterUD()
 			}
 			inst, err := compute.NewInstance(pCtx, name, &compute.InstanceArgs{
 				MachineType: pulumi.String(opts.InstanceType),
@@ -110,8 +134,11 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			}
 
 			prefix := "server"
-			if name == clientName {
+			switch name {
+			case clientName:
 				prefix = "client"
+			case routerName:
+				prefix = "router"
 			}
 			pCtx.Export(prefix+"_ip",
 				inst.NetworkInterfaces.Index(pulumi.Int(0)).AccessConfigs().Index(pulumi.Int(0)).NatIp())
@@ -153,7 +180,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return s
 	}
 
-	return &PairOutput{
+	out := &PairOutput{
 		ServerName:  serverName,
 		ClientName:  clientName,
 		ServerIP:    getOutput("server_ip"),
@@ -161,7 +188,13 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		ServerLANIP: getOutput("server_lan_ip"),
 		ClientLANIP: getOutput("client_lan_ip"),
 		StackName:   stackName,
-	}, nil
+	}
+	if opts.WantRouter {
+		out.RouterName = routerName
+		out.RouterIP = getOutput("router_ip")
+		out.RouterLANIP = getOutput("router_lan_ip")
+	}
+	return out, nil
 }
 
 func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) error {
