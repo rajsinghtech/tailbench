@@ -295,12 +295,13 @@ footer a:hover { text-decoration: underline; }
       var k = d.instance_type + '|' + (d.cloud_provider||'gcp') + '|' + (d.environment||'vm');
       if (!m[k]) m[k] = {
         type: d.instance_type, family: d.instance_family, provider: d.cloud_provider||'gcp',
-        env: d.environment||'vm', vcpus: d.vcpus||0, region: d.region, zone: d.zone,
+        env: d.environment||'vm', vcpus: d.vcpus||0, price: d.price_per_hour||0, region: d.region, zone: d.zone,
         tsver: d.tailscale_version, date: d.date, modes: {}
       };
       var g = m[k];
       g.modes[d.transport_mode||'l4-kernel'] = d;
       if (d.vcpus && !g.vcpus) g.vcpus = d.vcpus;
+      if (d.price_per_hour && !g.price) g.price = d.price_per_hour;
       if (d.tailscale_version && !g.tsver) g.tsver = d.tailscale_version;
       if (d.date && !g.date) g.date = d.date;
     });
@@ -351,6 +352,7 @@ footer a:hover { text-decoration: underline; }
   // Helpers
   function gbps(m) { return (m/1000).toFixed(2); }
   function fq(q) { return q>=1000?(q/1000).toFixed(1)+'k':q.toFixed(0); }
+  function usd(p) { return p>=10?'$'+p.toFixed(2):'$'+p.toFixed(4); }
   function ohc(p) { return p<5?'oh-g':p<=15?'oh-y':'oh-r'; }
 
   // Summary values per group
@@ -365,6 +367,7 @@ footer a:hover { text-decoration: underline; }
       case 'type': return g.type;
       case 'provider': return g.provider;
       case 'vcpus': return vcpu(g);
+      case 'price': return g.price?g.price:999999;
       case 'bw': return bestBW(g);
       case 'qps': return bestQPS(g);
       case 'p99': var p=bestP99(g); return p?p:999999;
@@ -806,14 +809,20 @@ footer a:hover { text-decoration: underline; }
     document.getElementById('stats').innerHTML=h;
   }
 
-  function renderHead() {
+  // Column definitions shared by the header and the detail-row colspan.
+  function tableCols() {
     var cols=[
       {k:'type',l:'Instance'},{k:'provider',l:'Cloud'},{k:'vcpus',l:'vCPU'},
+      {k:'price',l:'$/hr'},
       {k:'bw',l:'L4 Throughput'},{k:'overhead',l:'Overhead'},
       {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'},
-      {k:'',l:'Mode Breakdown'},
-      {k:'',l:''}
+      {k:'',l:'Mode Breakdown'},{k:'',l:''}
     ];
+    return cols;
+  }
+
+  function renderHead() {
+    var cols=tableCols();
     var h='<tr>';
     cols.forEach(function(c){
       var s=c.k===state.sort; var a=s?(state.dir==='asc'?'\u25B2':'\u25BC'):'\u25B2';
@@ -842,6 +851,8 @@ footer a:hover { text-decoration: underline; }
       h+='<td><span class="inst">'+g.type+'</span><span class="tag tf">'+g.family.toUpperCase()+'</span><span class="tag '+(g.env==='container'?'tc':'te')+'">'+(g.env==='container'?'K8s':'VM')+'</span></td>';
       h+='<td><span class="tag tp">'+g.provider.toUpperCase()+'</span></td>';
       h+='<td class="m">'+v+'</td>';
+      // Cost — on-demand $/hr (dash when unpriced)
+      h+='<td class="m">'+(g.price?usd(g.price):'—')+'</td>';
       // L4 throughput — show if iperf data exists
       h+='<td class="m bw-cell">'+(bw?'<div class="bw-bar bl" style="width:'+blW+'%"></div><div class="bw-bar ts" style="width:'+bwW+'%"></div><span class="bw-v">'+gbps(bw)+'<small>Gbps</small></span>':'\u2014')+'</td>';
       // Overhead — show iperf overhead
@@ -882,7 +893,7 @@ footer a:hover { text-decoration: underline; }
       h+='</tr>';
 
       // Detail row
-      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="9"><div class="detail-content">';
+      h+='<tr class="detail-row'+(isOpen?' open':'')+'" data-detail="'+key+'"><td colspan="'+tableCols().length+'"><div class="detail-content">';
 
       // Mode detail rows
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});

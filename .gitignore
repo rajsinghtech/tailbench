@@ -8,6 +8,7 @@
 .tailbench/
 # Go binary
 /tailbench
+/pricing-refresh
 /dist/
 /.tools/
 PR_MESSAGE.md
