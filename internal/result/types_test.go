@@ -136,3 +136,48 @@ func TestBenchmarkResultRoundTrip(t *testing.T) {
 	assert.Equal(t, r.CloudProvider, r2.CloudProvider)
 	assert.InDelta(t, r.Overhead.BandwidthPct, r2.Overhead.BandwidthPct, 0.001)
 }
+
+func TestForwardPPSJSON(t *testing.T) {
+	r := &BenchmarkResult{
+		CloudProvider:        "gke",
+		InstanceFamily:       "c3",
+		InstanceType:         "c3-standard-8",
+		TransportMode:        "forward-pps-exit-k8s-opton",
+		ForwardRole:          "proxygroup",
+		ForwardOptimizations: "on",
+		ForwardPPS: &PPSResult{
+			Sizes: []PPSSizeResult{{
+				Label:         "64",
+				DatagramBytes: 64,
+				OfferedPPS:    83000,
+				UsablePPS:     83000,
+				LossPct:       0,
+				JitterMs:      0.05,
+				Mbps:          998.2,
+			}},
+			LossThresholdPct: 0.1,
+			LimitingResource: "proxy-cpu",
+		},
+	}
+	data, err := json.Marshal(r)
+	require.NoError(t, err)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	assert.JSONEq(t, `"on"`, string(raw["forwarding_optimizations"]))
+	assert.JSONEq(t, `"proxygroup"`, string(raw["forward_role"]))
+	assert.Contains(t, string(raw["forward_pps"]), `"limiting_resource":"proxy-cpu"`)
+
+	var decoded BenchmarkResult
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	assert.Equal(t, "on", decoded.ForwardOptimizations)
+	require.NotNil(t, decoded.ForwardPPS)
+	assert.Equal(t, 83000.0, decoded.ForwardPPS.Sizes[0].UsablePPS)
+	assert.Equal(t, "proxy-cpu", decoded.ForwardPPS.LimitingResource)
+
+	// omitempty: non-forwarding results must not carry the new keys
+	plain, err := json.Marshal(&BenchmarkResult{CloudProvider: "gcp"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(plain), "forward_pps")
+	assert.NotContains(t, string(plain), "forwarding_optimizations")
+}

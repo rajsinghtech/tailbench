@@ -1,0 +1,10 @@
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyGroup
+metadata:
+  name: tailbench-egress
+spec:
+  type: egress
+  # Single replica: this StatefulSet is the DUT for the forwarding-pps
+  # benchmark; extra replicas would smear the measurement across pods.
+  replicas: 1
+  proxyClass: common-accept-routes

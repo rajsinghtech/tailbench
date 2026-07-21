@@ -1,0 +1,25 @@
+# Enables Tailscale forwarding optimizations on BOTH ProxyClasses for the
+# "on" sweep of the forwarding-pps A/B benchmark.
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: common
+spec:
+  statefulSet:
+    pod:
+      tailscaleContainer:
+        env:
+          - name: TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS
+            value: "true"
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: common-accept-routes
+spec:
+  statefulSet:
+    pod:
+      tailscaleContainer:
+        env:
+          - name: TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS
+            value: "true"
