@@ -6,6 +6,8 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/rajsinghtech/tailbench/internal/benchmark"
@@ -13,6 +15,7 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/k8s"
 	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/provider"
+	"github.com/rajsinghtech/tailbench/internal/result"
 )
 
 func validateWorkloadConfig(*config.Config) error { return nil }
@@ -20,6 +23,15 @@ func validateWorkloadConfig(*config.Config) error { return nil }
 func hasL7Modes(modes []string) bool {
 	for _, mode := range modes {
 		if benchmark.ModeUsesFortio(mode) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasForwardPPSModes(modes []string) bool {
+	for _, mode := range modes {
+		if benchmark.ModeUsesForwardPPS(mode) {
 			return true
 		}
 	}
@@ -42,7 +54,18 @@ func (o *Orchestrator) setupK8s(ctx context.Context, p provider.Provider, net *p
 	}
 
 	kubeconfig := net.Values["kubeconfig"]
-	if kubeconfig == "" || !hasL7Modes(o.cfg.Modes) {
+	if kubeconfig == "" {
+		return
+	}
+
+	if hasForwardPPSModes(o.cfg.Modes) {
+		lg.Step("setup", "ProxyGroup forwarding manifests")
+		if err := k8s.DeployProxyGroup(ctx, kubeconfig, o.cfg.RootDir, false); err != nil {
+			lg.Warnf("ProxyGroup deploy: %v (forward-pps modes may not work)", err)
+		}
+	}
+
+	if !hasL7Modes(o.cfg.Modes) {
 		return
 	}
 	lg.Step("setup", "L7 bench manifests")
@@ -145,14 +168,87 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 	runner := &benchmark.Runner{
 		Server: serverBench, Client: clientBench, BaselineClient: baselineClient,
 		ServerTailscale: serverTS, ClientTailscale: clientTS, Log: lg,
-		Config: benchmark.RunConfig{
-			IPerfDuration: o.cfg.IPerfDuration, IPerfParallel: o.cfg.IPerfParallel,
-			IPerfIterations: o.cfg.IPerfIterations, MTRCycles: o.cfg.MTRCycles,
-			CooldownSec: o.cfg.CooldownSec, CreditRetrySec: o.cfg.CreditRetrySec,
-			AuthKey: authKey, ServerHostname: serverHostname, ClientHostname: clientHostname,
-			SkipTailscaleSetup: true,
-		},
+		Config: o.benchmarkRunConfig(authKey, serverHostname, clientHostname),
 	}
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", modeContext{kubeconfig: pair.Kubeconfig})
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", modeContext{serverHostname: serverHostname, kubeconfig: pair.Kubeconfig})
+}
+
+// runForwardPPS runs one pass of the ProxyGroup forwarding A/B: it applies the
+// ProxyClass state for the mode (env absent = off, env "true" = on), waits for
+// the resulting proxy StatefulSet re-roll, then sweeps UDP through the egress
+// proxy to the server pod's tailscale sidecar.
+func (o *Orchestrator) runForwardPPS(ctx context.Context, runner *benchmark.Runner, pair *provider.PairOutput, mode string, mc modeContext) *result.BenchmarkResult {
+	optimizations := strings.HasSuffix(mode, "-opton")
+	state := "off"
+	if optimizations {
+		state = "on"
+	}
+
+	cs, err := k8s.ClientsetFromKubeconfig(mc.kubeconfig)
+	if err != nil {
+		log.Printf("forward-pps mode %s: kubeconfig parse: %v", mode, err)
+		return nil
+	}
+	before, err := k8s.GetProxyGroupRolloutState(ctx, cs, k8s.ProxyGroupName)
+	if err != nil {
+		// The StatefulSet may not exist on the first run. A zero snapshot makes
+		// the readiness wait accept the first fully rolled-out desired revision.
+		log.Printf("forward-pps mode %s: could not snapshot existing proxy rollout: %v", mode, err)
+	}
+	if err := k8s.DeployProxyGroup(ctx, mc.kubeconfig, o.cfg.RootDir, optimizations); err != nil {
+		log.Printf("forward-pps mode %s: deploying ProxyGroup: %v", mode, err)
+		return nil
+	}
+	// A ProxyClass env change re-rolls the proxy StatefulSet; wait for the new
+	// pods so neither A/B pass can measure the previous setting.
+	if err := k8s.WaitForProxyGroupReady(ctx, cs, k8s.ProxyGroupName, before, optimizations, 5*time.Minute); err != nil {
+		log.Printf("forward-pps mode %s: waiting for proxy: %v", mode, err)
+		return nil
+	}
+
+	if mc.serverHostname == "" || o.tailnetDNS == "" {
+		log.Printf("forward-pps mode %s: no sink hostname or tailnet DNS", mode)
+		return nil
+	}
+	target, err := k8s.EnsureEgressService(ctx, cs, pair.Namespace, "tailbench-egress-sink",
+		mc.serverHostname+"."+o.tailnetDNS, benchmark.IPerfPort)
+	if err != nil {
+		log.Printf("forward-pps mode %s: egress service: %v", mode, err)
+		return nil
+	}
+
+	// Sample the proxy pod's cgroup CPU during the sweep so a pod-CPU-capped
+	// pps is recorded as such, not as proxygroup sizing capacity.
+	var cpuBound atomic.Bool
+	sampleCtx, stopSampling := context.WithCancel(ctx)
+	defer stopSampling()
+	go func() {
+		for {
+			select {
+			case <-sampleCtx.Done():
+				return
+			case <-time.After(10 * time.Second):
+				if t, _ := k8s.ProxyPodCPUThrottled(sampleCtx, cs, mc.kubeconfig, k8s.ProxyGroupName); t {
+					cpuBound.Store(true)
+				}
+			}
+		}
+	}()
+
+	pps, err := runner.RunForwardingPPS(ctx, runner.Client, runner.Server, target)
+	stopSampling()
+	if err != nil {
+		log.Printf("forward-pps mode %s: sweep: %v", mode, err)
+		return nil
+	}
+	if cpuBound.Load() {
+		pps.LimitingResource = "proxy-cpu"
+	}
+
+	return &result.BenchmarkResult{
+		ForwardPPS:           pps,
+		ForwardRole:          "proxygroup",
+		ForwardOptimizations: state,
+	}
 }

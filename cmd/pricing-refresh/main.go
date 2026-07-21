@@ -101,7 +101,7 @@ func fetchAzurePrice(region, armSkuName string) (float64, error) {
 	if err != nil {
 		return 0, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return 0, err
@@ -149,7 +149,7 @@ func fetchAWSBulkPrices(ec2Region string, wanted map[string]bool) (map[string]fl
 	if err != nil {
 		return nil, err
 	}
-	defer idxResp.Body.Close()
+	defer func() { _ = idxResp.Body.Close() }()
 	var idx struct {
 		Regions map[string]struct {
 			CurrentVersionURL string `json:"currentVersionUrl"`
@@ -167,7 +167,7 @@ func fetchAWSBulkPrices(ec2Region string, wanted map[string]bool) (map[string]fl
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("bulk price file status %d", resp.StatusCode)
 	}

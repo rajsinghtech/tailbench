@@ -1,0 +1,11 @@
+# "off" state: no forwarding-optimizations env on either ProxyClass.
+# The overlays/on patch adds env="true" for the A/B sweep.
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: common
+---
+apiVersion: tailscale.com/v1alpha1
+kind: ProxyClass
+metadata:
+  name: common-accept-routes

@@ -59,6 +59,8 @@ Provider values remain `aws`, `eks`, `azure`, `aks`, `gcp`, and `gke`. These val
 
 VM binaries support VM modes such as `l4-kernel` and `l7-serve-*`. They reject Kubernetes-only modes such as `l4-lb` and `l7-ingress-*`. The `*-k8s` binaries retain pod execution, operator installation, load-balancer discovery, and L7 manifest deployment.
 
+The Kubernetes-only modes also include `forward-pps-exit-k8s` and `forward-pps-exit-k8s-opton`, an A/B pair that measures UDP packets-per-second forwarded through an operator egress ProxyGroup with the experimental `TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS` env var off and on. Each mode writes its own result file per instance type (`<type>-forward-pps-exit-k8s.json` and `<type>-forward-pps-exit-k8s-opton.json`), so the two arms resume independently. See [docs/cost-forward-pps-plan.md](docs/cost-forward-pps-plan.md) for the topology, sweep methodology, and caveats.
+
 Instance types are discovered dynamically. Current family defaults include:
 
 | GCP/GKE | AWS/EKS | Azure/AKS |

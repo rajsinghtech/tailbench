@@ -453,7 +453,11 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		if err != nil {
 			return fmt.Errorf("ssh dial router: %w", err)
 		}
-		defer rSSH.Close()
+		defer func() {
+			if err := rSSH.Close(); err != nil {
+				lg.Warnf("close router SSH: %v", err)
+			}
+		}()
 		if err := rSSH.WaitForReady(ctx); err != nil {
 			return fmt.Errorf("router ready: %w", err)
 		}
@@ -467,28 +471,34 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 		ClientTailscale: clientSSH,
 		Router:          routerSSH,
 		Log:             lg,
-		Config: benchmark.RunConfig{
-			IPerfDuration:       o.cfg.IPerfDuration,
-			IPerfParallel:       o.cfg.IPerfParallel,
-			IPerfIterations:     o.cfg.IPerfIterations,
-			MTRCycles:           o.cfg.MTRCycles,
-			CooldownSec:         o.cfg.CooldownSec,
-			CreditRetrySec:      o.cfg.CreditRetrySec,
-			AuthKey:             authKey,
-			ServerHostname:      serverHostname,
-			ClientHostname:      clientHostname,
-			SkipTailscaleSetup:  true,
-			PPSDatagramSizes:    o.cfg.PPSDatagramSizes,
-			PPSLossThresholdPct: o.cfg.PPSLossThresholdPct,
-			PPSDurationSec:      o.cfg.PPSDurationSec,
-			PPSMaxRatePPS:       o.cfg.PPSMaxRatePPS,
-		},
+		Config:          o.benchmarkRunConfig(authKey, serverHostname, clientHostname),
 	}
 
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
 	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "vm", modeContext{
 		serverHostname: serverHostname,
 	})
+}
+
+// benchmarkRunConfig builds the settings shared by VM and K8s runners. Keep
+// forwarding-PPS configuration here so both environments run the same sweep.
+func (o *Orchestrator) benchmarkRunConfig(authKey, serverHostname, clientHostname string) benchmark.RunConfig {
+	return benchmark.RunConfig{
+		IPerfDuration:       o.cfg.IPerfDuration,
+		IPerfParallel:       o.cfg.IPerfParallel,
+		IPerfIterations:     o.cfg.IPerfIterations,
+		MTRCycles:           o.cfg.MTRCycles,
+		CooldownSec:         o.cfg.CooldownSec,
+		CreditRetrySec:      o.cfg.CreditRetrySec,
+		AuthKey:             authKey,
+		ServerHostname:      serverHostname,
+		ClientHostname:      clientHostname,
+		SkipTailscaleSetup:  true,
+		PPSDatagramSizes:    o.cfg.PPSDatagramSizes,
+		PPSLossThresholdPct: o.cfg.PPSLossThresholdPct,
+		PPSDurationSec:      o.cfg.PPSDurationSec,
+		PPSMaxRatePPS:       o.cfg.PPSMaxRatePPS,
+	}
 }
 
 type modeContext struct {
@@ -542,6 +552,14 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				L7Overhead:   result.ComputeL7Overhead(baseline, ts),
 			}
 		case benchmark.ModeUsesForwardPPS(mode):
+			if env == "container" {
+				log.Printf("%s running forwarding-pps benchmark for %s mode %s", prefix, inst.Type, mode)
+				br = o.runForwardPPS(ctx, runner, pair, mode, mc)
+				if br == nil {
+					continue
+				}
+				break
+			}
 			if runner.Router == nil {
 				log.Printf("%s skipping mode %s: no router provisioned", prefix, mode)
 				continue

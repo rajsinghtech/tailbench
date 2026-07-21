@@ -12,6 +12,11 @@ var validModes = map[string]bool{
 	"l7-serve-h1":      true,
 	"l7-serve-h2":      true,
 	"forward-pps-exit": true,
+
+	// K8s ProxyGroup forwarding A/B: baseline vs
+	// TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS.
+	"forward-pps-exit-k8s":       true,
+	"forward-pps-exit-k8s-opton": true,
 }
 
 func IsValidMode(mode string) bool {
@@ -20,7 +25,8 @@ func IsValidMode(mode string) bool {
 
 func ModeAppliesTo(mode, env string) bool {
 	switch mode {
-	case "l4-lb", "l7-ingress-h1", "l7-ingress-h2":
+	case "l4-lb", "l7-ingress-h1", "l7-ingress-h2",
+		"forward-pps-exit-k8s", "forward-pps-exit-k8s-opton":
 		return env == "container"
 	case "l7-serve-h1", "l7-serve-h2", "forward-pps-exit":
 		return env == "vm"
@@ -34,9 +40,10 @@ func ModeUsesIperf(mode string) bool {
 }
 
 // ModeUsesForwardPPS reports whether the mode measures usable forwarding pps
-// through a router node (e.g. an exit node), rather than endpoint-to-endpoint.
+// through a router node (e.g. an exit node) or a K8s ProxyGroup, rather than
+// endpoint-to-endpoint.
 func ModeUsesForwardPPS(mode string) bool {
-	return mode == "forward-pps-exit"
+	return strings.HasPrefix(mode, "forward-pps-")
 }
 
 func ModeUsesFortio(mode string) bool {

@@ -13,7 +13,7 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 .NOTPARALLEL:
 
 .PHONY: help fmt lint lint-aws lint-aws-k8s lint-azure lint-azure-k8s lint-gcp lint-gcp-k8s
-.PHONY: test test-aws test-aws-k8s test-azure test-azure-k8s test-gcp test-gcp-k8s
+.PHONY: test test-website test-aws test-aws-k8s test-azure test-azure-k8s test-gcp test-gcp-k8s
 .PHONY: build build-aws build-aws-k8s build-azure build-azure-k8s build-gcp build-gcp-k8s
 .PHONY: verify-deps clean golangci-lint
 
@@ -44,7 +44,9 @@ lint-gcp: golangci-lint ## Lint GCP VM variant
 lint-gcp-k8s: golangci-lint ## Lint GKE variant
 	$(GOLANGCI_LINT) run --build-tags gcp,k8s ./...
 
-test: test-aws test-aws-k8s test-azure test-azure-k8s test-gcp test-gcp-k8s ## Test all variants sequentially
+test: test-website test-aws test-aws-k8s test-azure test-azure-k8s test-gcp test-gcp-k8s ## Test website and all variants sequentially
+test-website: ## Test dashboard data-gating behavior
+	node --test website/index.test.js
 test-aws: ## Test AWS VM variant
 	$(GO) test $(GO_TEST_FLAGS) -tags aws ./...
 test-aws-k8s: ## Test EKS variant

@@ -10,6 +10,7 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/config"
 	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/provider"
+	"github.com/rajsinghtech/tailbench/internal/result"
 )
 
 func validateWorkloadConfig(cfg *config.Config) error {
@@ -30,4 +31,10 @@ func discoverEchoPodIP(context.Context, string, string) string     { return "" }
 
 func (o *Orchestrator) runK8sBenchmark(context.Context, provider.Provider, *provider.PairOutput, provider.InstanceInfo, string, *logger.Logger, string, string, string) error {
 	return fmt.Errorf("kubernetes benchmark execution requires a k8s-enabled binary")
+}
+
+// runForwardPPS is unreachable in !k8s builds: forward-pps modes are
+// container-only (ModeAppliesTo) and validateWorkloadConfig rejects them.
+func (o *Orchestrator) runForwardPPS(context.Context, *benchmark.Runner, *provider.PairOutput, string, modeContext) *result.BenchmarkResult {
+	return nil
 }

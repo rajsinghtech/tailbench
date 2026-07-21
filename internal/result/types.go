@@ -1,35 +1,36 @@
 package result
 
 type BenchmarkResult struct {
-	CloudProvider      string        `json:"cloud_provider"`
-	InstanceFamily     string        `json:"instance_family"`
-	InstanceType       string        `json:"instance_type"`
-	VCPUs              int           `json:"vcpus"`
-	Region             string        `json:"region"`
-	Zone               string        `json:"zone"`
-	Date               string        `json:"date"`
-	TSVersion          string        `json:"tailscale_version"`
-	KernelVersion      string        `json:"kernel_version"`
-	ConnectionType     string        `json:"connection_type"`
-	ENAExpress         bool          `json:"ena_express"`
-	Environment        string        `json:"environment"` // "vm" or "container"
-	SystemConfig       *SystemConfig `json:"system_config"`
-	TestConfig         *TestConfig   `json:"test_config"`
-	BaselineTCP        *TCPResult    `json:"baseline_tcp"`
-	TailscaleTCP       *TCPResult    `json:"tailscale_tcp"`
-	Overhead           *Overhead     `json:"overhead"`
-	BaselineTCPSingle  *TCPResult    `json:"baseline_tcp_single"`
-	TailscaleTCPSingle *TCPResult    `json:"tailscale_tcp_single"`
-	OverheadSingle     *Overhead     `json:"overhead_single"`
-	BaselineMTR        *MTRResult    `json:"baseline_mtr"`
-	TailscaleMTR       *MTRResult    `json:"tailscale_mtr"`
-	TransportMode      string        `json:"transport_mode,omitempty"`
-	HTTPVersion        string        `json:"http_version,omitempty"`
-	HAMode             string        `json:"ha_mode,omitempty"`
-	FortioResult       *FortioResult `json:"fortio_result,omitempty"`
-	L7Overhead         *L7Overhead   `json:"l7_overhead,omitempty"`
-	ForwardPPS         *PPSResult    `json:"forward_pps,omitempty"`
-	ForwardRole        string        `json:"forward_role,omitempty"` // e.g. "exit-node"
+	CloudProvider        string        `json:"cloud_provider"`
+	InstanceFamily       string        `json:"instance_family"`
+	InstanceType         string        `json:"instance_type"`
+	VCPUs                int           `json:"vcpus"`
+	Region               string        `json:"region"`
+	Zone                 string        `json:"zone"`
+	Date                 string        `json:"date"`
+	TSVersion            string        `json:"tailscale_version"`
+	KernelVersion        string        `json:"kernel_version"`
+	ConnectionType       string        `json:"connection_type"`
+	ENAExpress           bool          `json:"ena_express"`
+	Environment          string        `json:"environment"` // "vm" or "container"
+	SystemConfig         *SystemConfig `json:"system_config"`
+	TestConfig           *TestConfig   `json:"test_config"`
+	BaselineTCP          *TCPResult    `json:"baseline_tcp"`
+	TailscaleTCP         *TCPResult    `json:"tailscale_tcp"`
+	Overhead             *Overhead     `json:"overhead"`
+	BaselineTCPSingle    *TCPResult    `json:"baseline_tcp_single"`
+	TailscaleTCPSingle   *TCPResult    `json:"tailscale_tcp_single"`
+	OverheadSingle       *Overhead     `json:"overhead_single"`
+	BaselineMTR          *MTRResult    `json:"baseline_mtr"`
+	TailscaleMTR         *MTRResult    `json:"tailscale_mtr"`
+	TransportMode        string        `json:"transport_mode,omitempty"`
+	HTTPVersion          string        `json:"http_version,omitempty"`
+	HAMode               string        `json:"ha_mode,omitempty"`
+	FortioResult         *FortioResult `json:"fortio_result,omitempty"`
+	L7Overhead           *L7Overhead   `json:"l7_overhead,omitempty"`
+	ForwardPPS           *PPSResult    `json:"forward_pps,omitempty"`
+	ForwardRole          string        `json:"forward_role,omitempty"`             // e.g. "exit-node", "proxygroup"
+	ForwardOptimizations string        `json:"forwarding_optimizations,omitempty"` // "off" or "on"
 }
 
 type SystemConfig struct {

@@ -3,7 +3,7 @@ package benchmark
 import "testing"
 
 func TestModeValid(t *testing.T) {
-	valid := []string{"tsnet-userspace", "l4-kernel", "l4-userspace", "l4-lb", "l7-ingress-h1", "l7-ingress-h2", "l7-serve-h1", "l7-serve-h2", "forward-pps-exit"}
+	valid := []string{"tsnet-userspace", "l4-kernel", "l4-userspace", "l4-lb", "l7-ingress-h1", "l7-ingress-h2", "l7-serve-h1", "l7-serve-h2", "forward-pps-exit", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton"}
 	for _, m := range valid {
 		if !IsValidMode(m) {
 			t.Errorf("IsValidMode(%q) = false, want true", m)
@@ -15,7 +15,7 @@ func TestModeValid(t *testing.T) {
 }
 
 func TestModeEnvironment(t *testing.T) {
-	k8sOnly := []string{"l4-lb", "l7-ingress-h1", "l7-ingress-h2"}
+	k8sOnly := []string{"l4-lb", "l7-ingress-h1", "l7-ingress-h2", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton"}
 	vmOnly := []string{"l7-serve-h1", "l7-serve-h2", "forward-pps-exit"}
 	both := []string{"tsnet-userspace", "l4-kernel", "l4-userspace"}
 
@@ -51,23 +51,30 @@ func TestModeUsesIperf(t *testing.T) {
 	}
 }
 
+func TestModeUsesForwardPPS(t *testing.T) {
+	forward := []string{"forward-pps-exit", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton"}
+	for _, m := range forward {
+		if !ModeUsesForwardPPS(m) {
+			t.Errorf("%s should use forward-pps", m)
+		}
+		if ModeUsesIperf(m) || ModeUsesFortio(m) || ModeUsesTsnet(m) {
+			t.Errorf("%s should NOT use iperf/fortio/tsnet", m)
+		}
+	}
+	notForward := []string{"l4-kernel", "l4-lb", "l7-ingress-h1", "tsnet-userspace", "forward", "pps"}
+	for _, m := range notForward {
+		if ModeUsesForwardPPS(m) {
+			t.Errorf("%s should NOT use forward-pps", m)
+		}
+	}
+}
+
 func TestModeIsH2(t *testing.T) {
 	if !ModeIsH2("l7-ingress-h2") {
 		t.Error("l7-ingress-h2 should be h2")
 	}
 	if ModeIsH2("l7-ingress-h1") {
 		t.Error("l7-ingress-h1 should not be h2")
-	}
-}
-
-func TestModeUsesForwardPPS(t *testing.T) {
-	if !ModeUsesForwardPPS("forward-pps-exit") {
-		t.Error("forward-pps-exit should use forwarding pps")
-	}
-	for _, m := range []string{"l4-kernel", "l4-lb", "l7-serve-h1", "tsnet-userspace"} {
-		if ModeUsesForwardPPS(m) {
-			t.Errorf("%s should NOT use forwarding pps", m)
-		}
 	}
 }
 

@@ -127,3 +127,112 @@ the offered rate (`iperf3 -u -b <bits/s>`), with a short warmup omitted (`-O`)
 and a single stream (`-P 1`, because one tunnel is pinned to one core for the
 WireGuard crypto). Reported at 64 B (worst case), an IMIX-average size
 (headline), and ~MTU (best case).
+
+---
+
+# Forwarding pps through a Tailscale egress ProxyGroup (K8s)
+
+Design doc for issue #3: an A/B benchmark that measures packets-per-second
+forwarded through a Tailscale Kubernetes operator egress ProxyGroup, with the
+experimental `TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS` env var toggled
+off and on.
+
+## Goal
+
+Answer one question: does enabling Tailscale's experimental forwarding
+optimizations change the achievable UDP packet rate when a pod's traffic is
+forwarded through an egress ProxyGroup proxy, and what is the per-instance-type
+cost of that forwarding path in pps terms?
+
+## Topology
+
+```text
+┌─────────────┐   ClusterIP   ┌──────────────────────┐            ┌─────────────────────────┐
+│ client      │──────────────▶│ ProxyGroup           │  tailnet   │ server bench pod        │
+│ bench pod   │  egress svc   │ tailbench-egress     │═══════════▶│ tailscale sidecar ──────┼──▶ iperf3
+│ (iperf3     │               │ proxy pod (DUT,      │            │ (shares pod netns)      │    UDP server
+│  UDP client)│               │  does the forwarding)│            │                         │
+└─────────────┘               └──────────────────────┘            └─────────────────────────┘
+```
+
+The device under test is the ProxyGroup proxy pod: it receives plaintext UDP
+from the client via the egress Service's ClusterIP, encrypts it, forwards it
+across the tailnet to the server bench pod's tailscale sidecar, which decaps
+it into the shared pod network namespace where the iperf3 UDP server listens.
+
+## Why an egress ProxyGroup
+
+The operator has no exit-node ProxyGroup type. Egress ProxyGroups (exposing a
+tailnet destination as an in-cluster Service) are the supported operator-managed
+forwarding path, so that is what the benchmark measures.
+
+## A/B protocol
+
+Two benchmark modes, one per value of the knob:
+
+- `forward-pps-exit-k8s` — baseline, optimizations OFF.
+- `forward-pps-exit-k8s-opton` — optimizations ON.
+
+Both modes are container-only: `ModeAppliesTo` in `internal/benchmark/modes.go`
+gates them to the `container` environment, so VM binaries reject them.
+
+The A/B knob lives on two ProxyClasses, `common` and
+`common-accept-routes`, under `spec.statefulSet.pod.tailscaleContainer.env`.
+The manifests are in `manifests/proxygroup/base` (env var absent, off) and
+`manifests/proxygroup/overlays/on` (env var = `"true"`). Applying the "on"
+overlay changes the StatefulSet pod template and re-rolls the ProxyGroup
+proxy pods; the benchmark waits for the roll to complete before starting the
+sweep.
+
+Each mode writes its own result file per instance type:
+
+- `<type>-forward-pps-exit-k8s.json`
+- `<type>-forward-pps-exit-k8s-opton.json`
+
+Existing result files are skipped, so an interrupted run resumes each arm of
+the A/B independently — re-running after a failure does not redo the arm that
+already completed.
+
+## Sweep methodology
+
+iperf3 UDP at increasing target bitrates, 100M stepping up to 10G.
+`max_pps` is the highest achieved packets-per-second at which measured packet
+loss stays below 1%.
+
+## Result schema
+
+```json
+{
+  "forward_pps": {
+    "runs": [],
+    "max_pps": 0,
+    "max_bandwidth_mbps": 0,
+    "limiting_resource": "proxy-cpu"
+  },
+  "forward_role": "proxygroup",
+  "forwarding_optimizations": "off"
+}
+```
+
+- `forward_role` is `"proxygroup"` — the measured device is the ProxyGroup
+  proxy pod, not the node.
+- `forwarding_optimizations` is `"off"` or `"on"`, matching the mode.
+
+## Honesty rule: limiting_resource
+
+`limiting_resource` is recorded rather than inferred. It is `"proxy-cpu"` when
+the proxy pod was observed CPU-throttled during the sweep, otherwise
+`"unknown"`. A pps number capped by the proxy pod's CPU request is a property
+of the pod sizing, not of the instance type or the ProxyGroup — recording the
+limiter keeps a pod-CPU-capped number from being presented as
+instance/proxygroup capacity.
+
+## Caveats: experimental and reproducibility
+
+`TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS` is an experimental Tailscale
+flag; its behavior can change or disappear between releases. Results record
+`tailscale_version` so a data point can be tied to the build that produced it.
+The operator Helm chart is currently unpinned and floats on `latest`, so two
+runs at different times may exercise different operator versions. Treat the
+A/B delta as directional, and compare only results taken close together in
+time (or pin the chart before comparing across days).
