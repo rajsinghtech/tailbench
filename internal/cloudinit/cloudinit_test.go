@@ -42,3 +42,19 @@ func TestRenderExitNode(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, plain, "--advertise-exit-node")
 }
+
+func TestRenderRelayServerPort(t *testing.T) {
+	out, err := Render(Config{
+		AuthKey:         "tskey-auth-abc123",
+		Hostname:        "tb-c6in-xlarge-router",
+		RelayServerPort: 41642,
+	})
+	require.NoError(t, err)
+	assert.Contains(t, out, "tailscale up --authkey=tskey-auth-abc123")
+	assert.Contains(t, out, "tailscale set --relay-server-port=41642")
+
+	// A plain node must not set a relay port.
+	plain, err := Render(Config{AuthKey: "tskey-auth-abc123", Hostname: "tb-c6in-xlarge-server"})
+	require.NoError(t, err)
+	assert.NotContains(t, plain, "--relay-server-port")
+}

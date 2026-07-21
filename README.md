@@ -108,6 +108,36 @@ are what the result records.
   forwarding data exists**. This is exit-node **forwarding** pps — distinct from
   endpoint-to-endpoint host pps (see `docs/cost-forward-pps-plan.md`).
 
+## Peer relay (relay-node sizing)
+
+Tailscale peer relays (>= 1.86) let a node in your tailnet relay WireGuard
+traffic between two peers that can't connect directly — tried **before**
+falling back to Tailscale's shared DERP servers. Like an exit node, a relay
+does per-packet crypto for *other peers'* traffic, so it's CPU/packet-rate
+bound and pinned to one core per tunnel.
+
+The `relay-throughput` mode (VM only, opt-in) provisions a **third node** —
+a router advertising `--relay-server-port` — and measures the same
+client/server pair's connection in three states, each confirmed via
+`tailscale ping` before it's measured (a state that can't be confirmed is
+skipped, never mislabeled):
+
+- **Direct** — the ceiling.
+- **Peer relay** — the direct path blocked, relay available.
+- **DERP** — direct blocked *and* the relay also blocked; the baseline peer
+  relays improve on.
+
+Each state records TCP throughput, usable pps (64 B / IMIX-average / ~MTU,
+the same RFC-2544-style sweep as `forward-pps-exit`), and round-trip
+latency.
+
+- Enable it by adding `relay-throughput` to `benchmark.modes` in
+  `config.yaml`, then run e.g.
+  `./dist/tailbench-aws --filter '^c6in\.xlarge$'`.
+- Requires Tailscale >= 1.86 on all three nodes.
+- The dashboard shows relay throughput / pps / per-`$` columns, rendered
+  **only when relay data exists**.
+
 ## Instance pricing
 
 Each result is annotated at aggregation time with an on-demand **$/hr** price

@@ -292,10 +292,12 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 		clientHostname := fmt.Sprintf("tb-%s-c-%s-%s", p.Name(), safeType, suffix)
 		routerHostname := fmt.Sprintf("tb-%s-r-%s-%s", p.Name(), safeType, suffix)
 
-		// forward-pps-exit is VM-only and needs a 3rd node (the exit-node router).
-		// Base this on the work left for this instance so reruns don't provision an
-		// unused router after its forwarding result has already been written.
-		wantRouter := !isK8sProvider(p.Name()) && hasForwardMode(pendingModes)
+		// forward-pps-exit and relay-throughput are VM-only and need a 3rd
+		// node (the router under test). Base this on the work left for this
+		// instance so reruns don't provision an unused router after its
+		// result has already been written.
+		wantRelay := !isK8sProvider(p.Name()) && hasRelayMode(pendingModes)
+		wantRouter := !isK8sProvider(p.Name()) && (hasForwardMode(pendingModes) || wantRelay)
 
 		var userData, clientUserData, routerUserData string
 		if isK8sProvider(p.Name()) {
@@ -329,11 +331,16 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			}
 			clientUserData = clientUD
 			if wantRouter {
+				relayPort := 0
+				if wantRelay {
+					relayPort = benchmark.RelayUDPPort
+				}
 				routerUD, err := cloudinit.Render(cloudinit.Config{
 					AuthKey:           *authKey,
 					Hostname:          routerHostname,
 					EnableSSH:         true,
-					AdvertiseExitNode: true,
+					AdvertiseExitNode: hasForwardMode(pendingModes),
+					RelayServerPort:   relayPort,
 				})
 				if err != nil {
 					lg.Errf("cloud-init (router) for %s: %v", inst.Type, err)
@@ -587,6 +594,68 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				ForwardRole: "exit-node",
 				TestConfig:  forwardPPSTestConfig(pps),
 			}
+		case benchmark.ModeUsesRelay(mode):
+			if runner.Router == nil {
+				log.Printf("%s skipping mode %s: no relay node provisioned", prefix, mode)
+				continue
+			}
+			serverTSIP, err := benchmark.GetTailscaleIP(ctx, runner.Server)
+			if err != nil {
+				log.Printf("%s mode %s: server tailscale IP: %v (continuing)", prefix, mode, err)
+				continue
+			}
+			if err := benchmark.WaitForPeer(ctx, runner.Client, serverTSIP); err != nil {
+				log.Printf("%s mode %s: %v (continuing)", prefix, mode, err)
+				continue
+			}
+
+			log.Printf("%s relay-throughput: measuring direct path", prefix)
+			direct, err := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "direct")
+			if err != nil {
+				log.Printf("%s relay mode %s failed (direct): %v", prefix, mode, err)
+				continue
+			}
+
+			log.Printf("%s relay-throughput: blocking direct path", prefix)
+			_ = benchmark.BlockDirect(ctx, runner.Client)
+			_ = benchmark.BlockDirect(ctx, runner.Server)
+
+			log.Printf("%s relay-throughput: measuring peer-relay path", prefix)
+			peerRelay, err := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "peer-relay")
+			if err != nil {
+				log.Printf("%s relay mode %s failed (peer-relay): %v", prefix, mode, err)
+				_ = benchmark.UnblockDirect(ctx, runner.Client)
+				_ = benchmark.UnblockDirect(ctx, runner.Server)
+				continue
+			}
+
+			log.Printf("%s relay-throughput: blocking relay port", prefix)
+			_ = benchmark.BlockRelayPort(ctx, runner.Router, benchmark.RelayUDPPort)
+
+			log.Printf("%s relay-throughput: measuring DERP path", prefix)
+			derp, derpErr := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "derp")
+
+			// Best-effort cleanup so a later mode against the same pair
+			// isn't affected by a leftover block.
+			_ = benchmark.UnblockRelayPort(ctx, runner.Router, benchmark.RelayUDPPort)
+			_ = benchmark.UnblockDirect(ctx, runner.Client)
+			_ = benchmark.UnblockDirect(ctx, runner.Server)
+
+			if derpErr != nil {
+				log.Printf("%s relay mode %s failed (derp): %v", prefix, mode, derpErr)
+				continue
+			}
+
+			br = &result.BenchmarkResult{
+				Relay: &result.RelayResult{
+					RelayServerPort: benchmark.RelayUDPPort,
+					Direct:          direct,
+					PeerRelay:       peerRelay,
+					DERP:            derp,
+				},
+				ForwardRole: "peer-relay",
+				TestConfig:  forwardPPSTestConfig(direct.PPS),
+			}
 		case benchmark.ModeUsesTsnet(mode):
 			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
 			continue
@@ -728,6 +797,15 @@ func hasL7ServeMode(modes []string) bool {
 func hasForwardMode(modes []string) bool {
 	for _, m := range modes {
 		if benchmark.ModeUsesForwardPPS(m) {
+			return true
+		}
+	}
+	return false
+}
+
+func hasRelayMode(modes []string) bool {
+	for _, m := range modes {
+		if benchmark.ModeUsesRelay(m) {
 			return true
 		}
 	}

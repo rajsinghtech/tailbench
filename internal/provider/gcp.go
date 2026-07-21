@@ -76,13 +76,15 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	program := func(pCtx *pulumi.Context) error {
 		if opts.WantRouter {
 			// The GCP network is bring-your-own, so open the iperf3 port for the
-			// forwarding-pps sink (public IP, reached via the exit node) here.
+			// forwarding-pps sink (public IP, reached via the exit node), and the
+			// Tailscale peer-relay UDP port (relay-throughput benchmark), here.
 			if _, err := compute.NewFirewall(pCtx, fmt.Sprintf("tb-%s-pps", safeType), &compute.FirewallArgs{
 				Network:   pulumi.String(p.Network),
 				Direction: pulumi.String("INGRESS"),
 				Allows: compute.FirewallAllowArray{
 					compute.FirewallAllowArgs{Protocol: pulumi.String("tcp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
 					compute.FirewallAllowArgs{Protocol: pulumi.String("udp"), Ports: pulumi.StringArray{pulumi.String("15201")}},
+					compute.FirewallAllowArgs{Protocol: pulumi.String("udp"), Ports: pulumi.StringArray{pulumi.String("41642")}},
 				},
 				SourceRanges: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
 			}); err != nil {

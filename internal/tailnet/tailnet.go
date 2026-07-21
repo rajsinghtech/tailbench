@@ -153,9 +153,10 @@ func (m *Manager) SetupACL(ctx context.Context, clientID, clientSecret string, t
 }
 
 // buildACL constructs the benchmark ACL policy. It is separated from the API
-// call so it can be unit-tested. Exit-node auto-approval is set unconditionally
-// (harmless until a node advertises an exit node); the K8s route approver and
-// grants are merged in only for the operator case.
+// call so it can be unit-tested. Exit-node auto-approval and the peer-relay
+// grant are set unconditionally (harmless until a node advertises an exit
+// node or a relay port); the K8s route approver and kubernetes/bench-service
+// grants are added only for the operator case.
 func buildACL(tag string, tsnetSSH, k8sOperator bool) tailscale.ACL {
 	acl := tailscale.ACL{
 		ACLs: []tailscale.ACLEntry{
@@ -186,28 +187,37 @@ func buildACL(tag string, tsnetSSH, k8sOperator bool) tailscale.ACL {
 	acl.AutoApprovers = &tailscale.ACLAutoApprovers{
 		ExitNode: []string{tag},
 	}
+	// Grant tagged nodes permission to use each other as a Tailscale peer
+	// relay (tailscale.com/cap/relay), unconditionally — harmless until a
+	// node sets --relay-server-port, same rationale as the exit-node
+	// auto-approver above.
+	acl.Grants = append(acl.Grants, tailscale.Grant{
+		Source:      []string{tag},
+		Destination: []string{tag},
+		App: map[string][]map[string]any{
+			"tailscale.com/cap/relay": {},
+		},
+	})
 	if k8sOperator {
 		acl.AutoApprovers.Routes = map[string][]string{
 			"0.0.0.0/0": {tag},
 		}
 		// Grant the orchestrator tag the tailscale.com/cap/kubernetes app cap
 		// so the operator API server proxy can impersonate as system:masters.
-		acl.Grants = []tailscale.Grant{
-			{
-				Source:      []string{tag},
-				Destination: []string{tag},
-				IP:          []string{"*"},
-				App: map[string][]map[string]any{
-					"tailscale.com/cap/kubernetes": {
-						{
-							"impersonate": map[string]any{
-								"groups": []string{"system:masters"},
-							},
+		acl.Grants = append(acl.Grants, tailscale.Grant{
+			Source:      []string{tag},
+			Destination: []string{tag},
+			IP:          []string{"*"},
+			App: map[string][]map[string]any{
+				"tailscale.com/cap/kubernetes": {
+					{
+						"impersonate": map[string]any{
+							"groups": []string{"system:masters"},
 						},
 					},
 				},
 			},
-		}
+		})
 		acl.Grants = append(acl.Grants, tailscale.Grant{
 			Source:      []string{tag},
 			Destination: []string{"tag:bench-service"},

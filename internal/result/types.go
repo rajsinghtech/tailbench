@@ -29,8 +29,9 @@ type BenchmarkResult struct {
 	FortioResult         *FortioResult `json:"fortio_result,omitempty"`
 	L7Overhead           *L7Overhead   `json:"l7_overhead,omitempty"`
 	ForwardPPS           *PPSResult    `json:"forward_pps,omitempty"`
-	ForwardRole          string        `json:"forward_role,omitempty"`             // e.g. "exit-node", "proxygroup"
+	ForwardRole          string        `json:"forward_role,omitempty"`             // e.g. "exit-node", "proxygroup", "peer-relay"
 	ForwardOptimizations string        `json:"forwarding_optimizations,omitempty"` // "off" or "on"
+	Relay                *RelayResult  `json:"relay,omitempty"`
 }
 
 type SystemConfig struct {
@@ -78,6 +79,27 @@ type PPSSizeResult struct {
 	LossPct       float64 `json:"loss_pct"`
 	JitterMs      float64 `json:"jitter_ms"`
 	Mbps          float64 `json:"mbps"`
+}
+
+// RelayResult holds throughput, usable pps, and latency measured over three
+// confirmed connection states between the same client/server pair: direct
+// (the ceiling), peer-relay (direct blocked, relay available), and DERP
+// (direct blocked and the relay also blocked — the baseline peer relays
+// improve on). A state is only ever populated after PathVia confirmed it was
+// actually active — never inferred.
+type RelayResult struct {
+	RelayServerPort int              `json:"relay_server_port"`
+	Direct          *RelayPathResult `json:"direct,omitempty"`
+	PeerRelay       *RelayPathResult `json:"peer_relay,omitempty"`
+	DERP            *RelayPathResult `json:"derp,omitempty"`
+}
+
+// RelayPathResult is one confirmed connection state's measurements.
+type RelayPathResult struct {
+	Path           string     `json:"path"` // "direct", "peer-relay", or "derp" — matches the confirming PathVia call
+	ThroughputMbps float64    `json:"throughput_mbps"`
+	PPS            *PPSResult `json:"pps,omitempty"`
+	LatencyMs      float64    `json:"latency_ms"`
 }
 
 type TCPResult struct {

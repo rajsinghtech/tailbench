@@ -3,7 +3,7 @@ package benchmark
 import "testing"
 
 func TestModeValid(t *testing.T) {
-	valid := []string{"tsnet-userspace", "l4-kernel", "l4-userspace", "l4-lb", "l7-ingress-h1", "l7-ingress-h2", "l7-serve-h1", "l7-serve-h2", "forward-pps-exit", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton"}
+	valid := []string{"tsnet-userspace", "l4-kernel", "l4-userspace", "l4-lb", "l7-ingress-h1", "l7-ingress-h2", "l7-serve-h1", "l7-serve-h2", "forward-pps-exit", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton", "relay-throughput"}
 	for _, m := range valid {
 		if !IsValidMode(m) {
 			t.Errorf("IsValidMode(%q) = false, want true", m)
@@ -16,7 +16,7 @@ func TestModeValid(t *testing.T) {
 
 func TestModeEnvironment(t *testing.T) {
 	k8sOnly := []string{"l4-lb", "l7-ingress-h1", "l7-ingress-h2", "forward-pps-exit-k8s", "forward-pps-exit-k8s-opton"}
-	vmOnly := []string{"l7-serve-h1", "l7-serve-h2", "forward-pps-exit"}
+	vmOnly := []string{"l7-serve-h1", "l7-serve-h2", "forward-pps-exit", "relay-throughput"}
 	both := []string{"tsnet-userspace", "l4-kernel", "l4-userspace"}
 
 	for _, m := range k8sOnly {
@@ -66,6 +66,21 @@ func TestModeUsesForwardPPS(t *testing.T) {
 		if ModeUsesForwardPPS(m) {
 			t.Errorf("%s should NOT use forward-pps", m)
 		}
+	}
+}
+
+func TestModeUsesRelay(t *testing.T) {
+	if !ModeUsesRelay("relay-throughput") {
+		t.Error("relay-throughput should use relay")
+	}
+	notRelay := []string{"l4-kernel", "forward-pps-exit", "forward-pps-exit-k8s", "l7-ingress-h1", "relay"}
+	for _, m := range notRelay {
+		if ModeUsesRelay(m) {
+			t.Errorf("%s should NOT use relay", m)
+		}
+	}
+	if ModeUsesIperf("relay-throughput") || ModeUsesFortio("relay-throughput") || ModeUsesTsnet("relay-throughput") || ModeUsesForwardPPS("relay-throughput") {
+		t.Error("relay-throughput should NOT use iperf/fortio/tsnet/forward-pps")
 	}
 }
 

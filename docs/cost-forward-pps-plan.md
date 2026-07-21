@@ -236,3 +236,83 @@ The operator Helm chart is currently unpinned and floats on `latest`, so two
 runs at different times may exercise different operator versions. Treat the
 A/B delta as directional, and compare only results taken close together in
 time (or pin the chart before comparing across days).
+
+---
+
+# Peer-relay benchmark: direct vs peer-relay vs DERP
+
+Design doc for issue #5: a 3-state benchmark that measures throughput,
+usable pps, and latency for a Tailscale peer relay, compared against the
+direct path (ceiling) and DERP (the baseline peer relays improve on).
+
+## Goal
+
+Answer: how much relayed throughput, usable pps, and latency does a given
+instance type deliver as a Tailscale peer relay, and how does that compare
+to the direct path and to DERP?
+
+## Topology
+
+```text
+┌─────────┐   tailnet    ┌──────────────────────┐   tailnet    ┌─────────┐
+│ client  │◀────────────▶│ router (DUT)          │◀────────────▶│ server  │
+│         │  (may route   │ --relay-server-port   │  (may route   │         │
+│         │   via relay)  │                       │   via relay)  │         │
+└─────────┘               └──────────────────────┘               └─────────┘
+```
+
+The router is the device under test: it never initiates traffic itself, it
+only relays WireGuard datagrams between client and server once the direct
+path is blocked. Its instance type, vCPUs, and price are what the result
+records (`forward_role: "peer-relay"`).
+
+## Path forcing and assertion
+
+The direct path is forced off by dropping inbound UDP on Tailscale's
+WireGuard listen port (41641) on **both** client and server
+(`benchmark.BlockDirect`). The relay is additionally forced off by dropping
+inbound UDP on the relay's own configured port on the **router**
+(`benchmark.BlockRelayPort`) to produce the DERP-only state.
+
+Each state is measured only after `benchmark.PathVia` confirms — via
+`tailscale ping` output (`"via peer-relay(...)"`, `"via DERP(...)"`, or a
+bare direct `"pong"`) — that the intended path is actually active. This
+mirrors the honesty rule from the forwarding-pps work: never chart a path
+that wasn't confirmed.
+
+## Result schema
+
+```json
+{
+  "relay": {
+    "relay_server_port": 41642,
+    "direct": {
+      "path": "direct",
+      "throughput_mbps": 9400,
+      "latency_ms": 1.2,
+      "pps": {"sizes": [], "loss_threshold_pct": 0.1}
+    },
+    "peer_relay": {
+      "path": "peer-relay",
+      "throughput_mbps": 8100,
+      "latency_ms": 4.0,
+      "pps": {"sizes": [], "loss_threshold_pct": 0.1}
+    },
+    "derp": {
+      "path": "derp",
+      "throughput_mbps": 900,
+      "latency_ms": 53.0,
+      "pps": {"sizes": [], "loss_threshold_pct": 0.1}
+    }
+  },
+  "forward_role": "peer-relay"
+}
+```
+
+## Caveats
+
+Requires Tailscale >= 1.86 on all three nodes (peer relay is a recent
+feature; the shipped version is recorded via `tailscale_version` on the
+result so a data point can be tied to the build that produced it). v1 uses
+the same instance type for client, server, and router, same as
+`forward-pps-exit`.

@@ -181,3 +181,64 @@ func TestForwardPPSJSON(t *testing.T) {
 	assert.NotContains(t, string(plain), "forward_pps")
 	assert.NotContains(t, string(plain), "forwarding_optimizations")
 }
+
+func TestRelayJSON(t *testing.T) {
+	r := &BenchmarkResult{
+		CloudProvider:  "aws",
+		InstanceFamily: "c6in",
+		InstanceType:   "c6in.xlarge",
+		TransportMode:  "relay-throughput",
+		ForwardRole:    "peer-relay",
+		Relay: &RelayResult{
+			RelayServerPort: 41642,
+			Direct: &RelayPathResult{
+				Path:           "direct",
+				ThroughputMbps: 9400.0,
+				LatencyMs:      1.2,
+				PPS: &PPSResult{
+					Sizes:            []PPSSizeResult{{Label: "imix-avg", DatagramBytes: 340, UsablePPS: 900000}},
+					LossThresholdPct: 0.1,
+				},
+			},
+			PeerRelay: &RelayPathResult{
+				Path:           "peer-relay",
+				ThroughputMbps: 8100.0,
+				LatencyMs:      4.0,
+				PPS: &PPSResult{
+					Sizes:            []PPSSizeResult{{Label: "imix-avg", DatagramBytes: 340, UsablePPS: 610000}},
+					LossThresholdPct: 0.1,
+				},
+			},
+			DERP: &RelayPathResult{
+				Path:           "derp",
+				ThroughputMbps: 900.0,
+				LatencyMs:      53.0,
+				PPS: &PPSResult{
+					Sizes:            []PPSSizeResult{{Label: "imix-avg", DatagramBytes: 340, UsablePPS: 80000}},
+					LossThresholdPct: 0.1,
+				},
+			},
+		},
+	}
+	data, err := json.Marshal(r)
+	require.NoError(t, err)
+
+	var raw map[string]json.RawMessage
+	require.NoError(t, json.Unmarshal(data, &raw))
+	assert.Contains(t, string(raw["relay"]), `"relay_server_port":41642`)
+	assert.Contains(t, string(raw["relay"]), `"peer_relay"`)
+	assert.Contains(t, string(raw["relay"]), `"path":"derp"`)
+
+	var decoded BenchmarkResult
+	require.NoError(t, json.Unmarshal(data, &decoded))
+	require.NotNil(t, decoded.Relay)
+	assert.Equal(t, 41642, decoded.Relay.RelayServerPort)
+	require.NotNil(t, decoded.Relay.PeerRelay)
+	assert.Equal(t, "peer-relay", decoded.Relay.PeerRelay.Path)
+	assert.Equal(t, 610000.0, decoded.Relay.PeerRelay.PPS.Sizes[0].UsablePPS)
+
+	// omitempty: non-relay results must not carry the new key
+	plain, err := json.Marshal(&BenchmarkResult{CloudProvider: "gcp"})
+	require.NoError(t, err)
+	assert.NotContains(t, string(plain), `"relay"`)
+}

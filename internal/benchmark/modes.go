@@ -17,6 +17,9 @@ var validModes = map[string]bool{
 	// TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS.
 	"forward-pps-exit-k8s":       true,
 	"forward-pps-exit-k8s-opton": true,
+
+	// 3-node peer-relay benchmark: direct vs peer-relay vs DERP.
+	"relay-throughput": true,
 }
 
 func IsValidMode(mode string) bool {
@@ -28,7 +31,7 @@ func ModeAppliesTo(mode, env string) bool {
 	case "l4-lb", "l7-ingress-h1", "l7-ingress-h2",
 		"forward-pps-exit-k8s", "forward-pps-exit-k8s-opton":
 		return env == "container"
-	case "l7-serve-h1", "l7-serve-h2", "forward-pps-exit":
+	case "l7-serve-h1", "l7-serve-h2", "forward-pps-exit", "relay-throughput":
 		return env == "vm"
 	default:
 		return true
@@ -44,6 +47,13 @@ func ModeUsesIperf(mode string) bool {
 // endpoint-to-endpoint.
 func ModeUsesForwardPPS(mode string) bool {
 	return strings.HasPrefix(mode, "forward-pps-")
+}
+
+// ModeUsesRelay reports whether the mode measures peer-relay throughput,
+// usable pps, and latency across the direct/peer-relay/DERP connection
+// states.
+func ModeUsesRelay(mode string) bool {
+	return mode == "relay-throughput"
 }
 
 func ModeUsesFortio(mode string) bool {
