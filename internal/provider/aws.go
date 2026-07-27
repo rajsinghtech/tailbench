@@ -143,6 +143,13 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					Description: pulumi.String("iperf3 UDP data (forwarding-pps sink, routed via exit node)"),
 				},
 				ec2.SecurityGroupIngressArgs{
+					Protocol:    pulumi.String("udp"),
+					FromPort:    pulumi.Int(41642),
+					ToPort:      pulumi.Int(41642),
+					CidrBlocks:  pulumi.StringArray{pulumi.String("0.0.0.0/0")},
+					Description: pulumi.String("Tailscale peer-relay (relay-throughput benchmark)"),
+				},
+				ec2.SecurityGroupIngressArgs{
 					Protocol:    pulumi.String("-1"),
 					FromPort:    pulumi.Int(0),
 					ToPort:      pulumi.Int(0),

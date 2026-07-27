@@ -1,7 +1,7 @@
 {
   "_meta": {
     "source": "Indicative on-demand Linux prices (USD/hour), hand-seeded 2026-07-09. NOT authoritative — regenerate with `go run ./cmd/pricing-refresh` (Azure Retail API + AWS Pricing API automated; GCP curated) before relying on these values. EKS/GKE/AKS reuse aws/gcp/azure prices respectively.",
-    "updated": "2026-07-11"
+    "updated": "2026-07-24"
   },
   "aws": {
     "us-west-2": {
@@ -23,16 +23,16 @@
       "c7i.large": 0.08925,
       "c7i.metal-24xl": 4.284,
       "c7i.xlarge": 0.1785,
-      "c8gn.12xlarge": 2.77488,
-      "c8gn.16xlarge": 3.69984,
-      "c8gn.24xlarge": 5.54976,
-      "c8gn.2xlarge": 0.46248,
-      "c8gn.48xlarge": 11.09952,
-      "c8gn.4xlarge": 0.92496,
-      "c8gn.8xlarge": 1.84992,
-      "c8gn.large": 0.11562,
-      "c8gn.medium": 0.05781,
-      "c8gn.xlarge": 0.23124
+      "c8gn.12xlarge": 2.844,
+      "c8gn.16xlarge": 3.792,
+      "c8gn.24xlarge": 5.688,
+      "c8gn.2xlarge": 0.474,
+      "c8gn.48xlarge": 11.376,
+      "c8gn.4xlarge": 0.948,
+      "c8gn.8xlarge": 1.896,
+      "c8gn.large": 0.1185,
+      "c8gn.medium": 0.0593,
+      "c8gn.xlarge": 0.237
     }
   },
   "azure": {

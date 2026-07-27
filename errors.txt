@@ -1,0 +1,4 @@
+rshade@tailscalershade:~/go/src/github.com/rajsinghtech/tailbench$ ./dist/tailbench-aws --family c7i --dry-run
+rshade@tailscalershade:~/go/src/github.com/rajsinghtech/tailbench$ echo $?
+1
+rshade@tailsc

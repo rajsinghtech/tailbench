@@ -19,6 +19,10 @@ type Config struct {
 	// routes (reserved for the future subnet-router variant; empty otherwise).
 	AdvertiseExitNode bool
 	AdvertiseRoutes   string
+	// RelayServerPort makes this node advertise itself as a Tailscale peer
+	// relay on the given UDP port (the router under test in the
+	// relay-throughput benchmark). 0 disables it.
+	RelayServerPort int
 }
 
 func Render(cfg Config) (string, error) {

@@ -42,6 +42,9 @@ tailscale up --authkey={{ .AuthKey }} --hostname={{ .Hostname }}{{ if .Advertise
 {{- if .EnableSSH }}
 tailscale set --ssh
 {{- end }}
+{{- if .RelayServerPort }}
+tailscale set --relay-server-port={{ .RelayServerPort }}
+{{- end }}
 {{- end }}
 
 {{- if .EnableServe }}

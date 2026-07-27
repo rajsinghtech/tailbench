@@ -37,6 +37,7 @@ benchmark:
     - l7-serve-h1
     - l7-serve-h2
     # - forward-pps-exit   # 3-node exit-node forwarding pps (VM only); opt-in
+    # - relay-throughput   # 3-node peer-relay benchmark (VM only, Tailscale >= 1.86); opt-in
     # Container-only A/B pair: egress ProxyGroup forwarding pps with
     # TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS off/on. Requires the
     # Tailscale Kubernetes operator; rejected by VM binaries.

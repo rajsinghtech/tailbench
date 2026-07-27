@@ -335,7 +335,7 @@ footer a:hover { text-decoration: underline; }
     return {provs:p, fams:f, envs:e};
   }
 
-  var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2','forward-pps-exit-k8s','forward-pps-exit-k8s-opton'];
+  var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2','forward-pps-exit-k8s','forward-pps-exit-k8s-opton','relay-throughput'];
   var maxBW = 0;
   TAILBENCH_DATA.forEach(function(d) { if (d.baseline_tcp) { var b=d.baseline_tcp.summary.bandwidth_mbps_avg; if(b>maxBW) maxBW=b; } });
 
@@ -383,6 +383,21 @@ footer a:hover { text-decoration: underline; }
     return best;
   }
   function ppsPerDollar(g) { var p=forwardPPS(g); return (p&&g.price)?p/g.price:0; }
+  // Peer-relay headline is the IMIX-average usable pps for a given path
+  // result (direct / peer_relay / derp), same convention as forwardPPSSize.
+  function relayIMIXPPS(pathResult) {
+    if (!pathResult || !pathResult.pps || !pathResult.pps.sizes) return 0;
+    var sizes = pathResult.pps.sizes;
+    var imix = sizes.filter(function(s){ return s.label==='imix-avg'; })[0];
+    if (imix) return imix.usable_pps;
+    return sizes.reduce(function(best,s){ return !best||s.usable_pps>best.usable_pps?s.usable_pps:best; }, 0);
+  }
+  function relayPPS(g) {
+    var d = g.modes['relay-throughput'];
+    if (!d || !d.relay) return 0;
+    return relayIMIXPPS(d.relay.peer_relay);
+  }
+  function relayPPSPerDollar(g) { var p=relayPPS(g); return (p&&g.price)?p/g.price:0; }
 
   // Sort
   function sortVal(g) {
@@ -397,6 +412,8 @@ footer a:hover { text-decoration: underline; }
       case 'overhead': var o=iperfOH(g); return o!==null?o:999;
       case 'fpps': return forwardPPS(g);
       case 'ppsdollar': return ppsPerDollar(g);
+      case 'relaypps': return relayPPS(g);
+      case 'relayppsdollar': return relayPPSPerDollar(g);
       default: return 0;
     }
   }
@@ -410,6 +427,7 @@ footer a:hover { text-decoration: underline; }
   var hasL7Bytes = TAILBENCH_DATA.some(function(d){ return d.fortio_result && d.fortio_result.bytes_per_sec > 0; });
   // Only surface usable-pps / pps-$ columns once forwarding results exist.
   var hasForwardPPS = TAILBENCH_DATA.some(function(d){ return d.forward_pps; });
+  var hasRelay = TAILBENCH_DATA.some(function(d){ return d.relay; });
   function containsK8sForwardPPS(data) {
     return data.some(function(d){
       return d.forward_pps && (d.transport_mode==='forward-pps-exit-k8s' || d.transport_mode==='forward-pps-exit-k8s-opton');
@@ -426,6 +444,7 @@ footer a:hover { text-decoration: underline; }
   ];
   if (hasL7Bytes) tabs.push({id:'l7throughput',label:'L7 Throughput'});
   if (hasK8sForwardPPS) tabs.push({id:'forwardpps',label:'K8s Forward PPS (A/B)'});
+  if (hasRelay) tabs.push({id:'relay',label:'Peer Relay'});
 
   function renderChartTabs() {
     var h=''; tabs.forEach(function(t){ h+='<button class="chart-tab'+(state.tab===t.id?' on':'')+'" data-t="'+t.id+'">'+t.label+'</button>'; });
@@ -445,6 +464,7 @@ footer a:hover { text-decoration: underline; }
       else if(state.tab==='latency') renderLatencyChart(ctx);
       else if(state.tab==='l7throughput') renderL7ThroughputChart(ctx);
       else if(state.tab==='forwardpps') renderForwardPPSChart(ctx);
+      else if(state.tab==='relay') renderRelayChart(ctx);
     } catch(e) { console.warn('chart error:',e); }
   }
 
@@ -582,6 +602,51 @@ footer a:hover { text-decoration: underline; }
         scales:{
           x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
           y:{ticks:{color:css('--text-3'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec',color:css('--text-2'),font:{size:11}}}
+        }
+      }
+    });
+  }
+
+  function renderRelayChart(ctx) {
+    // Three-way comparison: direct (ceiling) vs peer-relay vs DERP (the
+    // baseline peer relays improve on), usable pps at the IMIX-average size.
+    var rows = [];
+    filtered().forEach(function(g) {
+      var d = g.modes['relay-throughput'];
+      if (!d || !d.relay) return;
+      rows.push({
+        label: g.type+' ('+g.provider.toUpperCase()+')',
+        direct: relayIMIXPPS(d.relay.direct),
+        peerRelay: relayIMIXPPS(d.relay.peer_relay),
+        derp: relayIMIXPPS(d.relay.derp)
+      });
+    });
+    rows.sort(function(a,b){ return b.peerRelay-a.peerRelay; });
+
+    chart = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels:rows.map(function(r){return r.label;}),
+        datasets:[
+          {label:'Direct',data:rows.map(function(r){return r.direct;}),backgroundColor:css('--accent')+'99',borderColor:css('--accent'),borderWidth:1,borderRadius:3},
+          {label:'Peer relay',data:rows.map(function(r){return r.peerRelay;}),backgroundColor:css('--green')+'99',borderColor:css('--green'),borderWidth:1,borderRadius:3},
+          {label:'DERP',data:rows.map(function(r){return r.derp;}),backgroundColor:css('--yellow')+'99',borderColor:css('--yellow'),borderWidth:1,borderRadius:3}
+        ]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{labels:{color:css('--text-2'),padding:14,usePointStyle:true}},
+          tooltip:{
+            backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
+            callbacks:{
+              label:function(item){ return item.dataset.label+': '+fq(item.raw)+' pps'; }
+            }
+          }
+        },
+        scales:{
+          x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
+          y:{ticks:{color:css('--text-3'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec (IMIX)',color:css('--text-2'),font:{size:11}}}
         }
       }
     });
@@ -912,6 +977,7 @@ footer a:hover { text-decoration: underline; }
       {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'}
     ];
     if (hasForwardPPS) cols.push({k:'fpps',l:'Usable pps'},{k:'ppsdollar',l:'pps/$'});
+    if (hasRelay) cols.push({k:'relaypps',l:'Relay pps'},{k:'relayppsdollar',l:'Relay pps/$'});
     cols.push({k:'',l:'Mode Breakdown'},{k:'',l:''});
     return cols;
   }
@@ -962,6 +1028,11 @@ footer a:hover { text-decoration: underline; }
         h+='<td class="m">'+(fp?ppsFmt(fp)+'<small style="color:var(--text-3);margin-left:1px">pps</small>':'\u2014')+'</td>';
         h+='<td class="m">'+(ppd?ppsFmt(ppd)+'<small style="color:var(--text-3);margin-left:1px">/$</small>':'\u2014')+'</td>';
       }
+      if (hasRelay) {
+        var rp=relayPPS(g); var rpd=relayPPSPerDollar(g);
+        h+='<td class="m">'+(rp?ppsFmt(rp)+'<small style="color:var(--text-3);margin-left:1px">pps</small>':'\u2014')+'</td>';
+        h+='<td class="m">'+(rpd?ppsFmt(rpd)+'<small style="color:var(--text-3);margin-left:1px">/$</small>':'\u2014')+'</td>';
+      }
       // Mode breakdown — compact per-mode summary
       var mbHtml = '<div style="display:flex;flex-direction:column;gap:2px">';
       var orderedModes = modeOrder.filter(function(m){return g.modes[m];});
@@ -969,7 +1040,7 @@ footer a:hover { text-decoration: underline; }
       orderedModes.forEach(function(mode) {
         var d = g.modes[mode];
         var mCls = mode.startsWith('l7')?'l7':mode==='l4-lb'?'lb':'l4';
-        var mLabel = mode.replace('l4-','').replace('l7-','').replace('forward-pps-exit-k8s','fwd-pps');
+        var mLabel = mode.replace('l4-','').replace('l7-','').replace('forward-pps-exit-k8s','fwd-pps').replace('relay-throughput','relay');
         mbHtml += '<div style="display:flex;align-items:center;gap:6px">';
         mbHtml += '<span class="mode-pill mp-'+mCls+'" style="min-width:65px;text-align:center">'+mLabel+'</span>';
         if (d.fortio_result) {
@@ -993,6 +1064,12 @@ footer a:hover { text-decoration: underline; }
           }
           if (d.forward_pps.limiting_resource==='proxy-cpu') {
             mbHtml += '<span class="oh oh-y" style="font-size:0.55rem">proxy-cpu</span>';
+          }
+        } else if (d.relay) {
+          var rIMIX = relayIMIXPPS(d.relay.peer_relay);
+          if (rIMIX) {
+            mbHtml += '<span class="m" style="font-size:0.68rem">'+ppsFmt(rIMIX)+'<small style="color:var(--text-3);margin-left:1px">pps</small></span>';
+            mbHtml += '<span class="m" style="font-size:0.62rem;color:var(--text-3)">peer-relay</span>';
           }
         }
         mbHtml += '</div>';
@@ -1041,6 +1118,17 @@ footer a:hover { text-decoration: underline; }
           if (d.forward_pps.limiting_resource==='proxy-cpu') {
             h+='<span class="oh oh-y" style="margin-left:4px">proxy-cpu bound</span>';
           }
+        } else if (d.relay) {
+          h+='<div class="md-metrics">';
+          [['direct','Direct',d.relay.direct],['peer_relay','Peer relay',d.relay.peer_relay],['derp','DERP',d.relay.derp]].forEach(function(row) {
+            var label=row[1], pr=row[2];
+            if (!pr) return;
+            var imix=relayIMIXPPS(pr);
+            h+='<div class="md-m">'+gbps(pr.throughput_mbps)+'<small>Gbps '+label+'</small></div>';
+            h+='<div class="md-m">'+(imix?ppsFmt(imix):'—')+'<small>pps '+label+'</small></div>';
+            h+='<div class="md-m">'+pr.latency_ms.toFixed(1)+'<small>ms '+label+'</small></div>';
+          });
+          h+='</div>';
         }
         h+='</div>';
       });

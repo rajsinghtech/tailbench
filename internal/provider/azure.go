@@ -151,6 +151,24 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 			return err
 		}
 
+		// Tailscale peer-relay UDP port for the relay-throughput benchmark.
+		_, err = aznetwork.NewSecurityRule(pCtx, "AllowRelayUDP", &aznetwork.SecurityRuleArgs{
+			ResourceGroupName:        pulumi.String(p.ResourceGroup),
+			NetworkSecurityGroupName: nsg.Name,
+			SecurityRuleName:         pulumi.String("AllowRelayUDP"),
+			Priority:                 pulumi.Int(1400),
+			Protocol:                 pulumi.String("Udp"),
+			Access:                   pulumi.String("Allow"),
+			Direction:                pulumi.String("Inbound"),
+			SourceAddressPrefix:      pulumi.String("*"),
+			SourcePortRange:          pulumi.String("*"),
+			DestinationAddressPrefix: pulumi.String("*"),
+			DestinationPortRange:     pulumi.String("41642"),
+		})
+		if err != nil {
+			return err
+		}
+
 		pCtx.Export("vnet_name", vnet.Name)
 		pCtx.Export("subnet_id", subnet.ID())
 		pCtx.Export("nsg_id", nsg.ID())
