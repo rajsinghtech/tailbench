@@ -1,0 +1,67 @@
+# Toolchain for tailbench. `mise install` provisions everything below.
+#
+# mise supplies the tools; the Makefile remains the task runner (`make help`).
+# Deliberately no [tasks] section here — duplicating the Makefile would create a
+# second source of truth for how the six variants build.
+#
+# Credentials are not tools: copy .env.example to .env before a provisioning run
+# (config.yaml reads it via `env_file:`). --dry-run and --version work without it.
+
+[tools]
+
+# ---------------------------------------------------------------- build & test
+
+# Keep in sync with the `go` directive in go.mod — CI resolves its toolchain from
+# that file via actions/setup-go `go-version-file`, so a drift here is a drift
+# from CI.
+go = "1.26.5"
+
+# `make test-website` runs `node --test website/index.test.js`. CI pins Node 22.
+node = "22"
+
+# Same pin as GOLANGCI_LINT_VERSION in the Makefile; change both together.
+# Note `make lint-*` invokes .tools/bin/golangci-lint by absolute path and
+# installs it itself, so this entry serves editor integration and ad-hoc runs
+# rather than the lint targets.
+golangci-lint = "2.11.4"
+
+# ------------------------------------------------------- runtime: all variants
+
+# The Pulumi Automation API shells out to the pulumi CLI. Without it on PATH,
+# SetupNetworking and CreatePair fail at run time — nothing catches it at build
+# time.
+pulumi = "3"
+
+# ------------------------------------------------------ runtime: *-k8s variants
+
+# internal/k8s shells out to both: kubectl for `apply -k` and pod exec
+# (internal/k8s/kubeexec.go), helm for the Tailscale operator chart.
+kubectl = "1.36"
+
+# Pinned to 3.x: internal/k8s/operator.go installs the operator with classic
+# `helm repo add` + `helm upgrade --install`, which Helm 4 deprecates in favor of
+# OCI registries.
+helm = "3"
+
+# -------------------------------------------- runtime: cloud CLI per variant
+# Each is needed only by the matching binary, but they are listed together so
+# `mise install` yields a machine that can run any variant. Drop the ones you do
+# not use — or move them into a mise.local.toml — if the install is too heavy.
+
+# tailbench-aws, tailbench-aws-k8s
+awscli = "2"
+
+# tailbench-gcp, tailbench-gcp-k8s
+gcloud = "latest"
+
+# tailbench-azure, tailbench-azure-k8s. Not optional for either: instance
+# discovery goes through `az vm list-skus` (internal/provider/azure_instances.go),
+# so even --dry-run needs it — unlike AWS and GCP, which discover through the Go
+# SDK. aks.go additionally uses `az aks get-credentials` and `nodepool` commands.
+# Installed through mise's pipx backend, so this one also needs a Python
+# available to mise.
+azure-cli = "latest"
+
+# ------------------------------------------------------------------------ docs
+
+markdownlint-cli2 = "0.23.2"

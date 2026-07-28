@@ -9,6 +9,16 @@ providers: []
 family: all
 filter: ""
 
+# Pulumi state backend. Empty keeps state on this machine under ./state/<provider>,
+# which means stacks are invisible from any other checkout or host.
+#
+#   pulumi.com              Pulumi Cloud — stacks survive machine swaps. Needs
+#                           PULUMI_ACCESS_TOKEN (put it in .env) or `pulumi login`.
+#   s3://bucket/prefix      Object storage; also gs:// and azblob://.
+#
+# Overridable with --state-backend, and ${VAR} is expanded here.
+state_backend: ""
+
 tailscale:
   create_tailnet: true
   oauth_client_id: ${OAUTH_CLIENT_ID}

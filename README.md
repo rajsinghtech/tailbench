@@ -29,10 +29,19 @@ make build-aws
 The binaries are written under `dist/`. If `providers` is absent or empty in a
 configuration file, each binary defaults to its compiled provider.
 
-Start with the local planner. It reads the selected configuration, the
-checked-in price catalog, and existing result files. It does not load the
-environment file, initialize Pulumi or Tailscale, call cloud APIs, create state
-directories, or delete locks:
+Supply Tailscale credentials before any command that contacts Tailscale.
+`config.yaml` references them through `env_file: .env`, which is gitignored and
+therefore absent from a fresh clone:
+
+```bash
+cp .env.example .env
+$EDITOR .env   # OAUTH_CLIENT_ID, OAUTH_CLIENT_SECRET
+```
+
+The local commands need none of that. Start with the local planner: it reads the
+selected configuration, the checked-in price catalog, and existing result files.
+It does not load the environment file, initialize Pulumi or Tailscale, call cloud
+APIs, create state directories, or delete locks:
 
 ```bash
 # Side-effect-free: no credentials or remote calls.
@@ -46,6 +55,8 @@ directories, or delete locks:
 # Local checks only. Missing tools are reported with remediation.
 ./dist/tailbench-aws doctor --config config.example.yaml
 ```
+
+`--dry-run` prints the provider, the configured modes, and every instance type that `--family` and `--filter` select, then exits without touching any cloud. An unrecognized `--family` is rejected with the list of valid families rather than selecting nothing.
 
 An explicit provider must match the binary. For example, `tailbench-aws --provider gcp` fails rather than silently using AWS. Renaming an executable does not change its provider identity.
 
@@ -85,6 +96,18 @@ sequentially. For local work, select one exact target such as `make build-aws`,
 `make verify-deps VARIANT=aws` rather than the all-variant form. A single variant
 can still be resource intensive, so start it only on an appropriately sized
 machine.
+
+## Step-by-step runbooks
+
+The sections below are reference material. For a sequential walkthrough — prerequisites, credentials, configuration, a scoped first run, report generation, teardown, and troubleshooting — use the runbook for your cloud:
+
+| Cloud | VMs | Managed Kubernetes |
+|---|---|---|
+| AWS | [docs/running-aws.md](docs/running-aws.md) | [docs/running-eks.md](docs/running-eks.md) |
+| Azure | [docs/running-azure.md](docs/running-azure.md) | [docs/running-aks.md](docs/running-aks.md) |
+| GCP | [docs/running-gcp.md](docs/running-gcp.md) | [docs/running-gke.md](docs/running-gke.md) |
+
+[docs/running.md](docs/running.md) covers what is common to all six.
 
 ## Configuration and modes
 
@@ -135,7 +158,29 @@ The managed Kubernetes variants also require permissions to create clusters, nod
 
 For each selected instance type, Tailbench provisions a server/client pair, runs the applicable benchmark modes, writes compatible JSON results, and destroys the pair. Provider networking or cluster infrastructure is reused unless `--cleanup-networking` is set. Existing results are skipped for resume support, and quota failures skip the remaining types in the affected family.
 
-Local Pulumi state remains in `state/<provider>`. Generated benchmark data continues to aggregate into `website/data.generated.js`.
+Generated benchmark data continues to aggregate into `website/data.generated.js`.
+
+### Pulumi state backend
+
+By default, Pulumi state is local: `state/<provider>`, gitignored. That ties a run to one checkout on one machine — a second machine cannot see, resume, or tear down those stacks, so interrupted runs leak cloud resources.
+
+Set `state_backend` in `config.yaml` (or `--state-backend`) to keep stacks alive across machines:
+
+```bash
+./dist/tailbench-aws --state-backend pulumi.com --family c7i
+./dist/tailbench-gcp --state-backend s3://tailbench-state/pulumi
+```
+
+| Value | Backend |
+|---|---|
+| *(empty)* | Local `./state/<provider>` |
+| `pulumi.com` | Pulumi Cloud (normalizes to `https://api.pulumi.com`) |
+| `s3://…`, `gs://…`, `azblob://…` | Object storage |
+| `file://…` | An explicit local or mounted path |
+
+Pulumi Cloud needs `PULUMI_ACCESS_TOKEN` or a prior `pulumi login`; tailbench checks at startup and fails immediately with instructions rather than partway through provisioning. The token can live in `.env` — the Pulumi CLI inherits tailbench's environment.
+
+Stack names are provider-qualified (`tailbench-<provider>-<type>`), so one backend can safely hold every provider's stacks. An unrecognized backend value is rejected at startup.
 
 ## Forwarding pps (exit-node sizing)
 

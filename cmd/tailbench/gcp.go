@@ -19,7 +19,7 @@ func newCompiledProvider(cfg *config.Config) provider.Provider {
 	return &provider.GCPProvider{
 		Project: cfg.GCPProject, Zone: cfg.GCPZone, Region: region,
 		Network: "default", Subnet: "default",
-		StateDir: providerStateDir(cfg.StateDir, compiledProviderName),
+		StateDir: provider.BackendURL(cfg.StateBackend, cfg.StateDir, compiledProviderName),
 		RunID:    cfg.RunID, ExpiresAt: cfg.ResourceExpiresAt,
 	}
 }

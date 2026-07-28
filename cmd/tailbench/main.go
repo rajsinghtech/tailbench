@@ -37,7 +37,28 @@ var (
 	date    = "unknown"
 )
 
+// restoreStandardLogger undoes Pulumi's takeover of the standard log package.
+//
+// pulumi/sdk/go/common/util/logging has an init() that calls slog.SetDefault,
+// and Go's slog.SetDefault also redirects the standard logger (log.SetOutput to
+// an slog handlerWriter, log.SetFlags(0)). That handler defaults to
+// discardHandler{} and is only configured by Pulumi's own CLI flag parsing,
+// which the Automation API never runs — so without this, every log.Printf and
+// log.Fatalf in tailbench is silently dropped and failures exit non-zero with
+// no output at all.
+//
+// Must run before anything logs, and it also restores timestamps that
+// slog.SetDefault cleared.
+func restoreStandardLogger() {
+	log.SetOutput(os.Stderr)
+	log.SetFlags(log.LstdFlags)
+}
+
 func main() {
+	// Must run before anything logs. The command layer writes user-facing output
+	// through app.Application rather than the standard logger, but the
+	// orchestrator and the Pulumi Automation API still log through it.
+	restoreStandardLogger()
 	os.Exit(mainExitCode())
 }
 
@@ -1721,10 +1742,4 @@ func compiledProviderFactory(name string, cfg *config.Config) (provider.Provider
 		return nil, fmt.Errorf("requested provider %q, but this binary was compiled for provider %q", name, compiledProviderName)
 	}
 	return newCompiledProvider(cfg), nil
-}
-
-func providerStateDir(baseDir, providerName string) string {
-	url := strings.TrimSuffix(baseDir, "/") + "/" + providerName
-	_ = os.MkdirAll(filepath.Clean(strings.TrimPrefix(url, "file://")), 0o755)
-	return url
 }

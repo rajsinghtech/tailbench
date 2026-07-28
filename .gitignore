@@ -22,6 +22,10 @@ state/
 # Runtime artifacts
 .run/
 
+# Local mise overrides (mise.toml itself is committed)
+mise.local.toml
+.mise.local.toml
+
 # Temp
 /tmp/
 *.log

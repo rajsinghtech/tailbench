@@ -95,9 +95,73 @@ func (o *Outcome) merge(other Outcome) {
 	o.Resources = append(o.Resources, other.Resources...)
 }
 
+// validateCredentials reports whether cfg carries usable Tailscale OAuth
+// credentials, with an error that names what is missing and where to set it.
+//
+// Reached only when there is no cached tailnet in .tailbench/tailnet.json — a
+// resumed run takes its credentials from that file, so cfg may legitimately be
+// empty there and must not be rejected.
+//
+// Presence is all that is checked. Tailscale issues opaque keys, so any
+// shape check risks rejecting something valid and would break silently if the
+// key format ever changes; validity is the API's call, reported as a 401. This
+// matches provider.CheckBackendCredentials, which likewise checks presence and
+// delegates validity to the service.
+func validateCredentials(cfg *config.Config) error {
+	var missing []string
+	if cfg.OAuthClientID == "" {
+		missing = append(missing, "OAUTH_CLIENT_ID")
+	}
+	if cfg.OAuthClientSecret == "" {
+		missing = append(missing, "OAUTH_CLIENT_SECRET")
+	}
+	if len(missing) == 0 {
+		return nil
+	}
+
+	return fmt.Errorf(`missing Tailscale credentials: %s are empty
+
+They are needed to create a new tailnet, and no cached tailnet was found at
+.tailbench/tailnet.json, so there is nothing to fall back on.
+
+Set them in .env, which config.yaml references via "env_file:" and expands into
+the ${VAR} placeholders under "tailscale:" — or export them in the environment:
+
+    cp .env.example .env
+
+The OAuth client must be org-level and able to create tailnets (tailbench calls
+/api/v2/organizations/-/tailnets), plus write auth keys, the policy file, and
+devices. Create one at https://login.tailscale.com/admin/settings/oauth — and
+note that tailbench creates and deletes real tailnets, so use disposable org
+credentials.
+
+To run without credentials, use --dry-run (or set create_tailnet: false to
+benchmark an existing tailnet)`, strings.Join(missing, " and "))
+}
+
+// validateModeNames rejects unrecognized mode strings at startup. ModeAppliesTo
+// has a permissive default, so without this a typo survives validation and is
+// only caught by runModeLoop's "skipping unknown mode" branch — after a VM pair
+// has already been provisioned and paid for.
+func validateModeNames(cfg *config.Config) error {
+	for _, mode := range cfg.Modes {
+		if !benchmark.IsValidMode(mode) {
+			return fmt.Errorf("unknown benchmark mode %q in benchmark.modes; valid modes are: %s",
+				mode, strings.Join(benchmark.ValidModes(), ", "))
+		}
+	}
+	return nil
+}
+
 func New(cfg *config.Config, factory ProviderFactory) (*Orchestrator, error) {
 	if factory == nil {
 		return nil, fmt.Errorf("provider factory is required")
+	}
+	if err := validateModeNames(cfg); err != nil {
+		return nil, err
+	}
+	if err := provider.CheckBackendCredentials(cfg.StateBackend); err != nil {
+		return nil, err
 	}
 	if err := validateWorkloadConfig(cfg); err != nil {
 		return nil, err
@@ -131,9 +195,22 @@ func (o *Orchestrator) RunWithOutcome(ctx context.Context) (outcome Outcome) {
 	}
 
 	stateDir := strings.TrimPrefix(o.cfg.StateDir, "file://")
-	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		outcome.BenchmarkErr = fmt.Errorf("create state dir %s: %w", stateDir, err)
-		return outcome
+
+	// A remote backend keeps stacks off this machine, so there is no local state
+	// directory to create — Pulumi gets scratch space under .tailbench instead
+	// (provider.WorkDir). Stale-lock recovery is the remote service's job there,
+	// and locally it is now an explicit, manifest-scoped
+	// `cleanup RUN_ID --recover-pulumi-locks` step rather than a startup sweep.
+	if provider.IsRemoteBackend(o.cfg.StateBackend) {
+		// Stacks outlive this checkout, so a run started elsewhere can be
+		// resumed or torn down from here.
+		log.Printf("pulumi state backend: %s (remote — stacks persist across machines)", o.cfg.StateBackend)
+	} else {
+		log.Printf("pulumi state backend: local %s", stateDir)
+		if err := os.MkdirAll(stateDir, 0o755); err != nil {
+			outcome.BenchmarkErr = fmt.Errorf("create state dir %s: %w", stateDir, err)
+			return outcome
+		}
 	}
 
 	var authKey string
@@ -218,6 +295,13 @@ func (o *Orchestrator) RunWithOutcome(ctx context.Context) (outcome Outcome) {
 				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("update ACL: %w", err))
 			}
 		} else {
+			// No cached tailnet: cfg credentials are the only ones available,
+			// so this is the first point at which they must be usable.
+			if err := validateCredentials(o.cfg); err != nil {
+				outcome.BenchmarkErr = err
+				return outcome
+			}
+
 			// Create a new tailnet
 			tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
 			tailnetResource := ResourceRecord{
@@ -386,7 +470,6 @@ func (o *Orchestrator) runProvider(
 			outcome.CleanupErr = errors.Join(outcome.CleanupErr, err)
 		}
 	}
-
 	lg.Step("setup", "networking")
 	managedNetworking := providerManagesNetworking(p)
 	networkResource := ResourceRecord{
@@ -637,6 +720,7 @@ func (o *Orchestrator) runProvider(
 			recordBenchmarkFailure(err)
 			continue
 		}
+		provisionStart := time.Now()
 		pair, err := p.CreatePair(ctx, provider.PairOptions{
 			InstanceType:   inst.Type,
 			UserData:       userData,
@@ -657,7 +741,8 @@ func (o *Orchestrator) runProvider(
 				lg.Warnf("quota exceeded for %s, skipping family %s", inst.Type, family)
 				skippedFamilies[family] = true
 			} else {
-				lg.Errf("%v", createErr)
+				lg.Errf("create pair %s failed after %s: %v",
+					inst.Type, time.Since(provisionStart).Round(time.Second), err)
 			}
 			// Destroy any partially-created resources (e.g. node pool created but nodes not ready)
 			outcome.ResourcesChanged = true
@@ -684,6 +769,8 @@ func (o *Orchestrator) runProvider(
 			}
 			continue
 		}
+
+		lg.Infof("provisioned %s in %s", inst.Type, time.Since(provisionStart).Round(time.Second))
 
 		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
 		if benchErr != nil {
@@ -1482,14 +1569,20 @@ func loadTailnetState(path string) (*tailnet.TailnetInfo, error) {
 }
 
 // instanceCachePath returns the path for a provider's cached instance list.
-func instanceCachePath(providerName string) string {
-	return filepath.Join(".tailbench", "instances", providerName+".json")
+// The family is part of the key: a cache populated by --family c7i must not be
+// reused to satisfy a later --family all, which would silently benchmark only
+// the narrower selection.
+func instanceCachePath(providerName, family string) string {
+	if family == "" {
+		family = "all"
+	}
+	return filepath.Join(".tailbench", "instances", providerName+"-"+family+".json")
 }
 
 // listInstancesCached returns the instance list for a provider, using a disk cache
 // when available. The cache is invalidated by --cleanup-networking.
 func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provider, lg *logger.Logger) ([]provider.InstanceInfo, error) {
-	cachePath := instanceCachePath(p.Name())
+	cachePath := instanceCachePath(p.Name(), o.cfg.Family)
 
 	if !o.cfg.CleanupNetworking {
 		if data, err := os.ReadFile(cachePath); err == nil {
@@ -1501,6 +1594,8 @@ func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provi
 		}
 	}
 
+	// Family validity is settled earlier, by the local plan stage; an unknown
+	// name never reaches a run.
 	var families []string
 	if o.cfg.Family == "all" {
 		families = p.ListFamilies()

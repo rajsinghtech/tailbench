@@ -69,7 +69,7 @@ handling. Out of scope here.
 Add `forward-pps-exit` to the `modes` list in `config.yaml`, then:
 
 ```bash
-./tailbench --provider aws --filter '^c6in\.xlarge$'
+./dist/tailbench-aws --filter '^c6in\.xlarge$'
 ```
 
 Expected behavior:

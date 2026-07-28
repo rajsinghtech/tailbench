@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -8,6 +9,118 @@ import (
 	"testing"
 	"time"
 )
+
+func TestMissingEnvFileIsLocalOnlyTolerated(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	// env_file names a file that does not exist, as on a fresh clone where
+	// .env is gitignored.
+	body := "env_file: .env\nbenchmark:\n  modes: [l4-kernel]\n"
+	if err := os.WriteFile(path, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	// Local planning resolves no secrets, so it never opens the file and a
+	// fresh clone can still plan.
+	cfg, err := ParseLocalArgs("aws", []string{"--config", path, "--family", "c7i", "--dry-run"})
+	if err != nil {
+		t.Fatalf("missing env file must not be fatal for a local plan, got: %v", err)
+	}
+	if cfg.Family != "c7i" || !cfg.DryRun {
+		t.Fatalf("family = %q, dryRun = %v; want c7i, true", cfg.Family, cfg.DryRun)
+	}
+
+	// The execution path does resolve secrets, so there the same missing file is
+	// a typed prerequisite the command layer reports as TB_PREREQUISITE rather
+	// than a failure partway through provisioning.
+	var loadErr *LoadError
+	_, err = ParseArgs("aws", []string{"--config", path, "--family", "c7i"})
+	if !errors.As(err, &loadErr) || loadErr.Kind != ErrorEnvironmentFile {
+		t.Fatalf("ParseArgs error = %v, want a *LoadError of kind %q", err, ErrorEnvironmentFile)
+	}
+}
+
+func TestParseArgsReportsUnreadableEnvFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("env_file: .env\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A directory named .env exists but cannot be read as a file: unlike a
+	// missing file, this is a real misconfiguration and must surface.
+	if err := os.Mkdir(filepath.Join(dir, ".env"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := ParseArgs("aws", []string{"--config", path}); err == nil {
+		t.Fatal("unreadable env file should be reported, got nil error")
+	}
+}
+
+func TestNormalizeStateBackend(t *testing.T) {
+	valid := map[string]string{
+		"":                        "",
+		"pulumi.com":              "https://api.pulumi.com",
+		"app.pulumi.com":          "https://api.pulumi.com",
+		"https://app.pulumi.com":  "https://api.pulumi.com",
+		"https://app.pulumi.com/": "https://api.pulumi.com",
+		"  pulumi.com  ":          "https://api.pulumi.com",
+		"s3://tailbench-state":    "s3://tailbench-state",
+		"gs://tailbench-state":    "gs://tailbench-state",
+		"file:///srv/state":       "file:///srv/state",
+	}
+	for in, want := range valid {
+		got, err := normalizeStateBackend(in)
+		if err != nil {
+			t.Errorf("normalizeStateBackend(%q) = error %v", in, err)
+			continue
+		}
+		if got != want {
+			t.Errorf("normalizeStateBackend(%q) = %q, want %q", in, got, want)
+		}
+	}
+
+	for _, bad := range []string{"app.pulumi", "/srv/state", "tailbench-state"} {
+		if _, err := normalizeStateBackend(bad); err == nil {
+			t.Errorf("normalizeStateBackend(%q) should have failed", bad)
+		}
+	}
+}
+
+func TestParseArgsStateBackendPrecedence(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("state_backend: s3://from-yaml\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := ParseArgs("aws", []string{"--config", path})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StateBackend != "s3://from-yaml" {
+		t.Fatalf("YAML backend = %q", cfg.StateBackend)
+	}
+
+	cfg, err = ParseArgs("aws", []string{"--config", path, "--state-backend", "pulumi.com"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.StateBackend != "https://api.pulumi.com" {
+		t.Fatalf("flag should override YAML and normalize, got %q", cfg.StateBackend)
+	}
+}
+
+func TestParseArgsRejectsBadStateBackend(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	if err := os.WriteFile(path, []byte("state_backend: not-a-url\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParseArgs("aws", []string{"--config", path}); err == nil {
+		t.Fatal("an unusable state_backend should fail at parse time")
+	}
+}
 
 func TestParseArgsProviderDefaultAndOverride(t *testing.T) {
 	dir := t.TempDir()

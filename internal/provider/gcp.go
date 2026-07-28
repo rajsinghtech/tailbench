@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/compute"
@@ -80,7 +81,7 @@ func (p *GCPProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
-		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
+		auto.WorkDir(WorkDir(p.StateDir, p.Name())),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -187,7 +188,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set gcp:region: %w", err)
 	}
 
-	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
+	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -233,7 +234,7 @@ func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) erro
 	if err := stack.Cancel(ctx); err != nil {
 		return fmt.Errorf("cancel stack %s: %w", stackName, err)
 	}
-	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError()); err != nil {
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
 		return fmt.Errorf("destroy stack %s: %w", stackName, err)
 	}
 	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {

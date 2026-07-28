@@ -485,6 +485,10 @@ func TestRunAlwaysCleansCreatedTailnetWhenACLSetupFails(t *testing.T) {
 			CleanupPolicy:     config.CleanupAlways,
 			RunID:             "tb_2026-07-24_ab12cd",
 			StateDir:          "file://" + filepath.Join(root, "state"),
+			// Present so the run reaches ACL setup; this test is about
+			// compensating cleanup after an ACL failure, not credentials.
+			OAuthClientID:     "test-id",
+			OAuthClientSecret: "test-secret",
 		},
 		tailnet:  manager,
 		recorder: recorder,
@@ -560,6 +564,56 @@ func TestRelayNetworkMutationHelpersSurfaceEveryHostFailure(t *testing.T) {
 			t.Fatalf("restore error = %v, want %q", restoreErr, want)
 		}
 	}
+}
+
+func TestValidateModeNamesRejectsTypos(t *testing.T) {
+	err := validateModeNames(&config.Config{Modes: []string{"l4-kernel", "l4-kernal"}})
+	require.Error(t, err)
+	assert.Contains(t, err.Error(), `unknown benchmark mode "l4-kernal"`)
+	assert.Contains(t, err.Error(), "l4-kernel", "error should list the valid modes")
+
+	assert.NoError(t, validateModeNames(&config.Config{Modes: []string{"l4-kernel", "l7-serve-h2"}}))
+}
+
+func TestValidateCredentialsChecksPresenceOnly(t *testing.T) {
+	t.Run("both present", func(t *testing.T) {
+		// Deliberately not shaped like real Tailscale credentials: validity is
+		// the API's call, not ours.
+		err := validateCredentials(&config.Config{
+			OAuthClientID:     "anything",
+			OAuthClientSecret: "anything",
+		})
+		assert.NoError(t, err)
+	})
+
+	for name, cfg := range map[string]*config.Config{
+		"both empty":   {},
+		"id empty":     {OAuthClientSecret: "s"},
+		"secret empty": {OAuthClientID: "k"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			err := validateCredentials(cfg)
+			require.Error(t, err)
+			// The message must name what to set, where to set it, and the way
+			// out for someone who just wants a dry run.
+			for _, want := range []string{".env", ".env.example", "--dry-run", "login.tailscale.com"} {
+				assert.Contains(t, err.Error(), want)
+			}
+		})
+	}
+
+	t.Run("names only the missing variable", func(t *testing.T) {
+		err := validateCredentials(&config.Config{OAuthClientID: "k"})
+		require.Error(t, err)
+		assert.Contains(t, err.Error(), "OAUTH_CLIENT_SECRET")
+		assert.NotContains(t, err.Error(), "OAUTH_CLIENT_ID")
+	})
+}
+
+func TestInstanceCachePathIsKeyedOnFamily(t *testing.T) {
+	assert.NotEqual(t, instanceCachePath("aws", "all"), instanceCachePath("aws", "c7i"),
+		"a --family c7i cache must not satisfy a later --family all run")
+	assert.Equal(t, instanceCachePath("aws", "all"), instanceCachePath("aws", ""))
 }
 
 func TestCompletedForwardModeDoesNotNeedRouter(t *testing.T) {

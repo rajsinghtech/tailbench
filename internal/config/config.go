@@ -44,6 +44,7 @@ type Config struct {
 	AuthKeyRefreshSec      int
 	RootDir                string
 	StateDir               string
+	StateBackend           string
 	BenchImage             string
 	TSImage                string
 	FortioDuration         int
@@ -81,10 +82,11 @@ const (
 )
 
 type yamlConfig struct {
-	EnvFile   string   `yaml:"env_file"`
-	Providers []string `yaml:"providers"`
-	Family    string   `yaml:"family"`
-	Filter    string   `yaml:"filter"`
+	EnvFile      string   `yaml:"env_file"`
+	Providers    []string `yaml:"providers"`
+	Family       string   `yaml:"family"`
+	Filter       string   `yaml:"filter"`
+	StateBackend string   `yaml:"state_backend"`
 
 	Tailscale struct {
 		CreateTailnet     bool   `yaml:"create_tailnet"`
@@ -193,6 +195,35 @@ func readEnvFile(path string) (map[string]string, error) {
 	return values, nil
 }
 
+// backendSchemes are the URL schemes Pulumi accepts as a state backend.
+var backendSchemes = []string{"file://", "s3://", "gs://", "azblob://", "https://", "http://"}
+
+// normalizeStateBackend canonicalizes the configured Pulumi backend and rejects
+// values Pulumi cannot use. Validating here means a typo fails at startup with
+// a usable message, rather than partway into the first stack operation.
+//
+// An empty value keeps state local, under ./state/<provider>.
+func normalizeStateBackend(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	// Pulumi Cloud is spelled several ways in the docs and UI; api.pulumi.com is
+	// the endpoint `backend.url` actually wants.
+	switch strings.TrimSuffix(s, "/") {
+	case "pulumi.com", "app.pulumi.com", "https://pulumi.com", "https://app.pulumi.com":
+		return "https://api.pulumi.com", nil
+	}
+	for _, scheme := range backendSchemes {
+		if strings.HasPrefix(s, scheme) {
+			return s, nil
+		}
+	}
+	return "", fmt.Errorf(
+		"invalid state_backend %q: use \"pulumi.com\" for Pulumi Cloud, or a URL with one of these schemes: %s",
+		s, strings.Join(backendSchemes, " "))
+}
+
 func or(vals ...string) string {
 	for _, v := range vals {
 		if v != "" {
@@ -249,6 +280,8 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 	maxInstanceTypesFlag := flags.Int("max-instance-types", 0, "Maximum instance types with pending work")
 	maxConcurrentResourcesFlag := flags.Int("max-concurrent-resources", 0, "Maximum concurrent benchmark topologies")
 	cleanupPolicyFlag := flags.String("cleanup-policy", "", "Cleanup policy: always, on-success, or manual")
+	stateBackend := flags.String("state-backend", "",
+		"Pulumi state backend: \"pulumi.com\", or an s3://, gs://, azblob://, or file:// URL (default: local ./state)")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
@@ -282,16 +315,20 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 	}
 
 	rootDir, _ := os.Getwd()
+	// fileEnvironment stays empty unless secrets were resolved, so local plan and
+	// doctor expand ${VAR} from the process environment alone and never read the
+	// environment file. Non-secret values such as state_backend can therefore use
+	// the same lookup on every path.
+	lookup := func(key string) (string, bool) {
+		if value, ok := os.LookupEnv(key); ok {
+			return value, true
+		}
+		value, ok := fileEnvironment[key]
+		return value, ok
+	}
 	oauthClientID := ""
 	oauthClientSecret := ""
 	if options.resolveSecrets {
-		lookup := func(key string) (string, bool) {
-			if value, ok := os.LookupEnv(key); ok {
-				return value, true
-			}
-			value, ok := fileEnvironment[key]
-			return value, ok
-		}
 		oauthClientID = expandEnvVars(yc.Tailscale.OAuthClientID, lookup)
 		oauthClientSecret = expandEnvVars(yc.Tailscale.OAuthClientSecret, lookup)
 	}
@@ -357,6 +394,13 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 		)
 	}
 
+	// Env expansion runs first so state_backend can be supplied as ${VAR} from
+	// the env file, the same way credentials are.
+	backend, err := normalizeStateBackend(or(*stateBackend, expandEnvVars(yc.StateBackend, lookup)))
+	if err != nil {
+		return nil, err
+	}
+
 	cfg := &Config{
 		Providers:         yc.Providers,
 		Family:            or(*familyFlag, yc.Family, "all"),
@@ -414,6 +458,7 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 		DryRun:            yc.DryRun || *dryRun,
 		RootDir:           rootDir,
 		StateDir:          "file://" + rootDir + "/state",
+		StateBackend:      backend,
 	}
 
 	if options.loadSSHKeys {

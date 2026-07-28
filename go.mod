@@ -1,6 +1,6 @@
 module github.com/rajsinghtech/tailbench
 
-go 1.26.1
+go 1.26.5
 
 require (
 	github.com/pulumi/pulumi-aws/sdk/v7 v7.36.0

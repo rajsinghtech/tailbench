@@ -74,7 +74,7 @@ func (p *GKEProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
-		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
+		auto.WorkDir(WorkDir(p.StateDir, p.Name())),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),

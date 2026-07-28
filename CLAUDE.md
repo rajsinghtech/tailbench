@@ -9,6 +9,55 @@ GCP, AWS, and Azure, running benchmarks (iperf3, MTR, fortio) over baseline LAN
 vs. Tailscale CGNAT, and publishing results to a static dashboard. See `README.md`
 for user-facing usage, flags, and environment variables.
 
+## One Binary Per Cloud (read this before building)
+
+`cmd/tailbench` **requires exactly one cloud build tag** — `aws`, `azure`, or `gcp`,
+optionally plus `k8s`. A bare `go build ./cmd/tailbench/` fails on purpose: the
+guard files `invalid_no_cloud.go` / `invalid_multiple_clouds.go` reference an
+undefined symbol so a mis-tagged build breaks at compile time rather than
+producing a binary with the wrong provider. Six variants result:
+
+| Binary | Tags | Provider |
+|---|---|---|
+| `tailbench-aws` | `aws` | `aws` |
+| `tailbench-aws-k8s` | `aws,k8s` | `eks` |
+| `tailbench-azure` | `azure` | `azure` |
+| `tailbench-azure-k8s` | `azure,k8s` | `aks` |
+| `tailbench-gcp` | `gcp` | `gcp` |
+| `tailbench-gcp-k8s` | `gcp,k8s` | `gke` |
+
+The tag selects which `internal/provider/<cloud>.go` compiles, and **every Pulumi
+import lives behind those tags**. `compiledProviderName` and
+`newCompiledProvider` come from the tagged file in `cmd/tailbench`.
+`scripts/verify-deps.sh` and `scripts/verify-binary.sh` enforce that no binary
+links a foreign cloud SDK.
+
+**gopls needs a tag.** Without one it reports `compiledProviderName` /
+`newCompiledProvider` as undefined and treats every `internal/provider/<cloud>.go`
+as excluded — all false positives. `.vscode/settings.json` pins `-tags=aws`; edit
+the tag there to work on another variant. For other editors or a shell session,
+`GOFLAGS=-tags=aws` achieves the same (verified: a command-line `-tags` still
+overrides `GOFLAGS`, so this does not interfere with `make build-gcp`).
+
+## Pulumi Hijacks the Standard Logger (must-know)
+
+`pulumi/sdk/v3/go/common/util/logging` declares `primary slog.Handler =
+discardHandler{}` and has an **`init()`** that calls `slog.SetDefault`. Go's
+`slog.SetDefault` also redirects the standard library logger — `log.SetOutput` to
+an slog `handlerWriter`, plus `log.SetFlags(0)`. Pulumi's own CLI configures that
+handler from its flags; the Automation API never does, so it stays discarding.
+
+Consequence in any Pulumi-linked binary — which is all six: **every `log.Printf`
+and `log.Fatalf` is silently dropped.** Startup failures exit 1 with no output at
+all, `logger.Logger` (which wraps `log.Printf`) emits nothing, and
+`optup.ProgressStreams(log.Writer())` streams into the discarding writer.
+`fmt.Printf` is unaffected, which is why `--dry-run` output appeared while
+everything else vanished.
+
+`main.restoreStandardLogger()` undoes this and **must run first in `main()`**,
+before anything logs. Do not remove it, and be aware that any future call into
+Pulumi code that re-runs `rebuildLogger()` would re-break logging.
+
 ## Build, Test, Lint
 
 The Makefile is the supported interface. The repository contains six large,
@@ -42,7 +91,15 @@ tagged compilation behind the invocation.
 `make test-website` runs only the Node.js dashboard tests. Agents still need
 approval before starting any test command.
 
-- **Go 1.26.1** is required by `go.mod`.
+- **Go 1.26.5** is required by `go.mod`; `mise.toml` pins the same version, so
+  bump both together.
+- `mise.toml` also pins Node, golangci-lint, and the CLIs the code shells out to
+  at run time (`pulumi`, `kubectl`, `helm`, `aws`, `gcloud`, `az`). It defines no
+  tasks — the Makefile is the task runner.
+- The repo has its own **`.golangci.yml`** (schema `version: "2"`, `default: none`
+  plus an explicit enable list). Do not swap in a different linter binary — the
+  Makefile pins v2.11.4 into `.tools/bin` and `make lint-*` invokes that path
+  directly, so a `golangci-lint` elsewhere on `PATH` is not what CI runs.
 - The Tailscale live E2E test (`internal/tailnet/tailnet_e2e_test.go`) is gated by
   `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_CLIENT_SECRET`. When present, the test creates
   and deletes a real ephemeral tailnet. Keep those variables absent during
@@ -77,6 +134,9 @@ interactive confirmation or `--yes`, and requires an explicit cost ceiling
 with `--yes`. Approved runs persist under `.tailbench/runs/<run-id>/`; `status`
 and `results` are local readers, while `resume` and `cleanup` operate on the
 same named manifest.
+
+An explicit `--provider` must match the binary's compiled provider or startup
+fails — renaming the executable does not change its identity.
 
 ## Architecture
 
@@ -116,6 +176,9 @@ Two invariants that shape most of the code:
 implements): `SetupNetworking`, `CreatePair`, `DestroyPair`, `TeardownNetworking`,
 `ListFamilies`, `ListInstances`, `GetVCPUs`, `IsQuotaError`. Implementations:
 
+Each implementation file carries a build tag, so exactly one compiles into a given
+binary and the other clouds' Pulumi SDKs are never linked:
+
 - **VM providers**: `gcp.go`, `aws.go`, `azure.go` — provision 2 identical VMs via
   Pulumi Automation API; benchmarks run over native Go SSH (through tsnet).
 - **K8s providers**: `gke.go`, `eks.go`, `aks.go` — additionally implement the
@@ -129,10 +192,31 @@ implements): `SetupNetworking`, `CreatePair`, `DestroyPair`, `TeardownNetworking
 
 Two Pulumi stack lifecycles: **networking** stacks are long-lived (per provider,
 created once, no-op on subsequent runs); **VM-pair** stacks are ephemeral (per instance
-type, created and destroyed each iteration). State is stored under
-`state/<provider>`. Stale Pulumi lock files (from crashed runs) are currently swept on
-startup—see the `lockPattern` glob in `Run`. The implementation plan requires moving
-that mutation into an explicit recovery action.
+type, created and destroyed each iteration).
+
+**State backend is configurable** via `state_backend:` / `--state-backend`
+(`internal/provider/backend.go`):
+
+- Empty (default) → `file://<root>/state/<provider>`, per provider.
+- `pulumi.com` → normalized to `https://api.pulumi.com`; `s3://`, `gs://`, `azblob://`,
+  and explicit `file://` URLs also work. Remote backends skip the local state
+  `MkdirAll` — the service manages its own leases.
+
+Stale Pulumi lock files from a crashed run are **not** swept at startup. Removing
+them is an explicit, manifest-scoped recovery action:
+`cleanup <run-id> --recover-pulumi-locks`, which only removes locks belonging to
+stacks the named run recorded (`internal/recovery/pulumi_locks.go`).
+
+Two things keep this simple: **stack names are already provider-qualified**
+(`tailbench-<provider>-*`), so one shared backend holds every provider's stacks without
+collision; and **`WorkDir` is decoupled from the backend URL** — Pulumi always needs a
+real local path for project/stack settings, so remote backends get scratch space under
+`.tailbench/pulumi/<provider>`. The `Provider.StateDir` field holds the *backend URL*,
+not a directory, despite the name.
+
+Validation is front-loaded: `config.normalizeStateBackend` rejects unusable values at
+parse time, and `provider.CheckBackendCredentials` fails at startup when Pulumi Cloud is
+selected without `PULUMI_ACCESS_TOKEN` or `~/.pulumi/credentials.json`.
 
 ### Benchmark modes
 
@@ -219,8 +303,13 @@ running it; do not invoke the tagged Tailbench entry point as a shortcut.
 - **Hostnames** are derived, not arbitrary: `tb-<provider>-<s|c>-<safeType>-<suffix>`
   (`safeHostname` lowercases and replaces `.`/`_` with `-`). Device cleanup matches the
   `tb-<provider>-` prefix — keep the scheme if you rename.
-- **New provider**: implement the `Provider` interface, add a case in
-  `orchestrator.buildProvider`, and register families in `provider/families.go`.
+- **New provider**: implement the `Provider` interface in a build-tagged
+  `internal/provider/<cloud>.go`, add the matching tagged `cmd/tailbench/<cloud>.go`
+  defining `compiledProviderName` and `newCompiledProvider`, register families in
+  `provider/families.go`, and add the variant to the `Makefile`, `scripts/verify-deps.sh`,
+  `scripts/verify-binary.sh`, and the `ci.yml`/`release.yml` matrices. There is no
+  central provider switch — `main.compiledProviderFactory` accepts only the one
+  provider the binary was compiled for.
 - **New benchmark mode**: add it to `validModes` and the `ModeUsesX`/`ModeAppliesTo`
   helpers in `modes.go`, then wire the run branch in `orchestrator.runModeLoop`.
 - **Forwarding modes** (e.g. `forward-pps-exit`) additionally need a **3rd node**: they set

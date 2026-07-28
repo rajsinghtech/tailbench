@@ -12,7 +12,7 @@ const compiledProviderName = "aks"
 func newCompiledProvider(cfg *config.Config) provider.Provider {
 	return &provider.AKSProvider{
 		Location: cfg.AzureLocation, ResourceGroup: cfg.AzureResourceGroup,
-		StateDir: providerStateDir(cfg.StateDir, compiledProviderName),
+		StateDir: provider.BackendURL(cfg.StateBackend, cfg.StateDir, compiledProviderName),
 		RunID:    cfg.RunID, ExpiresAt: cfg.ResourceExpiresAt,
 	}
 }
