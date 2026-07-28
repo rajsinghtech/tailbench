@@ -1,0 +1,65 @@
+# Safe Tailbench example.
+#
+# Local `plan` and `doctor` do not open this environment file. Copy
+# .env.example to a private, ignored file only before an approved remote check
+# or run.
+env_file: .env
+
+# Empty means "use the provider compiled into this binary".
+providers: []
+family: all
+filter: ""
+
+tailscale:
+  # Set this only when the run should create an ephemeral test tailnet.
+  create_tailnet: false
+  oauth_client_id: ${OAUTH_CLIENT_ID}
+  oauth_client_secret: ${OAUTH_CLIENT_SECRET}
+  tag: tag:bench
+
+benchmark:
+  iperf_duration: 30
+  iperf_parallel: 4
+  iperf_iterations: 3
+  mtr_cycles: 100
+  cooldown_sec: 30
+  fortio_duration: 30
+  fortio_connections: 16
+  fortio_qps: 0
+  fortio_iterations: 3
+  modes:
+    - l4-kernel
+
+ssh:
+  timeout: 120
+  ready_timeout: 300
+
+aws:
+  region: us-west-2
+  az: us-west-2a
+  key_name: YOUR_AWS_KEY_PAIR
+
+gcp:
+  project: YOUR_GCP_PROJECT_ID
+  zone: us-central1-a
+
+azure:
+  location: eastus
+  resource_group: tailbench-example
+  ssh_user: azureuser
+
+images:
+  bench: ghcr.io/rajsinghtech/tailbench-tools:latest
+  tailscale: ghcr.io/tailscale/tailscale:latest
+
+# This checked-in example is intentionally non-provisioning. Set false only
+# after reviewing a plan.
+dry_run: true
+
+# Execution guardrails. Automation must also pass --yes and must explicitly
+# set max_cost_usd in this file or with --max-cost-usd.
+max_cost_usd: 10
+max_duration: 45m
+max_instance_types: 1
+max_concurrent_resources: 1
+cleanup_policy: always

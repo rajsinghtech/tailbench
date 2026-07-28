@@ -17,16 +17,54 @@ import (
 
 // AWSProvider manages AWS EC2 instances via Pulumi Automation API.
 type AWSProvider struct {
-	Region   string
-	AZ       string
-	KeyName  string
-	SSHUser  string
-	StateDir string
+	Region    string
+	AZ        string
+	KeyName   string
+	SSHUser   string
+	StateDir  string
+	RunID     string
+	ExpiresAt string
 }
 
 var _ Provider = (*AWSProvider)(nil)
 
 func (p *AWSProvider) Name() string { return "aws" }
+
+func (p *AWSProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *AWSProvider) ManagesNetworking() bool  { return true }
+
+func (p *AWSProvider) networkStackName() string {
+	if suffix := runSuffix(p.RunID); suffix != "" {
+		return "tailbench-aws-networking-" + suffix
+	}
+	return "tailbench-aws-networking"
+}
+
+func (p *AWSProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(instanceType, ".", "-")
+	name := fmt.Sprintf("tailbench-aws-%s", safeType)
+	if suffix := runSuffix(p.RunID); suffix != "" {
+		name += "-" + suffix
+	}
+	return name
+}
+
+func (p *AWSProvider) resourceTags(name string) pulumi.StringMap {
+	tags := pulumi.StringMap{
+		"Project":           pulumi.String("tailbench"),
+		"TailbenchProvider": pulumi.String("aws"),
+	}
+	if name != "" {
+		tags["Name"] = pulumi.String(name)
+	}
+	if p.RunID != "" {
+		tags["TailbenchRunID"] = pulumi.String(p.RunID)
+	}
+	if p.ExpiresAt != "" {
+		tags["TailbenchExpiresAt"] = pulumi.String(p.ExpiresAt)
+	}
+	return tags
+}
 
 func (p *AWSProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
@@ -43,17 +81,14 @@ func (p *AWSProvider) projectOpts() []auto.LocalWorkspaceOption {
 }
 
 func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
-	stackName := "tailbench-aws-networking"
+	stackName := p.networkStackName()
 
 	program := func(pCtx *pulumi.Context) error {
 		vpc, err := ec2.NewVpc(pCtx, "tailbench-vpc", &ec2.VpcArgs{
 			CidrBlock:          pulumi.String("10.0.0.0/16"),
 			EnableDnsHostnames: pulumi.Bool(true),
 			EnableDnsSupport:   pulumi.Bool(true),
-			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-vpc"),
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags:               p.resourceTags("tailbench-vpc"),
 		})
 		if err != nil {
 			return err
@@ -64,10 +99,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			CidrBlock:           pulumi.String("10.0.1.0/24"),
 			AvailabilityZone:    pulumi.String(p.AZ),
 			MapPublicIpOnLaunch: pulumi.Bool(true),
-			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-subnet"),
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags:                p.resourceTags("tailbench-subnet"),
 		})
 		if err != nil {
 			return err
@@ -75,10 +107,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 
 		igw, err := ec2.NewInternetGateway(pCtx, "tailbench-igw", &ec2.InternetGatewayArgs{
 			VpcId: vpc.ID(),
-			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-igw"),
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags:  p.resourceTags("tailbench-igw"),
 		})
 		if err != nil {
 			return err
@@ -92,10 +121,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					GatewayId: igw.ID(),
 				},
 			},
-			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-rtb"),
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags: p.resourceTags("tailbench-rtb"),
 		})
 		if err != nil {
 			return err
@@ -165,10 +191,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					CidrBlocks: pulumi.StringArray{pulumi.String("0.0.0.0/0")},
 				},
 			},
-			Tags: pulumi.StringMap{
-				"Name":    pulumi.String("tailbench-sg"),
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags: p.resourceTags("tailbench-sg"),
 		})
 		if err != nil {
 			return err
@@ -176,9 +199,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 
 		pg, err := ec2.NewPlacementGroup(pCtx, "tailbench-pg", &ec2.PlacementGroupArgs{
 			Strategy: pulumi.String("cluster"),
-			Tags: pulumi.StringMap{
-				"Project": pulumi.String("tailbench"),
-			},
+			Tags:     p.resourceTags("tailbench-pg"),
 		})
 		if err != nil {
 			return err
@@ -200,9 +221,6 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
 
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
-
 	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
@@ -217,17 +235,22 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		return s
 	}
 
-	return &NetworkingOutput{Values: map[string]string{
-		"vpc_id":               getOutput("vpc_id"),
-		"subnet_id":            getOutput("subnet_id"),
-		"sg_id":                getOutput("sg_id"),
-		"placement_group_name": getOutput("placement_group_name"),
-	}}, nil
+	vpcID := getOutput("vpc_id")
+	return &NetworkingOutput{
+		StackName:  stackName,
+		ProviderID: vpcID,
+		Values: map[string]string{
+			"vpc_id":               vpcID,
+			"subnet_id":            getOutput("subnet_id"),
+			"sg_id":                getOutput("sg_id"),
+			"placement_group_name": getOutput("placement_group_name"),
+		},
+	}, nil
 }
 
 func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(opts.InstanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-aws-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
 	serverName := fmt.Sprintf("tb-%s-server", safeType)
 	clientName := fmt.Sprintf("tb-%s-client", safeType)
@@ -286,10 +309,7 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 					VolumeSize: pulumi.Int(50),
 					VolumeType: pulumi.String("gp3"),
 				},
-				Tags: pulumi.StringMap{
-					"Name":    pulumi.String(name),
-					"Project": pulumi.String("tailbench"),
-				},
+				Tags: p.resourceTags(name),
 			})
 			if err != nil {
 				return err
@@ -318,9 +338,6 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	if err := stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region}); err != nil {
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
-
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
 
 	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
@@ -359,26 +376,38 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 }
 
 func (p *AWSProvider) DestroyPair(ctx context.Context, instanceType string) error {
-	safeType := strings.ReplaceAll(instanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-aws-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
+	if err := stack.Cancel(ctx); err != nil {
+		return fmt.Errorf("cancel stack %s: %w", stackName, err)
+	}
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError()); err != nil {
+		return fmt.Errorf("destroy stack %s: %w", stackName, err)
+	}
+	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+		return fmt.Errorf("remove stack %s: %w", stackName, err)
 	}
 	return nil
 }
 
 func (p *AWSProvider) TeardownNetworking(ctx context.Context) error {
-	stackName := "tailbench-aws-networking"
+	stackName := p.networkStackName()
 
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("select stack %s: %w", stackName, err)
 	}

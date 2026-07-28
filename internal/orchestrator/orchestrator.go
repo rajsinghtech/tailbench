@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -15,9 +16,11 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/benchmark"
 	"github.com/rajsinghtech/tailbench/internal/cloudinit"
 	"github.com/rajsinghtech/tailbench/internal/config"
+	"github.com/rajsinghtech/tailbench/internal/failure"
 	"github.com/rajsinghtech/tailbench/internal/logger"
 	"github.com/rajsinghtech/tailbench/internal/provider"
 	"github.com/rajsinghtech/tailbench/internal/result"
+	"github.com/rajsinghtech/tailbench/internal/retry"
 	"github.com/rajsinghtech/tailbench/internal/sshclient"
 	"github.com/rajsinghtech/tailbench/internal/tailnet"
 	"tailscale.com/tsnet"
@@ -26,12 +29,71 @@ import (
 type Orchestrator struct {
 	cfg        *config.Config
 	providers  []provider.Provider
-	tailnet    *tailnet.Manager
+	tailnet    TailnetManager
 	tsnetSrv   *tsnet.Server
 	tailnetDNS string // e.g. "tailXXXX.ts.net"
+	recorder   StateRecorder
 }
 
 type ProviderFactory func(name string, cfg *config.Config) (provider.Provider, error)
+
+type TailnetManager interface {
+	CreateTailnet(context.Context, string) (*tailnet.TailnetInfo, error)
+	DeleteTailnet(context.Context, string) error
+	SetupACL(context.Context, string, string, bool, bool) error
+	EnableHTTPS(context.Context, string, string) error
+	CreateAuthKey(context.Context, string, string) (string, error)
+	CleanupStaleDevices(context.Context, string, string, string) (int, error)
+}
+
+// StateRecorder is the dependency-light persistence seam used to make
+// externally visible work durable at the moment it happens. The command layer
+// adapts it to the versioned run manifest.
+type StateRecorder interface {
+	BeforeExternalStep(stage, workID, message string) error
+	AfterExternalStep(stage, workID, status, message string) error
+	RecordResources(resources ...ResourceRecord) error
+}
+
+// Outcome keeps benchmark/provisioning failures independent from cleanup
+// failures so the command boundary cannot report a successful cleanup merely
+// because benchmark work produced a result.
+type Outcome struct {
+	BenchmarkErr     error
+	CleanupErr       error
+	ResourcesChanged bool
+	Resources        []ResourceRecord
+}
+
+type ResourceRecord struct {
+	ID               string
+	Kind             string
+	ProviderID       string
+	StackName        string
+	Hostname         string
+	CleanupOwner     string
+	Status           string
+	OwnershipCertain bool
+	InstanceType     string
+}
+
+const (
+	runstateResourceCreating = "creating"
+	runstateResourceCreated  = "created"
+	runstateResourceCleaning = "cleaning"
+	runstateResourceCleaned  = "cleaned"
+)
+
+func (o Outcome) Err() error {
+	return errors.Join(o.BenchmarkErr, o.CleanupErr)
+}
+
+func (o *Outcome) merge(other Outcome) {
+	o.BenchmarkErr = errors.Join(o.BenchmarkErr, other.BenchmarkErr)
+	o.CleanupErr = errors.Join(o.CleanupErr, other.CleanupErr)
+	o.ResourcesChanged = o.ResourcesChanged || other.ResourcesChanged
+	o.Resources = append(o.Resources, other.Resources...)
+}
 
 func New(cfg *config.Config, factory ProviderFactory) (*Orchestrator, error) {
 	if factory == nil {
@@ -52,42 +114,96 @@ func New(cfg *config.Config, factory ProviderFactory) (*Orchestrator, error) {
 	return o, nil
 }
 
+func (o *Orchestrator) SetStateRecorder(recorder StateRecorder) {
+	o.recorder = recorder
+}
+
 func (o *Orchestrator) Run(ctx context.Context) error {
+	return o.RunWithOutcome(ctx).Err()
+}
+
+func (o *Orchestrator) RunWithOutcome(ctx context.Context) (outcome Outcome) {
+	// The shared command layer owns local planning. Keep this compatibility
+	// branch inert so legacy DryRun configuration cannot create Pulumi state or
+	// accidentally turn provider discovery into an implicit remote check.
+	if o.cfg.DryRun {
+		return outcome
+	}
+
 	stateDir := strings.TrimPrefix(o.cfg.StateDir, "file://")
 	if err := os.MkdirAll(stateDir, 0o755); err != nil {
-		return fmt.Errorf("create state dir %s: %w", stateDir, err)
-	}
-
-	// Clean stale Pulumi lock files left behind by previous crashed runs.
-	// These live in state/<provider>/.pulumi/locks/*.json and cause all
-	// subsequent operations to fail with "exit status 255".
-	lockPattern := filepath.Join(stateDir, "*", ".pulumi", "locks", "*.json")
-	if locks, err := filepath.Glob(lockPattern); err == nil {
-		for _, lf := range locks {
-			log.Printf("removing stale pulumi lock: %s", lf)
-			if err := os.Remove(lf); err != nil && !os.IsNotExist(err) {
-				log.Printf("warning: remove stale pulumi lock %s: %v", lf, err)
-			}
-		}
-	}
-
-	if o.cfg.DryRun {
-		return o.dryRun(ctx)
+		outcome.BenchmarkErr = fmt.Errorf("create state dir %s: %w", stateDir, err)
+		return outcome
 	}
 
 	var authKey string
 	var authKeyCreated time.Time
 
 	if o.cfg.CreateTailnet {
-		o.tailnet = &tailnet.Manager{
-			OrgClientID:     o.cfg.OAuthClientID,
-			OrgClientSecret: o.cfg.OAuthClientSecret,
-			Tag:             o.cfg.Tag,
+		if o.tailnet == nil {
+			o.tailnet = &tailnet.Manager{
+				OrgClientID:     o.cfg.OAuthClientID,
+				OrgClientSecret: o.cfg.OAuthClientSecret,
+				Tag:             o.cfg.Tag,
+			}
+		}
+
+		tailnetStateFile := filepath.Join(".tailbench", "tailnet.json")
+		if o.cfg.CleanupNetworking {
+			defer func() {
+				if o.tailnetDNS == "" ||
+					!shouldCleanup(o.cfg.CleanupPolicy, outcome.BenchmarkErr) {
+					return
+				}
+				if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaning); ok {
+					outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
+				}
+				outcome.CleanupErr = errors.Join(
+					outcome.CleanupErr,
+					o.beforeExternalStep("cleanup-tailnet", "", "delete run-owned tailnet"),
+				)
+				log.Printf("deleting tailnet %s", o.tailnetDNS)
+				delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+				defer cancel()
+				outcome.ResourcesChanged = true
+				if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
+					log.Printf("warning: tailnet deletion failed: %v", err)
+					deleteErr := fmt.Errorf("delete tailnet: %w", err)
+					outcome.CleanupErr = errors.Join(outcome.CleanupErr, deleteErr)
+					outcome.CleanupErr = errors.Join(
+						outcome.CleanupErr,
+						o.afterExternalStep("cleanup-tailnet", "", "failed", deleteErr.Error()),
+					)
+				} else {
+					if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaned); ok {
+						outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
+					}
+					outcome.CleanupErr = errors.Join(
+						outcome.CleanupErr,
+						o.afterExternalStep("cleanup-tailnet", "", "succeeded", "run-owned tailnet deleted"),
+					)
+				}
+				if o.cfg.RunID == "" {
+					removeErr := os.Remove(tailnetStateFile)
+					if removeErr != nil && !os.IsNotExist(removeErr) {
+						log.Printf("warning: remove tailnet state: %v", removeErr)
+						outcome.CleanupErr = errors.Join(
+							outcome.CleanupErr,
+							fmt.Errorf("remove tailnet state: %w", removeErr),
+						)
+					}
+				}
+			}()
 		}
 
 		// Try to reuse an existing tailnet from a previous run
-		tailnetStateFile := filepath.Join(".tailbench", "tailnet.json")
 		info, err := loadTailnetState(tailnetStateFile)
+		if o.cfg.RunID != "" {
+			// Manifest-managed runs must own their tailnet. Reusing a global
+			// tailnet would make cleanup ownership ambiguous across run IDs.
+			info = nil
+			err = os.ErrNotExist
+		}
 		if err == nil {
 			log.Printf("reusing existing tailnet: %s", info.DNSName)
 			o.tailnetDNS = info.DNSName
@@ -96,67 +212,103 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 
 			// Always update ACL to pick up any tag/rule changes
 			log.Println("updating ACL")
+			outcome.ResourcesChanged = true
 			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
 				log.Printf("warning: ACL update failed: %v", err)
+				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("update ACL: %w", err))
 			}
 		} else {
 			// Create a new tailnet
 			tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
+			tailnetResource := ResourceRecord{
+				ID:               "tailscale/tailnet",
+				Kind:             "tailnet",
+				CleanupOwner:     o.cfg.RunID,
+				Status:           runstateResourceCreating,
+				OwnershipCertain: o.cfg.RunID != "",
+			}
+			if o.cfg.RunID != "" {
+				suffix := o.cfg.RunID
+				if index := strings.LastIndex(suffix, "_"); index >= 0 {
+					suffix = suffix[index+1:]
+				}
+				tailnetName = "tailbench-" + suffix
+				if err := o.recordResources(&outcome, tailnetResource); err != nil {
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+					return outcome
+				}
+				if err := o.beforeExternalStep("provision-tailnet", "", "create run-owned tailnet"); err != nil {
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+					return outcome
+				}
+			}
 			log.Printf("creating tailnet %s", tailnetName)
+			outcome.ResourcesChanged = true
 			info, err = o.tailnet.CreateTailnet(ctx, tailnetName)
 			if err != nil {
-				return fmt.Errorf("create tailnet: %w", err)
+				createErr := fmt.Errorf("create tailnet: %w", err)
+				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, createErr)
+				outcome.BenchmarkErr = errors.Join(
+					outcome.BenchmarkErr,
+					o.afterExternalStep("provision-tailnet", "", "failed", createErr.Error()),
+				)
+				return outcome
 			}
 			log.Printf("tailnet created: %s", info.DNSName)
 			o.tailnetDNS = info.DNSName
 			o.cfg.OAuthClientID = info.OAuthClientID
 			o.cfg.OAuthClientSecret = info.OAuthClientSecret
+			if o.cfg.RunID != "" {
+				tailnetResource.ProviderID = info.DNSName
+				tailnetResource.Status = runstateResourceCreated
+				if err := o.recordResources(&outcome, tailnetResource); err != nil {
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+					return outcome
+				}
+				if err := o.afterExternalStep("provision-tailnet", "", "succeeded", "run-owned tailnet created"); err != nil {
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+					return outcome
+				}
+			}
 
 			// Save state for reuse in future runs
-			if err := saveTailnetState(tailnetStateFile, info); err != nil {
+			if o.cfg.RunID == "" {
+				err = saveTailnetState(tailnetStateFile, info)
+			}
+			if err != nil && o.cfg.RunID == "" {
 				log.Printf("warning: could not save tailnet state: %v", err)
+				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("save tailnet state: %w", err))
 			}
 
 			log.Println("setting up ACL")
+			outcome.ResourcesChanged = true
 			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
-				return fmt.Errorf("setup ACL: %w", err)
+				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("setup ACL: %w", err))
+				return outcome
 			}
 
 			if o.hasK8sProviders() {
 				log.Println("enabling HTTPS on tailnet for operator API server proxy")
+				outcome.ResourcesChanged = true
 				if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
-					return fmt.Errorf("enable HTTPS: %w", err)
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("enable HTTPS: %w", err))
+					return outcome
 				}
 			}
 		}
 
-		// Delete tailnet only on cleanup
-		if o.cfg.CleanupNetworking {
-			defer func() {
-				log.Printf("deleting tailnet %s", o.tailnetDNS)
-				delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
-					log.Printf("warning: tailnet deletion failed: %v", err)
-				}
-				if err := os.Remove(tailnetStateFile); err != nil && !os.IsNotExist(err) {
-					log.Printf("warning: remove tailnet state: %v", err)
-				}
-			}()
-		}
-
 		log.Println("creating auth key")
+		outcome.ResourcesChanged = true
 		authKey, err = o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
 		if err != nil {
-			return fmt.Errorf("create auth key: %w", err)
+			outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("create auth key: %w", err))
+			return outcome
 		}
 		authKeyCreated = time.Now()
 
-		// Ephemeral node — no state to preserve between runs.
-		tsnetDir := filepath.Join(".tailbench", "tsnet")
-		if err := os.RemoveAll(tsnetDir); err != nil {
-			return fmt.Errorf("remove stale tsnet state: %w", err)
-		}
+		// Keep node state scoped to the manifest-owned run. Reusing and
+		// recursively deleting a global directory can corrupt another run.
+		tsnetDir := tsnetStateDirectory(o.cfg)
 		o.tsnetSrv = &tsnet.Server{
 			Dir:           tsnetDir,
 			Hostname:      "tailbench-orchestrator",
@@ -166,61 +318,158 @@ func (o *Orchestrator) Run(ctx context.Context) error {
 		}
 		log.Println("starting tsnet server")
 		if _, err := o.tsnetSrv.Up(ctx); err != nil {
-			return fmt.Errorf("tsnet up: %w", err)
+			outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("tsnet up: %w", err))
+			return outcome
 		}
 		defer func() {
 			if err := o.tsnetSrv.Close(); err != nil {
 				log.Printf("warning: close tsnet server: %v", err)
+				outcome.CleanupErr = errors.Join(outcome.CleanupErr, fmt.Errorf("close tsnet server: %w", err))
 			}
 		}()
 		log.Println("tsnet server joined tailnet")
 	}
 
 	if len(o.providers) == 1 {
-		return o.runProvider(ctx, o.providers[0], &authKey, &authKeyCreated)
+		outcome.merge(o.runProvider(ctx, o.providers[0], &authKey, &authKeyCreated))
+		return outcome
 	}
 
 	var wg sync.WaitGroup
+	var outcomeMu sync.Mutex
 	for _, p := range o.providers {
 		wg.Add(1)
 		go func(p provider.Provider) {
 			defer wg.Done()
-			if err := o.runProvider(ctx, p, &authKey, &authKeyCreated); err != nil {
+			providerOutcome := o.runProvider(ctx, p, &authKey, &authKeyCreated)
+			if err := providerOutcome.Err(); err != nil {
 				log.Printf("[%s] provider finished with error: %v", p.Name(), err)
 			} else {
 				log.Printf("[%s] provider finished successfully", p.Name())
 			}
+			if providerOutcome.BenchmarkErr != nil {
+				providerOutcome.BenchmarkErr = fmt.Errorf("provider %s: %w", p.Name(), providerOutcome.BenchmarkErr)
+			}
+			if providerOutcome.CleanupErr != nil {
+				providerOutcome.CleanupErr = fmt.Errorf("provider %s: %w", p.Name(), providerOutcome.CleanupErr)
+			}
+			outcomeMu.Lock()
+			outcome.merge(providerOutcome)
+			outcomeMu.Unlock()
 		}(p)
 	}
 	wg.Wait()
-	return nil
+	return outcome
 }
 
-func (o *Orchestrator) dryRun(ctx context.Context) error {
-	for _, p := range o.providers {
-		fmt.Printf("[dry-run] provider: %s\n", p.Name())
-		families := p.ListFamilies()
-		fmt.Printf("[dry-run]   families: %v\n", families)
-		for _, fam := range families {
-			instances, err := p.ListInstances(ctx, fam)
-			if err != nil {
-				fmt.Printf("[dry-run]   %s: error listing instances: %v\n", fam, err)
-				continue
-			}
-			for _, inst := range instances {
-				fmt.Printf("[dry-run]   %s: %s (%d vCPUs)\n", fam, inst.Type, inst.VCPUs)
-			}
+func tsnetStateDirectory(cfg *config.Config) string {
+	if cfg != nil && cfg.RunID != "" {
+		return filepath.Join(".tailbench", "runs", cfg.RunID, "tsnet")
+	}
+	return filepath.Join(".tailbench", "tsnet")
+}
+
+func (o *Orchestrator) runProvider(
+	ctx context.Context,
+	p provider.Provider,
+	authKey *string,
+	authKeyCreated *time.Time,
+) (outcome Outcome) {
+	lg := logger.New(p.Name())
+	recordBenchmarkFailure := func(err error) {
+		if err != nil {
+			outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
 		}
 	}
-	return nil
-}
+	recordCleanupFailure := func(err error) {
+		if err != nil {
+			outcome.CleanupErr = errors.Join(outcome.CleanupErr, err)
+		}
+	}
 
-func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, authKey *string, authKeyCreated *time.Time) error {
-	lg := logger.New(p.Name())
 	lg.Step("setup", "networking")
+	managedNetworking := providerManagesNetworking(p)
+	networkResource := ResourceRecord{
+		ID:               p.Name() + "/networking",
+		Kind:             "networking",
+		CleanupOwner:     o.cfg.RunID,
+		Status:           runstateResourceCreating,
+		OwnershipCertain: providerRunScoped(p),
+	}
+	if o.cfg.RunID != "" && managedNetworking {
+		if err := o.recordResources(&outcome, networkResource); err != nil {
+			recordBenchmarkFailure(err)
+			return outcome
+		}
+	}
+	if managedNetworking {
+		err := o.beforeExternalStep("provision-networking", "", "set up provider networking")
+		if err != nil {
+			recordBenchmarkFailure(err)
+			return outcome
+		}
+		defer func() {
+			if !o.cfg.CleanupNetworking ||
+				!shouldCleanup(o.cfg.CleanupPolicy, outcome.BenchmarkErr) {
+				return
+			}
+			lg.Step("teardown", "networking")
+			outcome.ResourcesChanged = true
+			if resource, ok := resourceWithStatus(&outcome, p.Name()+"/networking", runstateResourceCleaning); ok {
+				recordCleanupFailure(o.recordResources(&outcome, resource))
+			}
+			recordCleanupFailure(
+				o.beforeExternalStep("cleanup-networking", "", "tear down provider networking"),
+			)
+			cleanupCtx, cancel := context.WithTimeout(context.Background(), 10*time.Minute)
+			defer cancel()
+			if err := p.TeardownNetworking(cleanupCtx); err != nil {
+				lg.Warnf("teardown networking: %v", err)
+				teardownErr := fmt.Errorf("teardown networking: %w", err)
+				recordCleanupFailure(teardownErr)
+				recordCleanupFailure(
+					o.afterExternalStep("cleanup-networking", "", "failed", teardownErr.Error()),
+				)
+				return
+			}
+			if resource, ok := resourceWithStatus(&outcome, p.Name()+"/networking", runstateResourceCleaned); ok {
+				recordCleanupFailure(o.recordResources(&outcome, resource))
+			}
+			recordCleanupFailure(
+				o.afterExternalStep(
+					"cleanup-networking",
+					"",
+					"succeeded",
+					"provider networking destroyed",
+				),
+			)
+		}()
+	}
+	outcome.ResourcesChanged = outcome.ResourcesChanged || managedNetworking
 	net, err := p.SetupNetworking(ctx)
 	if err != nil {
-		return fmt.Errorf("setup networking: %w", err)
+		setupErr := fmt.Errorf("setup networking: %w", err)
+		recordBenchmarkFailure(setupErr)
+		if managedNetworking {
+			recordBenchmarkFailure(o.afterExternalStep("provision-networking", "", "failed", setupErr.Error()))
+		}
+		return outcome
+	}
+	if o.cfg.RunID != "" && managedNetworking {
+		networkResource.ProviderID = net.ProviderID
+		networkResource.StackName = net.StackName
+		networkResource.Status = runstateResourceCreated
+		if err := o.recordResources(&outcome, networkResource); err != nil {
+			recordBenchmarkFailure(err)
+			return outcome
+		}
+	}
+	if managedNetworking {
+		err := o.afterExternalStep("provision-networking", "", "succeeded", "provider networking ready")
+		if err != nil {
+			recordBenchmarkFailure(err)
+			return outcome
+		}
 	}
 
 	// Clean up stale tailnet devices from previous crashed runs
@@ -229,25 +478,31 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			fmt.Sprintf("tb-%s-", p.Name()),                // benchmark VMs/pods
 			fmt.Sprintf("tailbench-%s-operator", p.Name()), // operator node
 		} {
+			outcome.ResourcesChanged = true
 			if n, err := o.tailnet.CleanupStaleDevices(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret, prefix); err != nil {
 				lg.Warnf("device cleanup (%s): %v", prefix, err)
+				recordCleanupFailure(fmt.Errorf("device cleanup %s: %w", prefix, err))
 			} else if n > 0 {
 				lg.Infof("cleaned up %d stale devices matching %s*", n, prefix)
 			}
 		}
 	}
 
-	o.setupK8s(ctx, p, net, lg)
+	if err := o.setupK8s(ctx, p, net, lg); err != nil {
+		recordBenchmarkFailure(fmt.Errorf("setup kubernetes workload: %w", err))
+		return outcome
+	}
 
 	instances, err := o.listInstancesCached(ctx, p, lg)
 	if err != nil {
-		return fmt.Errorf("listing instances: %w", err)
+		recordBenchmarkFailure(fmt.Errorf("listing instances: %w", err))
 	}
 
 	if o.cfg.Filter != "" {
 		re, err := regexp.Compile(o.cfg.Filter)
 		if err != nil {
-			return fmt.Errorf("invalid filter regex: %w", err)
+			recordBenchmarkFailure(fmt.Errorf("invalid filter regex: %w", err))
+			return outcome
 		}
 		var filtered []provider.InstanceInfo
 		for _, inst := range instances {
@@ -264,7 +519,8 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 
 	for _, inst := range instances {
 		if ctx.Err() != nil {
-			return ctx.Err()
+			recordBenchmarkFailure(ctx.Err())
+			return outcome
 		}
 
 		family := provider.GetInstanceFamily(p.Name(), inst.Type)
@@ -304,7 +560,9 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			userData = *authKey
 		} else {
 			if *authKey == "" {
-				lg.Errf("BUG: auth key is empty for %s", inst.Type)
+				err := fmt.Errorf("prepare %s: auth key is empty", inst.Type)
+				lg.Errf("%v", err)
+				recordBenchmarkFailure(err)
 				continue
 			}
 			wantServe := hasL7ServeMode(o.cfg.Modes)
@@ -316,6 +574,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			})
 			if err != nil {
 				lg.Errf("cloud-init for %s: %v", inst.Type, err)
+				recordBenchmarkFailure(fmt.Errorf("cloud-init server for %s: %w", inst.Type, err))
 				continue
 			}
 			userData = serverUD
@@ -327,6 +586,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			})
 			if err != nil {
 				lg.Errf("cloud-init for %s: %v", inst.Type, err)
+				recordBenchmarkFailure(fmt.Errorf("cloud-init client for %s: %w", inst.Type, err))
 				continue
 			}
 			clientUserData = clientUD
@@ -344,6 +604,7 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 				})
 				if err != nil {
 					lg.Errf("cloud-init (router) for %s: %v", inst.Type, err)
+					recordBenchmarkFailure(fmt.Errorf("cloud-init router for %s: %w", inst.Type, err))
 					continue
 				}
 				routerUserData = routerUD
@@ -352,11 +613,30 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 
 		// Pre-cleanup: destroy any leftover resources from a previous run.
 		// This is a no-op if nothing exists, but ensures CreatePair starts clean.
+		outcome.ResourcesChanged = true
 		if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
 			lg.Infof("pre-cleanup %s: %v (continuing)", inst.Type, dErr)
+			recordCleanupFailure(fmt.Errorf("pre-cleanup %s: %w", inst.Type, dErr))
 		}
 
 		lg.Step("provision", inst.Type)
+		outcome.ResourcesChanged = true
+		topologyResource := ResourceRecord{
+			ID:               p.Name() + "/" + inst.Type + "/topology",
+			Kind:             topologyKind(p.Name()),
+			CleanupOwner:     o.cfg.RunID,
+			Status:           string(runstateResourceCreating),
+			OwnershipCertain: providerRunScoped(p),
+			InstanceType:     inst.Type,
+		}
+		if err := o.recordResources(&outcome, topologyResource); err != nil {
+			recordBenchmarkFailure(err)
+			continue
+		}
+		if err := o.beforeExternalStep("provision", "", "create topology for "+inst.Type); err != nil {
+			recordBenchmarkFailure(err)
+			continue
+		}
 		pair, err := p.CreatePair(ctx, provider.PairOptions{
 			InstanceType:   inst.Type,
 			UserData:       userData,
@@ -366,37 +646,82 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 			Networking:     net,
 			BenchImage:     o.cfg.BenchImage,
 			TSImage:        o.cfg.TSImage,
+			RunID:          o.cfg.RunID,
+			ExpiresAt:      o.cfg.ResourceExpiresAt,
 		})
 		if err != nil {
+			createErr := fmt.Errorf("create pair %s: %w", inst.Type, err)
+			recordBenchmarkFailure(createErr)
+			recordBenchmarkFailure(o.afterExternalStep("provision", "", "failed", createErr.Error()))
 			if p.IsQuotaError(err) {
 				lg.Warnf("quota exceeded for %s, skipping family %s", inst.Type, family)
 				skippedFamilies[family] = true
 			} else {
-				lg.Errf("create pair %s: %v", inst.Type, err)
+				lg.Errf("%v", createErr)
 			}
 			// Destroy any partially-created resources (e.g. node pool created but nodes not ready)
+			outcome.ResourcesChanged = true
 			if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
 				lg.Warnf("cleanup failed pair %s: %v", inst.Type, dErr)
+				recordCleanupFailure(fmt.Errorf("cleanup partially-created pair %s: %w", inst.Type, dErr))
+			}
+			continue
+		}
+		pairResources := pairResourceRecords(p.Name(), o.cfg.RunID, inst.Type, pair, providerRunScoped(p))
+		if err := o.recordResources(&outcome, pairResources...); err != nil {
+			recordBenchmarkFailure(err)
+			outcome.ResourcesChanged = true
+			if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
+				recordCleanupFailure(fmt.Errorf("cleanup unrecorded pair %s: %w", inst.Type, dErr))
+			}
+			continue
+		}
+		if err := o.afterExternalStep("provision", "", "succeeded", "topology created for "+inst.Type); err != nil {
+			recordBenchmarkFailure(err)
+			outcome.ResourcesChanged = true
+			if dErr := p.DestroyPair(ctx, inst.Type); dErr != nil {
+				recordCleanupFailure(fmt.Errorf("cleanup pair after state failure %s: %w", inst.Type, dErr))
 			}
 			continue
 		}
 
 		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
-
-		lg.Step("teardown", inst.Type)
-		if err := p.DestroyPair(ctx, inst.Type); err != nil {
-			lg.Warnf("destroy pair %s: %v", inst.Type, err)
-		}
-
 		if benchErr != nil {
 			lg.Errf("benchmark %s: %v", inst.Type, benchErr)
+			recordBenchmarkFailure(fmt.Errorf("benchmark %s: %w", inst.Type, benchErr))
+		}
+
+		if shouldCleanup(o.cfg.CleanupPolicy, outcome.BenchmarkErr) {
+			lg.Step("teardown", inst.Type)
+			outcome.ResourcesChanged = true
+			cleaningResources := resourcesForInstanceStatus(&outcome, inst.Type, runstateResourceCleaning)
+			if err := o.recordResources(&outcome, cleaningResources...); err != nil {
+				recordCleanupFailure(err)
+				continue
+			}
+			if err := o.beforeExternalStep("cleanup", "", "destroy topology for "+inst.Type); err != nil {
+				recordCleanupFailure(err)
+				continue
+			}
+			if err := p.DestroyPair(ctx, inst.Type); err != nil {
+				lg.Warnf("destroy pair %s: %v", inst.Type, err)
+				destroyErr := fmt.Errorf("destroy pair %s: %w", inst.Type, err)
+				recordCleanupFailure(destroyErr)
+				recordCleanupFailure(o.afterExternalStep("cleanup", "", "failed", destroyErr.Error()))
+			} else {
+				cleanedResources := resourcesForInstanceStatus(&outcome, inst.Type, runstateResourceCleaned)
+				recordCleanupFailure(o.recordResources(&outcome, cleanedResources...))
+				recordCleanupFailure(o.afterExternalStep("cleanup", "", "succeeded", "topology destroyed for "+inst.Type))
+			}
 		}
 
 		if o.cfg.CreateTailnet && time.Since(*authKeyCreated) > time.Duration(o.cfg.AuthKeyRefreshSec)*time.Second {
 			lg.Infof("refreshing auth key")
+			outcome.ResourcesChanged = true
 			newKey, err := o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
 			if err != nil {
 				lg.Warnf("auth key refresh: %v", err)
+				recordBenchmarkFailure(fmt.Errorf("refresh auth key: %w", err))
 			} else {
 				*authKey = newKey
 				*authKeyCreated = time.Now()
@@ -406,15 +731,185 @@ func (o *Orchestrator) runProvider(ctx context.Context, p provider.Provider, aut
 
 	if err := result.Aggregate(o.cfg.RootDir); err != nil {
 		lg.Warnf("aggregation: %v", err)
+		recordBenchmarkFailure(fmt.Errorf("aggregate results: %w", err))
 	}
 
-	if o.cfg.CleanupNetworking {
-		lg.Step("teardown", "networking")
-		if err := p.TeardownNetworking(ctx); err != nil {
-			lg.Warnf("teardown networking: %v", err)
+	return outcome
+}
+
+func providerRunScoped(p provider.Provider) bool {
+	scoped, ok := p.(provider.RunScopedProvider)
+	return ok && scoped.RunScopedResources()
+}
+
+func providerManagesNetworking(p provider.Provider) bool {
+	managed, ok := p.(provider.ManagedNetworkingProvider)
+	return !ok || managed.ManagesNetworking()
+}
+
+func shouldCleanup(policy string, benchmarkErr error) bool {
+	switch policy {
+	case config.CleanupManual:
+		return false
+	case config.CleanupOnSuccess:
+		return benchmarkErr == nil
+	case "", config.CleanupAlways:
+		return true
+	default:
+		return false
+	}
+}
+
+func topologyKind(providerName string) string {
+	if isK8sProvider(providerName) {
+		return "kubernetes-topology"
+	}
+	return "vm-pair"
+}
+
+func pairResourceRecords(
+	providerName string,
+	runID string,
+	instanceType string,
+	pair *provider.PairOutput,
+	ownershipCertain bool,
+) []ResourceRecord {
+	if pair == nil {
+		return nil
+	}
+	kind := "compute-instance"
+	if pair.Namespace != "" {
+		kind = "kubernetes-workload"
+	}
+	records := []ResourceRecord{
+		{
+			ID:               providerName + "/" + instanceType + "/topology",
+			Kind:             topologyKind(providerName),
+			StackName:        pair.StackName,
+			CleanupOwner:     runID,
+			Status:           runstateResourceCreated,
+			OwnershipCertain: ownershipCertain && pair.StackName != "",
+			InstanceType:     instanceType,
+		},
+		{
+			ID:               providerName + "/" + instanceType + "/server",
+			Kind:             kind,
+			ProviderID:       pair.ServerInstanceID,
+			StackName:        pair.StackName,
+			Hostname:         pair.ServerName,
+			CleanupOwner:     runID,
+			Status:           runstateResourceCreated,
+			OwnershipCertain: ownershipCertain,
+			InstanceType:     instanceType,
+		},
+		{
+			ID:               providerName + "/" + instanceType + "/client",
+			Kind:             kind,
+			ProviderID:       pair.ClientInstanceID,
+			StackName:        pair.StackName,
+			Hostname:         pair.ClientName,
+			CleanupOwner:     runID,
+			Status:           runstateResourceCreated,
+			OwnershipCertain: ownershipCertain,
+			InstanceType:     instanceType,
+		},
+	}
+	if pair.RouterName != "" || pair.RouterInstanceID != "" {
+		records = append(records, ResourceRecord{
+			ID:               providerName + "/" + instanceType + "/router",
+			Kind:             kind,
+			ProviderID:       pair.RouterInstanceID,
+			StackName:        pair.StackName,
+			Hostname:         pair.RouterName,
+			CleanupOwner:     runID,
+			Status:           runstateResourceCreated,
+			OwnershipCertain: ownershipCertain,
+			InstanceType:     instanceType,
+		})
+	}
+	return records
+}
+
+func upsertResource(outcome *Outcome, resource ResourceRecord) {
+	for index := range outcome.Resources {
+		if outcome.Resources[index].ID == resource.ID {
+			outcome.Resources[index] = resource
+			return
 		}
 	}
+	outcome.Resources = append(outcome.Resources, resource)
+}
+
+func (o *Orchestrator) recordResources(outcome *Outcome, resources ...ResourceRecord) error {
+	for _, resource := range resources {
+		upsertResource(outcome, resource)
+	}
+	if o.recorder == nil {
+		return nil
+	}
+	if err := o.recorder.RecordResources(resources...); err != nil {
+		return fmt.Errorf("persist resource inventory: %w", err)
+	}
 	return nil
+}
+
+func (o *Orchestrator) beforeExternalStep(stage, workID, message string) error {
+	if o.recorder == nil {
+		return nil
+	}
+	if err := o.recorder.BeforeExternalStep(stage, workID, message); err != nil {
+		return fmt.Errorf("persist %s start: %w", stage, err)
+	}
+	return nil
+}
+
+func (o *Orchestrator) afterExternalStep(stage, workID, status, message string) error {
+	if o.recorder == nil {
+		return nil
+	}
+	if err := o.recorder.AfterExternalStep(stage, workID, status, message); err != nil {
+		return fmt.Errorf("persist %s finish: %w", stage, err)
+	}
+	return nil
+}
+
+func markResource(outcome *Outcome, resourceID, status string) {
+	for index := range outcome.Resources {
+		if outcome.Resources[index].ID == resourceID {
+			outcome.Resources[index].Status = status
+		}
+	}
+}
+
+func markInstanceResources(outcome *Outcome, instanceType, status string) {
+	for index := range outcome.Resources {
+		if outcome.Resources[index].InstanceType == instanceType {
+			outcome.Resources[index].Status = status
+		}
+	}
+}
+
+func resourcesForInstanceStatus(outcome *Outcome, instanceType, status string) []ResourceRecord {
+	var resources []ResourceRecord
+	for index := range outcome.Resources {
+		if outcome.Resources[index].InstanceType != instanceType {
+			continue
+		}
+		outcome.Resources[index].Status = status
+		resources = append(resources, outcome.Resources[index])
+	}
+	return resources
+}
+
+func resourceWithStatus(outcome *Outcome, resourceID, status string) (ResourceRecord, bool) {
+	for index := range outcome.Resources {
+		if outcome.Resources[index].ID != resourceID {
+			continue
+		}
+		outcome.Resources[index].Status = status
+		return outcome.Resources[index], true
+	}
+	return ResourceRecord{}, false
 }
 
 func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family string, lg *logger.Logger, serverHostname, clientHostname, routerHostname, authKey string) error {
@@ -514,14 +1009,33 @@ type modeContext struct {
 }
 
 func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner, p provider.Provider, pair *provider.PairOutput, inst provider.InstanceInfo, family, prefix, env string, mc modeContext) error {
+	var modeErrors []error
+	failMode := func(mode, workID string, cause error) {
+		modeErr := fmt.Errorf("mode %s: %w", mode, cause)
+		modeErrors = append(modeErrors, modeErr)
+		if err := o.afterExternalStep("benchmark", workID, "failed", modeErr.Error()); err != nil {
+			modeErrors = append(modeErrors, fmt.Errorf("mode %s state: %w", mode, err))
+		}
+	}
+	succeedMode := func(mode, workID string) {
+		if err := o.afterExternalStep("benchmark", workID, "succeeded", "result written for mode "+mode); err != nil {
+			modeErrors = append(modeErrors, fmt.Errorf("mode %s state: %w", mode, err))
+		}
+	}
+
 	for _, mode := range o.cfg.Modes {
 		if !benchmark.ModeAppliesTo(mode, env) {
 			continue
 		}
+		workID := inst.Type + "/" + mode
 		// Skip modes that already have results
 		resultPath := filepath.Join(o.cfg.RootDir, p.Name(), family, "results", inst.Type+"-"+mode+".json")
 		if _, err := os.Stat(resultPath); err == nil {
 			log.Printf("%s skipping mode %s (result exists)", prefix, mode)
+			continue
+		}
+		if err := o.beforeExternalStep("benchmark", workID, "run mode "+mode); err != nil {
+			modeErrors = append(modeErrors, fmt.Errorf("mode %s state: %w", mode, err))
 			continue
 		}
 
@@ -534,16 +1048,20 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 			br, err = runner.RunFull(ctx, pair.ServerLANIP, pair.ClientLANIP)
 			if err != nil {
 				log.Printf("%s iperf mode %s failed: %v (continuing to next mode)", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("iperf benchmark: %w", err))
 				continue
 			}
 		case benchmark.ModeUsesFortio(mode):
 			target, baselineTarget := o.resolveEndpoints(ctx, mode, pair, mc)
 			if target == "" {
-				log.Printf("%s skipping mode %s: no endpoint configured", prefix, mode)
+				err := errors.New("no endpoint configured or discovered")
+				log.Printf("%s mode %s failed: %v", prefix, mode, err)
+				failMode(mode, workID, err)
 				continue
 			}
 			if err := o.warmUpEndpoint(ctx, runner.Client, target); err != nil {
-				log.Printf("%s skipping mode %s: endpoint warm-up failed: %v", prefix, mode, err)
+				log.Printf("%s mode %s endpoint warm-up failed: %v", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("endpoint warm-up: %w", err))
 				continue
 			}
 			h2 := benchmark.ModeIsH2(mode)
@@ -552,6 +1070,7 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				o.cfg.FortioConnections, o.cfg.FortioDuration, o.cfg.FortioIterations, o.cfg.FortioQPS)
 			if err != nil {
 				log.Printf("%s fortio mode %s failed: %v", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("fortio benchmark: %w", err))
 				continue
 			}
 			br = &result.BenchmarkResult{
@@ -561,32 +1080,43 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 		case benchmark.ModeUsesForwardPPS(mode):
 			if env == "container" {
 				log.Printf("%s running forwarding-pps benchmark for %s mode %s", prefix, inst.Type, mode)
-				br = o.runForwardPPS(ctx, runner, pair, mode, mc)
-				if br == nil {
+				var err error
+				br, err = o.runForwardPPS(ctx, runner, pair, mode, mc)
+				if err != nil {
+					failMode(mode, workID, fmt.Errorf("forwarding-pps benchmark: %w", err))
 					continue
 				}
 				break
 			}
 			if runner.Router == nil {
-				log.Printf("%s skipping mode %s: no router provisioned", prefix, mode)
+				err := errors.New("no router provisioned")
+				log.Printf("%s mode %s failed: %v", prefix, mode, err)
+				failMode(mode, workID, err)
 				continue
 			}
 			routerTSIP, err := benchmark.GetTailscaleIP(ctx, runner.Router)
 			if err != nil {
 				log.Printf("%s mode %s: router tailscale IP: %v (continuing)", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("router tailscale IP: %w", err))
 				continue
 			}
 			log.Printf("%s forwarding-pps: routing client egress via exit node %s", prefix, routerTSIP)
 			if err := benchmark.SetExitNode(ctx, runner.Client, routerTSIP); err != nil {
 				log.Printf("%s mode %s: set exit node: %v", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("set exit node: %w", err))
 				continue
 			}
 			// Client -> router (exit node) -> server public IP (a non-tailnet
 			// address, so it egresses through the router rather than direct).
 			pps, ppsErr := runner.RunForwardingPPS(ctx, runner.Client, runner.Server, pair.ServerIP)
-			_ = benchmark.ClearExitNode(ctx, runner.Client)
-			if ppsErr != nil {
-				log.Printf("%s forward-pps mode %s failed: %v", prefix, mode, ppsErr)
+			clearErr := benchmark.ClearExitNode(ctx, runner.Client)
+			if ppsErr != nil || clearErr != nil {
+				combinedErr := errors.Join(
+					ppsErr,
+					wrapIfError("clear exit node", clearErr),
+				)
+				log.Printf("%s forward-pps mode %s failed: %v", prefix, mode, combinedErr)
+				failMode(mode, workID, fmt.Errorf("forwarding-pps benchmark: %w", combinedErr))
 				continue
 			}
 			br = &result.BenchmarkResult{
@@ -596,16 +1126,20 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 			}
 		case benchmark.ModeUsesRelay(mode):
 			if runner.Router == nil {
-				log.Printf("%s skipping mode %s: no relay node provisioned", prefix, mode)
+				err := errors.New("no relay node provisioned")
+				log.Printf("%s mode %s failed: %v", prefix, mode, err)
+				failMode(mode, workID, err)
 				continue
 			}
 			serverTSIP, err := benchmark.GetTailscaleIP(ctx, runner.Server)
 			if err != nil {
 				log.Printf("%s mode %s: server tailscale IP: %v (continuing)", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("server tailscale IP: %w", err))
 				continue
 			}
 			if err := benchmark.WaitForPeer(ctx, runner.Client, serverTSIP); err != nil {
 				log.Printf("%s mode %s: %v (continuing)", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("wait for peer: %w", err))
 				continue
 			}
 
@@ -613,36 +1147,58 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 			direct, err := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "direct")
 			if err != nil {
 				log.Printf("%s relay mode %s failed (direct): %v", prefix, mode, err)
+				failMode(mode, workID, fmt.Errorf("direct relay measurement: %w", err))
 				continue
 			}
 
 			log.Printf("%s relay-throughput: blocking direct path", prefix)
-			_ = benchmark.BlockDirect(ctx, runner.Client)
-			_ = benchmark.BlockDirect(ctx, runner.Server)
+			if err := blockDirectPair(ctx, runner.Client, runner.Server); err != nil {
+				restoreErr := unblockDirectPair(ctx, runner.Client, runner.Server)
+				failMode(mode, workID, errors.Join(err, restoreErr))
+				continue
+			}
 
 			log.Printf("%s relay-throughput: measuring peer-relay path", prefix)
 			peerRelay, err := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "peer-relay")
 			if err != nil {
 				log.Printf("%s relay mode %s failed (peer-relay): %v", prefix, mode, err)
-				_ = benchmark.UnblockDirect(ctx, runner.Client)
-				_ = benchmark.UnblockDirect(ctx, runner.Server)
+				restoreErr := unblockDirectPair(ctx, runner.Client, runner.Server)
+				failMode(
+					mode,
+					workID,
+					errors.Join(fmt.Errorf("peer-relay measurement: %w", err), restoreErr),
+				)
 				continue
 			}
 
 			log.Printf("%s relay-throughput: blocking relay port", prefix)
-			_ = benchmark.BlockRelayPort(ctx, runner.Router, benchmark.RelayUDPPort)
+			if err := benchmark.BlockRelayPort(ctx, runner.Router, benchmark.RelayUDPPort); err != nil {
+				restoreErr := unblockDirectPair(ctx, runner.Client, runner.Server)
+				failMode(
+					mode,
+					workID,
+					errors.Join(fmt.Errorf("block relay port: %w", err), restoreErr),
+				)
+				continue
+			}
 
 			log.Printf("%s relay-throughput: measuring DERP path", prefix)
 			derp, derpErr := runner.RunRelayPath(ctx, runner.Client, runner.Server, serverTSIP, "derp")
 
-			// Best-effort cleanup so a later mode against the same pair
-			// isn't affected by a leftover block.
-			_ = benchmark.UnblockRelayPort(ctx, runner.Router, benchmark.RelayUDPPort)
-			_ = benchmark.UnblockDirect(ctx, runner.Client)
-			_ = benchmark.UnblockDirect(ctx, runner.Server)
+			restoreErr := restoreRelayNetwork(ctx, runner.Client, runner.Server, runner.Router)
 
-			if derpErr != nil {
-				log.Printf("%s relay mode %s failed (derp): %v", prefix, mode, derpErr)
+			if derpErr != nil || restoreErr != nil {
+				log.Printf(
+					"%s relay mode %s failed (DERP or network restore): %v",
+					prefix,
+					mode,
+					errors.Join(derpErr, restoreErr),
+				)
+				failMode(
+					mode,
+					workID,
+					errors.Join(wrapIfError("DERP measurement", derpErr), restoreErr),
+				)
 				continue
 			}
 
@@ -657,10 +1213,14 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 				TestConfig:  forwardPPSTestConfig(direct.PPS),
 			}
 		case benchmark.ModeUsesTsnet(mode):
-			log.Printf("%s skipping mode %s: tsnet runner not yet implemented", prefix, mode)
+			err := errors.New("tsnet runner not yet implemented")
+			log.Printf("%s mode %s failed: %v", prefix, mode, err)
+			failMode(mode, workID, err)
 			continue
 		default:
-			log.Printf("%s skipping unknown mode %s", prefix, mode)
+			err := errors.New("unknown benchmark mode")
+			log.Printf("%s mode %s failed: %v", prefix, mode, err)
+			failMode(mode, workID, err)
 			continue
 		}
 
@@ -692,11 +1252,57 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 		}
 
 		if err := result.WriteResult(o.cfg.RootDir, br, false); err != nil {
-			return fmt.Errorf("writing result for mode %s: %w", mode, err)
+			failMode(mode, workID, fmt.Errorf("write result: %w", err))
+			continue
 		}
 		log.Printf("%s result written for %s mode %s", prefix, inst.Type, mode)
+		succeedMode(mode, workID)
 	}
-	return nil
+	return errors.Join(modeErrors...)
+}
+
+func blockDirectPair(
+	ctx context.Context,
+	client benchmark.Executor,
+	server benchmark.Executor,
+) error {
+	return errors.Join(
+		wrapIfError("block client direct path", benchmark.BlockDirect(ctx, client)),
+		wrapIfError("block server direct path", benchmark.BlockDirect(ctx, server)),
+	)
+}
+
+func unblockDirectPair(
+	ctx context.Context,
+	client benchmark.Executor,
+	server benchmark.Executor,
+) error {
+	return errors.Join(
+		wrapIfError("unblock client direct path", benchmark.UnblockDirect(ctx, client)),
+		wrapIfError("unblock server direct path", benchmark.UnblockDirect(ctx, server)),
+	)
+}
+
+func restoreRelayNetwork(
+	ctx context.Context,
+	client benchmark.Executor,
+	server benchmark.Executor,
+	router benchmark.Executor,
+) error {
+	return errors.Join(
+		wrapIfError(
+			"unblock relay port",
+			benchmark.UnblockRelayPort(ctx, router, benchmark.RelayUDPPort),
+		),
+		unblockDirectPair(ctx, client, server),
+	)
+}
+
+func wrapIfError(operation string, err error) error {
+	if err == nil {
+		return nil
+	}
+	return fmt.Errorf("%s: %w", operation, err)
 }
 
 func (o *Orchestrator) resolveEndpoints(ctx context.Context, mode string, pair *provider.PairOutput, mc modeContext) (target, baseline string) {
@@ -903,11 +1509,50 @@ func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provi
 	}
 
 	var instances []provider.InstanceInfo
+	var failures []error
 	for _, fam := range families {
 		lg.Infof("listing instances for family %s", fam)
-		list, err := p.ListInstances(ctx, fam)
-		if err != nil {
-			lg.Warnf("listing family %s: %v", fam, err)
+		var list []provider.InstanceInfo
+		retryResult := retry.Do(
+			ctx,
+			retry.Policy{
+				Idempotent:   true,
+				MaxAttempts:  3,
+				InitialDelay: time.Second,
+				MaxDelay:     2 * time.Second,
+			},
+			func(attempt int) error {
+				var err error
+				list, err = p.ListInstances(ctx, fam)
+				if err != nil && failure.IsTransient(err) && attempt < 3 {
+					lg.Warnf(
+						"listing family %s attempt %d/3 failed transiently: %v; retrying",
+						fam,
+						attempt,
+						err,
+					)
+				}
+				return err
+			},
+			failure.IsTransient,
+			nil,
+		)
+		if retryResult.Err != nil {
+			lg.Warnf(
+				"listing family %s failed after %d attempt(s): %v",
+				fam,
+				retryResult.Attempts,
+				retryResult.Err,
+			)
+			failures = append(
+				failures,
+				fmt.Errorf(
+					"family %s after %d attempt(s): %w",
+					fam,
+					retryResult.Attempts,
+					retryResult.Err,
+				),
+			)
 			continue
 		}
 		lg.Infof("  %s: %d instance types", fam, len(list))
@@ -925,7 +1570,7 @@ func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provi
 		}
 	}
 
-	return instances, nil
+	return instances, errors.Join(failures...)
 }
 
 func saveTailnetState(path string, info *tailnet.TailnetInfo) error {

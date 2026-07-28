@@ -26,6 +26,8 @@ type AKSProvider struct {
 	Location      string
 	ResourceGroup string
 	StateDir      string
+	RunID         string
+	ExpiresAt     string
 
 	kubeconfig   string
 	clusterName  string
@@ -35,8 +37,34 @@ type AKSProvider struct {
 }
 
 var _ K8sOperatorProvider = (*AKSProvider)(nil)
+var _ RunScopedProvider = (*AKSProvider)(nil)
 
-func (p *AKSProvider) Name() string { return "aks" }
+func (p *AKSProvider) Name() string             { return "aks" }
+func (p *AKSProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *AKSProvider) ManagesNetworking() bool  { return true }
+
+func (p *AKSProvider) networkStackName() string {
+	return scopedName("tailbench-aks-cluster", p.RunID)
+}
+
+func (p *AKSProvider) pairStackName(instanceType string) string {
+	safeType := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-"))
+	return scopedName("tailbench-aks-"+safeType, p.RunID)
+}
+
+func (p *AKSProvider) resourceTags() pulumi.StringMap {
+	tags := pulumi.StringMap{
+		"Project":           pulumi.String("tailbench"),
+		"TailbenchProvider": pulumi.String(p.Name()),
+	}
+	if p.RunID != "" {
+		tags["TailbenchRunID"] = pulumi.String(p.RunID)
+	}
+	if p.ExpiresAt != "" {
+		tags["TailbenchExpiresAt"] = pulumi.String(p.ExpiresAt)
+	}
+	return tags
+}
 
 func (p *AKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
@@ -53,13 +81,13 @@ func (p *AKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 }
 
 func (p *AKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
-	stackName := "tailbench-aks-cluster"
+	stackName := p.networkStackName()
 
 	program := func(pCtx *pulumi.Context) error {
-		cluster, err := azcontainer.NewManagedCluster(pCtx, "tailbench-aks", &azcontainer.ManagedClusterArgs{
+		cluster, err := azcontainer.NewManagedCluster(pCtx, scopedName("tailbench-aks", p.RunID), &azcontainer.ManagedClusterArgs{
 			ResourceGroupName: pulumi.String(p.ResourceGroup),
 			Location:          pulumi.String(p.Location),
-			DnsPrefix:         pulumi.String("tailbench"),
+			DnsPrefix:         pulumi.String(scopedName("tailbench", p.RunID)),
 			Identity: &azcontainer.ManagedClusterIdentityArgs{
 				Type: azcontainer.ResourceIdentityTypeSystemAssigned,
 			},
@@ -71,6 +99,7 @@ func (p *AKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					Mode:   pulumi.String("System"),
 				},
 			},
+			Tags: p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -125,15 +154,19 @@ func (p *AKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		return nil, fmt.Errorf("create namespace: %w", err)
 	}
 
-	return &NetworkingOutput{Values: map[string]string{
-		"clusterName": p.clusterName,
-		"kubeconfig":  p.kubeconfig,
-	}}, nil
+	return &NetworkingOutput{
+		StackName:  stackName,
+		ProviderID: p.clusterName,
+		Values: map[string]string{
+			"clusterName": p.clusterName,
+			"kubeconfig":  p.kubeconfig,
+		},
+	}, nil
 }
 
 func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(opts.InstanceType, ".", "-"), "_", "-"))
-	stackName := fmt.Sprintf("tailbench-aks-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
 		_, err := azcontainer.NewAgentPool(pCtx, "bench-pool", &azcontainer.AgentPoolArgs{
@@ -145,7 +178,9 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			Mode:              pulumi.String("User"),
 			NodeLabels: pulumi.StringMap{
 				"tailbench-pool": pulumi.String(safeType),
+				"tailbench-run":  pulumi.String(runSuffix(p.RunID)),
 			},
+			Tags: p.resourceTags(),
 		})
 		return err
 	}
@@ -154,9 +189,6 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	if err != nil {
 		return nil, fmt.Errorf("create agent pool stack: %w", err)
 	}
-
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
 
 	_, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
@@ -178,8 +210,8 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("create auth secret: %w", err)
 	}
 
-	serverName := fmt.Sprintf("tb-aks-server-%s", safeType)
-	clientName := fmt.Sprintf("tb-aks-client-%s", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-aks-server-%s", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-aks-client-%s", safeType), p.RunID)
 
 	benchImage := opts.BenchImage
 	if benchImage == "" {
@@ -229,53 +261,76 @@ func (p *AKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 func (p *AKSProvider) DestroyPair(ctx context.Context, instanceType string) error {
 	safeType := strings.ToLower(strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-"))
-	stackName := fmt.Sprintf("tailbench-aks-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	cs, err := k8s.ClientsetFromKubeconfig(p.kubeconfig)
 	if err == nil {
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-aks-server-%s", safeType))
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-aks-client-%s", safeType))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-aks-server-%s", safeType), p.RunID))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-aks-client-%s", safeType), p.RunID))
 	}
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if !auto.IsSelectStack404Error(err) && err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
 	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+		if err := stack.Cancel(ctx); err != nil {
+			return fmt.Errorf("cancel stack %s: %w", stackName, err)
+		}
+		if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
+			return fmt.Errorf("destroy stack %s: %w", stackName, err)
+		}
+		if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+			return fmt.Errorf("remove stack %s: %w", stackName, err)
+		}
+		return nil
 	}
 
 	// Fallback: delete the bench node pool via az CLI if it still exists
-	p.cleanupNodePool(ctx)
-	return nil
+	return p.cleanupNodePool(ctx)
 }
 
 // cleanupNodePool deletes the "bench" agent pool from the AKS cluster if it exists.
-func (p *AKSProvider) cleanupNodePool(ctx context.Context) {
+func (p *AKSProvider) cleanupNodePool(ctx context.Context) error {
 	if p.clusterName == "" {
-		return
+		return nil
 	}
-	out, _ := exec.CommandContext(ctx, "az", "aks", "nodepool", "show",
+	out, err := exec.CommandContext(ctx, "az", "aks", "nodepool", "show",
 		"--resource-group", p.ResourceGroup,
 		"--cluster-name", p.clusterName,
 		"--name", "bench",
 		"--query", "provisioningState", "-o", "tsv",
-	).Output()
+	).CombinedOutput()
+	if err != nil {
+		message := strings.ToLower(string(out))
+		if strings.Contains(message, "not found") ||
+			strings.Contains(message, "resourcenotfound") {
+			return nil
+		}
+		return fmt.Errorf("inspect fallback node pool: %s: %w", strings.TrimSpace(string(out)), err)
+	}
 	if state := strings.TrimSpace(string(out)); state != "" {
 		log.Printf("[aks] cleanup: deleting bench node pool (state: %s)", state)
-		_ = exec.CommandContext(ctx, "az", "aks", "nodepool", "delete",
+		if output, err := exec.CommandContext(ctx, "az", "aks", "nodepool", "delete",
 			"--resource-group", p.ResourceGroup,
 			"--cluster-name", p.clusterName,
 			"--name", "bench",
 			"--no-wait",
-		).Run()
+		).CombinedOutput(); err != nil {
+			return fmt.Errorf("delete fallback node pool: %s: %w", strings.TrimSpace(string(output)), err)
+		}
 	}
+	return nil
 }
 
 func (p *AKSProvider) TeardownNetworking(ctx context.Context) error {
-	stackName := "tailbench-aks-cluster"
+	stackName := p.networkStackName()
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}

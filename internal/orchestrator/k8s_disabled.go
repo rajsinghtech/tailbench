@@ -22,7 +22,8 @@ func validateWorkloadConfig(cfg *config.Config) error {
 	return nil
 }
 
-func (o *Orchestrator) setupK8s(context.Context, provider.Provider, *provider.NetworkingOutput, *logger.Logger) {
+func (o *Orchestrator) setupK8s(context.Context, provider.Provider, *provider.NetworkingOutput, *logger.Logger) error {
+	return nil
 }
 
 func discoverIngressFQDN(context.Context, string, string) string   { return "" }
@@ -35,6 +36,6 @@ func (o *Orchestrator) runK8sBenchmark(context.Context, provider.Provider, *prov
 
 // runForwardPPS is unreachable in !k8s builds: forward-pps modes are
 // container-only (ModeAppliesTo) and validateWorkloadConfig rejects them.
-func (o *Orchestrator) runForwardPPS(context.Context, *benchmark.Runner, *provider.PairOutput, string, modeContext) *result.BenchmarkResult {
-	return nil
+func (o *Orchestrator) runForwardPPS(context.Context, *benchmark.Runner, *provider.PairOutput, string, modeContext) (*result.BenchmarkResult, error) {
+	return nil, fmt.Errorf("kubernetes forwarding-pps execution requires a k8s-enabled binary")
 }

@@ -11,36 +11,47 @@ for user-facing usage, flags, and environment variables.
 
 ## Build, Test, Lint
 
-There is **no Makefile**. Use `go` directly.
+The Makefile is the supported interface. The repository contains six large,
+mutually exclusive cloud SDK graphs. A normal developer workstation must
+compile, test, or lint at most one provider variant.
 
 ```bash
-# Build the main binary
-go build -o tailbench ./cmd/tailbench/
+# Read target names; this does not compile provider graphs.
+make help
 
-# Build the standalone aggregator (regenerates website/data.generated.js from result JSON)
-go build -o aggregate ./cmd/aggregate/
-
-# Run all unit tests
-go test ./...
-
-# Run a single package's tests
-go test ./internal/benchmark/
-
-# Run a single test by name
-go test ./internal/result/ -run TestAggregate -v
-
-# Lint (no repo golangci config; use defaults). Per user global config, prefer:
-~/.local/bin/golangci-lint-versions/golangci-lint run ./...
-# or plain:
-go vet ./...
+# Examples: choose one variant, do not run this whole block.
+make build-aws
+make test-aws
+make lint-aws
+make verify-deps VARIANT=aws
 ```
 
-- **Go 1.26+** required (`go.mod` declares `go 1.26.1`; README says 1.22+ but the
-  toolchain directive is authoritative).
+Before starting any build, test, lint, dependency download, or release command,
+name the exact single target and obtain explicit user approval. A single target
+must run only on a machine sized for its SDK graph. `make lint-<variant>` may
+download the pinned linter when it is absent, and Go may download missing
+modules.
+
+Never run `make build`, `make test`, `make lint`, an untagged repository-wide Go
+equivalent, or a hand-written all-variant loop on a normal workstation. Those
+operations belong in CI or on a dedicated build host. Never use
+`go run ./cmd/tailbench` as an ad-hoc diagnostic command because it hides a full
+tagged compilation behind the invocation.
+
+`make fmt` checks formatting without compiling a provider graph.
+`make test-website` runs only the Node.js dashboard tests. Agents still need
+approval before starting any test command.
+
+- **Go 1.26.1** is required by `go.mod`.
 - The Tailscale live E2E test (`internal/tailnet/tailnet_e2e_test.go`) is gated by
-  the presence of `TS_OAUTH_CLIENT_ID` / `TS_OAUTH_CLIENT_SECRET` env vars — it
-  self-skips when unset, so `go test ./...` is safe without credentials. It creates
-  and deletes a real ephemeral tailnet, so only run it with disposable org creds.
+  `TS_OAUTH_CLIENT_ID` and `TS_OAUTH_CLIENT_SECRET`. When present, the test creates
+  and deletes a real ephemeral tailnet. Keep those variables absent during
+  ordinary tests. Run the live test only with explicit approval and disposable
+  organization credentials.
+
+If a long-running command is interrupted, verify its recorded process group and
+compiler descendants are gone before reporting it stopped. See `CONTRIBUTING.md`
+for the checklist and process-inspection guidance.
 
 ## Module Path Gotcha
 
@@ -51,18 +62,30 @@ directory.
 
 ## Running
 
-`./tailbench` reads `config.yaml` by default; CLI flags (`--provider`, `--family`,
-`--filter`, `--dry-run`, `--cleanup-networking`, `--config`) override YAML values.
-Secrets come from an `.env` file referenced by `env_file:` in `config.yaml`, expanded
-via `${VAR}` syntax (see `internal/config/config.go`). Always validate changes with
-`./tailbench --dry-run` first — it lists what would be provisioned without touching
-any cloud.
+Each tagged binary reads `config.yaml` by default. The `plan` command and the
+compatibility `--dry-run` flag use `config.ParseLocalArgs`: they do not open
+`env_file`, expand secrets, inspect SSH keys, initialize Pulumi or Tailscale,
+call cloud APIs, create state directories, or remove locks. A YAML
+`dry_run: true` value takes the same path, including when the user spells the
+command as `run`.
+
+`doctor` performs local tool and configuration checks. `doctor --remote` is the
+explicit credential-loading, read-only remote-check path. `run`, or the legacy
+no-subcommand invocation with `dry_run: false`, is the provisioning path. It
+evaluates the local plan and guardrails before loading secrets, requires an
+interactive confirmation or `--yes`, and requires an explicit cost ceiling
+with `--yes`. Approved runs persist under `.tailbench/runs/<run-id>/`; `status`
+and `results` are local readers, while `resume` and `cleanup` operate on the
+same named manifest.
 
 ## Architecture
 
-The entry point (`cmd/tailbench/main.go`) is thin: parse config → build orchestrator
-→ `Run(ctx)` under a SIGINT/SIGTERM-cancelable context. Everything of substance lives
-in `internal/orchestrator/orchestrator.go`, the central control loop.
+The entry point (`cmd/tailbench/main.go`) identifies the compiled provider and
+delegates command parsing, output, and exit mapping to `internal/app`. Local
+planning lives in `internal/plan`; prerequisite checks live in
+`internal/preflight`. Only the approved execution path resolves secrets,
+constructs the provider-backed orchestrator, and calls `Run(ctx)` under a
+SIGINT/SIGTERM-cancelable context.
 
 ### The orchestrator loop (read this first)
 
@@ -106,9 +129,10 @@ implements): `SetupNetworking`, `CreatePair`, `DestroyPair`, `TeardownNetworking
 
 Two Pulumi stack lifecycles: **networking** stacks are long-lived (per provider,
 created once, no-op on subsequent runs); **VM-pair** stacks are ephemeral (per instance
-type, created and destroyed each iteration). State is local per provider
-(`file://./state/<provider>`). Stale Pulumi lock files (from crashed runs) are swept on
-startup — see the `lockPattern` glob in `Run`.
+type, created and destroyed each iteration). State is stored under
+`state/<provider>`. Stale Pulumi lock files (from crashed runs) are currently swept on
+startup—see the `lockPattern` glob in `Run`. The implementation plan requires moving
+that mutation into an explicit recovery action.
 
 ### Benchmark modes
 
@@ -129,8 +153,14 @@ DNS inside bench pods.
 
 ### Supporting packages
 
-- `internal/config` — YAML + `.env` + CLI-flag merge; `or`/`orInt` implement
-  precedence with sane defaults. This is the single place defaults are defined.
+- `internal/app` — shared command routing, stable exits, diagnostics, progress
+  routing, and text/JSON report boundary.
+- `internal/config` — staged YAML + CLI merge. Local parsing deliberately leaves
+  secrets unresolved; execution parsing loads `env_file` and SSH material.
+- `internal/plan` — deterministic, serializable local plans built from config,
+  provider identity, checked-in prices, benchmark modes, and existing results.
+- `internal/preflight` — local prerequisite probes and explicit read-only remote
+  CLI checks.
 - `internal/tailnet` — Tailscale v2 API: create/delete ephemeral tailnets, auth keys,
   ACLs, stale-device cleanup. Tailnet state is cached in `.tailbench/tailnet.json` and
   reused across runs (only deleted with `--cleanup-networking`).
@@ -165,14 +195,22 @@ pps/$ columns on `d.forward_pps` existing — only measured forwarding data is e
 
 ## CI / Deployment
 
-- `.github/workflows/deploy-pages.yml` — deploys `website/` to GitHub Pages on push to
-  `main` when `website/**` changes.
-- `.github/workflows/docker-publish.yml` — builds/pushes the `website` container to
-  `ghcr.io/<owner>/tailbench` (multi-arch) on `website/**` changes.
+- `.github/workflows/ci.yml` — on pull requests and pushes to `main`, checks
+  formatting and the dashboard, then lints, tests, verifies dependencies, and
+  builds each provider variant in a separate matrix job.
+- `.github/workflows/release.yml` — for version tags, builds and packages all six
+  Linux AMD64 binaries and publishes SHA-256 checksums.
+- `.github/workflows/deploy-pages.yml` — deploys `website/` to GitHub Pages on
+  relevant pushes to `main` or a manual dispatch.
+- `.github/workflows/docker-publish.yml` — builds and pushes the multi-architecture
+  website container on relevant pushes to `main` or a manual dispatch.
 
-Both workflows trigger only on `website/**` paths — Go code changes do not run CI here.
-If you change result JSON, regenerate `website/data.generated.js` (run `tailbench`, or
-`go run ./cmd/aggregate/`) so the dashboard reflects it.
+CI and release workflows own all-variant compilation. Do not reproduce their
+matrix locally. None of these workflows provisions benchmark infrastructure.
+
+If result JSON changes, `website/data.generated.js` may need regeneration through
+the standalone aggregator. Name that exact operation and obtain approval before
+running it; do not invoke the tagged Tailbench entry point as a shortcut.
 
 ## Conventions Specific to This Repo
 

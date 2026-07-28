@@ -15,41 +15,94 @@ Each executable contains exactly one Pulumi cloud provider SDK family. The manag
 | `tailbench-gcp` | `gcp` | `gcp` | Compute Engine virtual machines | `gcloud` |
 | `tailbench-gcp-k8s` | `gcp,k8s` | `gke` | GKE cluster and node pools | `gcloud` |
 
-All variants use the Pulumi core SDK and Automation API. Keeping all variants in one Go module means `go mod download` can still download modules that a particular binary does not compile or link.
+All variants use the Pulumi core SDK and Automation API. Keeping all variants in one Go module means a dependency download can still fetch modules that a particular binary does not compile or link.
 
 ## Quick start
 
-Build only the variant you need:
+Build only the variant you need, and only on a machine sized for its cloud SDK
+graph. For example, select the AWS VM binary:
 
 ```bash
-make build-gcp
-make build-aws-k8s
+make build-aws
 ```
 
-The binaries are written under `dist/`. If `providers` is absent or empty in `config.yaml`, each binary defaults to its compiled provider:
+The binaries are written under `dist/`. If `providers` is absent or empty in a
+configuration file, each binary defaults to its compiled provider.
+
+Start with the local planner. It reads the selected configuration, the
+checked-in price catalog, and existing result files. It does not load the
+environment file, initialize Pulumi or Tailscale, call cloud APIs, create state
+directories, or delete locks:
 
 ```bash
-./dist/tailbench-gcp --filter '^c3-standard-4$'
-./dist/tailbench-aws --family c7i --dry-run
-./dist/tailbench-aws-k8s --provider eks --family c7i
+# Side-effect-free: no credentials or remote calls.
+./dist/tailbench-aws plan --config config.example.yaml \
+  --family c7i --filter '^c7i\.large$'
+
+# Side-effect-free compatibility alias for plan.
+./dist/tailbench-aws --config config.example.yaml \
+  --family c7i --filter '^c7i\.large$' --dry-run
+
+# Local checks only. Missing tools are reported with remediation.
+./dist/tailbench-aws doctor --config config.example.yaml
 ```
 
 An explicit provider must match the binary. For example, `tailbench-aws --provider gcp` fails rather than silently using AWS. Renaming an executable does not change its provider identity.
 
-The local aggregate targets are deliberately sequential, including when invoked through `make -j`:
+`doctor --remote` is opt-in. It loads the configured credential source and
+performs read-only Pulumi, Tailscale-value, and cloud CLI checks. `run`, or an
+invocation with no subcommand and `dry_run: false`, can provision billable
+resources. Tailbench prints the selected topology, duration, estimated cost
+bound, and cleanup policy before an interactive run. Automation requires both
+`--yes` and an explicitly configured `--max-cost-usd`:
+
+```bash
+# Provisioning: creates billable AWS resources.
+./dist/tailbench-aws run --config tailbench.yaml \
+  --family c7i --filter '^c7i\.large$' \
+  --max-cost-usd 10 --max-duration 45m \
+  --max-instance-types 1 --max-concurrent-resources 1 --yes
+```
+
+Approved execution creates a versioned recovery bundle under
+`.tailbench/runs/<run-id>/`. The final summary always reports benchmark and
+cleanup outcomes separately. Use `status`, `results`, `resume`, or `cleanup`
+with that run ID; these commands never allocate a second run ID.
+
+Do not run the aggregate targets on a normal developer workstation:
 
 ```bash
 make build
-make test GO_TEST_FLAGS=-p=1
+make test
 make lint
 make verify-deps
 ```
 
-Compiling Pulumi SDKs is memory intensive; prefer a single variant target during normal development.
+Those targets cover all six mutually exclusive cloud SDK graphs. They are
+reserved for CI or a dedicated build host even though the Makefile runs them
+sequentially. For local work, select one exact target such as `make build-aws`,
+`make test-aws`, or `make lint-aws`. Use
+`make verify-deps VARIANT=aws` rather than the all-variant form. A single variant
+can still be resource intensive, so start it only on an appropriately sized
+machine.
 
 ## Configuration and modes
 
-Tailbench reads `config.yaml` by default. Use `--config`, `--provider`, `--family`, `--filter`, `--dry-run`, and `--cleanup-networking` to override the supported command-line settings.
+Tailbench reads `config.yaml` by default. Copy
+[`config.example.yaml`](config.example.yaml) and
+[`.env.example`](.env.example) rather than placing real credentials in a
+checked-in file. CLI values for `--provider`, `--family`, and `--filter`
+override the selected YAML file. Secret expansion and environment-file loading
+happen only for remote checks and execution.
+
+`dry_run: true` and the CLI `--dry-run` flag both route to the side-effect-free
+local plan. Use `plan` in new automation; `--dry-run` remains the compatibility
+spelling.
+
+Execution also accepts `max_cost_usd`, `max_duration`,
+`max_instance_types`, `max_concurrent_resources`, and `cleanup_policy`.
+The safe cleanup policy is `always`; the other accepted values are
+`on-success` and `manual`.
 
 Provider values remain `aws`, `eks`, `azure`, `aks`, `gcp`, and `gke`. These values—not executable names—continue to determine result directories, local Pulumi state paths, and stack naming. Results remain under:
 
@@ -153,21 +206,35 @@ go run ./cmd/aggregate/        # re-inject price_per_hour into data.generated.js
 
 ## Development
 
-The Makefile is the supported developer interface:
+The Makefile is the supported developer interface. Select exactly one provider
+variant for any local build, test, lint, or dependency-boundary check:
 
 ```bash
 make help
 make fmt
-make test-azure
-make lint-gcp-k8s
+make test-aws
+make lint-aws
 make verify-deps VARIANT=aws
 ```
 
-`make golangci-lint` is the only target that installs the pinned linter into `.tools/bin`; build targets do not download tools. `make clean` removes only `dist/` and `.tools/`.
+Never use `go run ./cmd/tailbench` as a diagnostic shortcut; it compiles a
+complete tagged binary while hiding that cost in the invocation. Do not run
+`make build`, `make test`, `make lint`, an untagged Go equivalent, or a
+hand-written all-variant loop on a normal workstation. CI and dedicated build
+hosts own aggregate verification.
+
+`make golangci-lint` installs the pinned linter into `.tools/bin` when it is
+absent, so it may download dependencies. Build targets do not intentionally
+install tools, although Go may download missing modules. `make clean` removes
+only `dist/` and `.tools/`.
 
 Exactly one cloud tag—`aws`, `azure`, or `gcp`—is required. Adding `k8s` selects that cloud's managed Kubernetes implementation. New provider implementation code must use the mutually exclusive cloud/workload constraint, keep shared interfaces and dependency-free helpers untagged, and update `scripts/verify-deps.sh` whenever dependency boundaries change. Every supported tag combination must remain covered by CI.
 
-The CI matrix lints, tests, verifies dependencies, and builds each variant independently. It does not run Pulumi updates or cloud provisioning. Tagged releases package the six Linux AMD64 executables separately and publish SHA-256 checksums.
+The CI matrix lints, tests, verifies dependencies, and builds each variant
+independently. It does not run Pulumi updates or cloud provisioning. Tagged
+releases package the six Linux AMD64 executables separately and publish SHA-256
+checksums. See [Contributing to Tailbench](CONTRIBUTING.md) for the local safety
+checklist and the CI/build-host boundary.
 
 ## Dashboard
 

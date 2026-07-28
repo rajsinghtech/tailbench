@@ -1,15 +1,566 @@
 package orchestrator
 
 import (
+	"context"
+	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/rajsinghtech/tailbench/internal/benchmark"
 	"github.com/rajsinghtech/tailbench/internal/config"
+	"github.com/rajsinghtech/tailbench/internal/provider"
 	"github.com/rajsinghtech/tailbench/internal/result"
+	"github.com/rajsinghtech/tailbench/internal/tailnet"
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 )
+
+type failingCreateProvider struct {
+	createErr     error
+	listErr       error
+	destroyErr    error
+	listCalls     int
+	createCalls   int
+	teardownCalls int
+	beforeSetup   func()
+	beforeCreate  func()
+}
+
+func (p *failingCreateProvider) Name() string {
+	return "eks"
+}
+
+func (p *failingCreateProvider) SetupNetworking(context.Context) (*provider.NetworkingOutput, error) {
+	if p.beforeSetup != nil {
+		p.beforeSetup()
+	}
+	return &provider.NetworkingOutput{
+		Values:     map[string]string{"kubeconfig": "test-kubeconfig"},
+		StackName:  "tailbench-eks-cluster-ab12cd",
+		ProviderID: "eks-cluster-ab12cd",
+	}, nil
+}
+
+func (p *failingCreateProvider) CreatePair(context.Context, provider.PairOptions) (*provider.PairOutput, error) {
+	p.createCalls++
+	if p.beforeCreate != nil {
+		p.beforeCreate()
+	}
+	return nil, p.createErr
+}
+
+func (p *failingCreateProvider) DestroyPair(context.Context, string) error {
+	return p.destroyErr
+}
+
+func (p *failingCreateProvider) TeardownNetworking(context.Context) error {
+	p.teardownCalls++
+	return nil
+}
+
+func (p *failingCreateProvider) ListFamilies() []string {
+	return []string{"c7i"}
+}
+
+func (p *failingCreateProvider) ListInstances(context.Context, string) ([]provider.InstanceInfo, error) {
+	p.listCalls++
+	if p.listErr != nil {
+		return nil, p.listErr
+	}
+	return []provider.InstanceInfo{{Type: "c7i.large", Family: "c7i", VCPUs: 2}}, nil
+}
+
+func (p *failingCreateProvider) GetVCPUs(context.Context, string) (int, error) {
+	return 2, nil
+}
+
+func (p *failingCreateProvider) IsQuotaError(error) bool {
+	return false
+}
+
+type recordingStateRecorder struct {
+	resources []ResourceRecord
+	steps     []string
+}
+
+type failingACLManager struct {
+	aclErr      error
+	deleteCalls int
+	deletedDNS  string
+}
+
+type failingCommandExecutor struct {
+	err error
+}
+
+func (e failingCommandExecutor) Run(context.Context, string) (string, string, error) {
+	return "", "", e.err
+}
+
+func (e failingCommandExecutor) Close() error {
+	return nil
+}
+
+func (m *failingACLManager) CreateTailnet(context.Context, string) (*tailnet.TailnetInfo, error) {
+	return &tailnet.TailnetInfo{
+		DNSName:           "tail-ab12cd.ts.net",
+		OAuthClientID:     "run-client",
+		OAuthClientSecret: "run-secret",
+	}, nil
+}
+
+func (m *failingACLManager) DeleteTailnet(_ context.Context, dnsName string) error {
+	m.deleteCalls++
+	m.deletedDNS = dnsName
+	return nil
+}
+
+func (m *failingACLManager) SetupACL(context.Context, string, string, bool, bool) error {
+	return m.aclErr
+}
+
+func (m *failingACLManager) EnableHTTPS(context.Context, string, string) error {
+	return nil
+}
+
+func (m *failingACLManager) CreateAuthKey(context.Context, string, string) (string, error) {
+	return "auth-key", nil
+}
+
+func (m *failingACLManager) CleanupStaleDevices(context.Context, string, string, string) (int, error) {
+	return 0, nil
+}
+
+func (r *recordingStateRecorder) BeforeExternalStep(stage, workID, message string) error {
+	r.steps = append(r.steps, "before:"+stage+":"+workID+":"+message)
+	return nil
+}
+
+func (r *recordingStateRecorder) AfterExternalStep(stage, workID, status, message string) error {
+	r.steps = append(r.steps, "after:"+stage+":"+workID+":"+status+":"+message)
+	return nil
+}
+
+func (r *recordingStateRecorder) RecordResources(resources ...ResourceRecord) error {
+	for _, resource := range resources {
+		found := false
+		for index := range r.resources {
+			if r.resources[index].ID == resource.ID {
+				r.resources[index] = resource
+				found = true
+				break
+			}
+		}
+		if !found {
+			r.resources = append(r.resources, resource)
+		}
+	}
+	return nil
+}
+
+func (r *recordingStateRecorder) resource(id string) (ResourceRecord, bool) {
+	for _, resource := range r.resources {
+		if resource.ID == id {
+			return resource, true
+		}
+	}
+	return ResourceRecord{}, false
+}
+
+func TestRunRecordsResourceIntentBeforeProviderSideEffects(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	recorder := &recordingStateRecorder{}
+	provisionErr := errors.New("stop after resource-intent assertion")
+	p := &failingCreateProvider{createErr: provisionErr}
+	p.beforeSetup = func() {
+		resource, ok := recorder.resource("eks/networking")
+		if !ok || resource.Status != runstateResourceCreating {
+			t.Fatalf("network resource before SetupNetworking = %#v, found %t", resource, ok)
+		}
+	}
+	p.beforeCreate = func() {
+		resource, ok := recorder.resource("eks/c7i.large/topology")
+		if !ok || resource.Status != runstateResourceCreating {
+			t.Fatalf("topology resource before CreatePair = %#v, found %t", resource, ok)
+		}
+	}
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers:         []string{"eks"},
+			Family:            "c7i",
+			Modes:             []string{"l4-kernel"},
+			RootDir:           root,
+			StateDir:          "file://" + filepath.Join(root, "state"),
+			RunID:             "tb_2026-07-24_ab12cd",
+			CleanupNetworking: true,
+		},
+		providers: []provider.Provider{p},
+	}
+	o.SetStateRecorder(recorder)
+
+	outcome := o.RunWithOutcome(context.Background())
+
+	if outcome.BenchmarkErr == nil ||
+		!strings.Contains(outcome.BenchmarkErr.Error(), provisionErr.Error()) {
+		t.Fatalf("benchmark error = %v, want %v", outcome.BenchmarkErr, provisionErr)
+	}
+	network, ok := recorder.resource("eks/networking")
+	if !ok ||
+		network.Status != runstateResourceCleaned ||
+		network.StackName != "tailbench-eks-cluster-ab12cd" ||
+		network.ProviderID != "eks-cluster-ab12cd" {
+		t.Fatalf("final network resource = %#v, found %t", network, ok)
+	}
+	topology, ok := recorder.resource("eks/c7i.large/topology")
+	if !ok || topology.Status != runstateResourceCreating {
+		t.Fatalf("final topology resource = %#v, found %t", topology, ok)
+	}
+}
+
+func TestRunModeLoopSurfacesModeFailureAndRecordsFailedWork(t *testing.T) {
+	root := t.TempDir()
+	recorder := &recordingStateRecorder{}
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Modes:   []string{"tsnet-userspace"},
+			RootDir: root,
+		},
+		recorder: recorder,
+	}
+	p := &failingCreateProvider{}
+
+	err := o.runModeLoop(
+		context.Background(),
+		&benchmark.Runner{},
+		p,
+		&provider.PairOutput{},
+		provider.InstanceInfo{Type: "c7i.large", Family: "c7i"},
+		"c7i",
+		"[eks/c7i.large]",
+		"vm",
+		modeContext{},
+	)
+
+	if err == nil ||
+		!strings.Contains(err.Error(), "tsnet-userspace") ||
+		!strings.Contains(err.Error(), "not yet implemented") {
+		t.Fatalf("runModeLoop error = %v, want visible unsupported-mode failure", err)
+	}
+	steps := strings.Join(recorder.steps, "\n")
+	for _, want := range []string{
+		"before:benchmark:c7i.large/tsnet-userspace",
+		"after:benchmark:c7i.large/tsnet-userspace:failed",
+	} {
+		if !strings.Contains(steps, want) {
+			t.Fatalf("recorded steps = %q, want %q", steps, want)
+		}
+	}
+}
+
+func TestCleanupPolicyUsesIndependentBenchmarkOutcome(t *testing.T) {
+	benchmarkErr := errors.New("benchmark failed")
+	tests := []struct {
+		name      string
+		policy    string
+		runErr    error
+		wantClean bool
+	}{
+		{name: "always after success", policy: config.CleanupAlways, wantClean: true},
+		{name: "always after failure", policy: config.CleanupAlways, runErr: benchmarkErr, wantClean: true},
+		{name: "on success after success", policy: config.CleanupOnSuccess, wantClean: true},
+		{name: "on success after failure", policy: config.CleanupOnSuccess, runErr: benchmarkErr, wantClean: false},
+		{name: "manual after success", policy: config.CleanupManual, wantClean: false},
+		{name: "manual after failure", policy: config.CleanupManual, runErr: benchmarkErr, wantClean: false},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := shouldCleanup(test.policy, test.runErr); got != test.wantClean {
+				t.Fatalf("shouldCleanup(%q, %v) = %t, want %t", test.policy, test.runErr, got, test.wantClean)
+			}
+		})
+	}
+}
+
+func TestRunReturnsProvisioningFailureInsteadOfLoggingSuccess(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	provisionErr := errors.New("provider create failed")
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers: []string{"eks"},
+			Family:    "c7i",
+			Modes:     []string{"l4-kernel"},
+			RootDir:   root,
+			StateDir:  "file://" + filepath.Join(root, "state"),
+		},
+		providers: []provider.Provider{&failingCreateProvider{createErr: provisionErr}},
+	}
+
+	err := o.Run(context.Background())
+
+	if err == nil {
+		t.Fatal("Run() error = nil, want provisioning failure")
+	}
+	for _, want := range []string{"create pair c7i.large", provisionErr.Error()} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Run() error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestRunWithOutcomeSeparatesProvisioningAndCleanupFailures(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	provisionErr := errors.New("provider create failed")
+	cleanupErr := errors.New("provider destroy denied")
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers: []string{"eks"},
+			Family:    "c7i",
+			Modes:     []string{"l4-kernel"},
+			RootDir:   root,
+			StateDir:  "file://" + filepath.Join(root, "state"),
+		},
+		providers: []provider.Provider{&failingCreateProvider{
+			createErr:  provisionErr,
+			destroyErr: cleanupErr,
+		}},
+	}
+
+	outcome := o.RunWithOutcome(context.Background())
+
+	if outcome.BenchmarkErr == nil ||
+		!strings.Contains(outcome.BenchmarkErr.Error(), provisionErr.Error()) {
+		t.Fatalf("benchmark error = %v, want provisioning error", outcome.BenchmarkErr)
+	}
+	if outcome.CleanupErr == nil ||
+		!strings.Contains(outcome.CleanupErr.Error(), cleanupErr.Error()) {
+		t.Fatalf("cleanup error = %v, want cleanup error", outcome.CleanupErr)
+	}
+	if !outcome.ResourcesChanged {
+		t.Fatal("provider lifecycle calls were not reported as resource changes")
+	}
+	if err := outcome.Err(); err == nil ||
+		!strings.Contains(err.Error(), provisionErr.Error()) ||
+		!strings.Contains(err.Error(), cleanupErr.Error()) {
+		t.Fatalf("combined error = %v, want both failures", err)
+	}
+}
+
+func TestPairResourceRecordsCarryRunOwnershipAndCleanupIdentifiers(t *testing.T) {
+	records := pairResourceRecords(
+		"aws",
+		"tb_2026-07-24_ab12cd",
+		"c7i.large",
+		&provider.PairOutput{
+			StackName:        "tailbench-aws-c7i-large-ab12cd",
+			ServerName:       "server",
+			ClientName:       "client",
+			RouterName:       "router",
+			ServerInstanceID: "i-server",
+			ClientInstanceID: "i-client",
+			RouterInstanceID: "i-router",
+		},
+		true,
+	)
+
+	if len(records) != 4 {
+		t.Fatalf("records = %#v, want topology/server/client/router", records)
+	}
+	for _, record := range records {
+		if record.CleanupOwner != "tb_2026-07-24_ab12cd" ||
+			!record.OwnershipCertain ||
+			record.StackName != "tailbench-aws-c7i-large-ab12cd" ||
+			record.Status != runstateResourceCreated {
+			t.Fatalf("resource record = %#v", record)
+		}
+	}
+}
+
+func TestRunReturnsInstanceDiscoveryFailureInsteadOfEmptySuccess(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	discoveryErr := errors.New("instance catalog unavailable")
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers: []string{"eks"},
+			Family:    "c7i",
+			Modes:     []string{"l4-kernel"},
+			RootDir:   root,
+			StateDir:  "file://" + filepath.Join(root, "state"),
+		},
+		providers: []provider.Provider{&failingCreateProvider{listErr: discoveryErr}},
+	}
+
+	err := o.Run(context.Background())
+
+	if err == nil {
+		t.Fatal("Run() error = nil, want discovery failure")
+	}
+	for _, want := range []string{"listing instances", "family c7i", discoveryErr.Error()} {
+		if !strings.Contains(err.Error(), want) {
+			t.Fatalf("Run() error = %q, want %q", err, want)
+		}
+	}
+}
+
+func TestRunDoesNotDeletePulumiLocksDuringOrdinaryStartup(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	stateDir := filepath.Join(root, "state")
+	lockPath := filepath.Join(stateDir, "eks", ".pulumi", "locks", "stack.json")
+	if err := os.MkdirAll(filepath.Dir(lockPath), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(lockPath, []byte("owned lock"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers: []string{"eks"},
+			Family:    "c7i",
+			Modes:     []string{"l4-kernel"},
+			RootDir:   root,
+			StateDir:  "file://" + stateDir,
+			DryRun:    true,
+		},
+		providers: []provider.Provider{&failingCreateProvider{}},
+	}
+
+	if err := o.Run(context.Background()); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	data, err := os.ReadFile(lockPath)
+	if err != nil {
+		t.Fatalf("ordinary startup removed Pulumi lock: %v", err)
+	}
+	if got, want := string(data), "owned lock"; got != want {
+		t.Fatalf("lock contents = %q, want %q", got, want)
+	}
+}
+
+func TestLegacyOrchestratorDryRunDoesNotWriteStateOrCallProvider(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	stateDir := filepath.Join(root, "state")
+	p := &failingCreateProvider{}
+	o := &Orchestrator{
+		cfg: &config.Config{
+			Providers: []string{"eks"},
+			Family:    "c7i",
+			Modes:     []string{"l4-kernel"},
+			RootDir:   root,
+			StateDir:  "file://" + stateDir,
+			DryRun:    true,
+		},
+		providers: []provider.Provider{p},
+	}
+
+	outcome := o.RunWithOutcome(context.Background())
+
+	if err := outcome.Err(); err != nil {
+		t.Fatalf("dry run: %v", err)
+	}
+	if p.listCalls != 0 {
+		t.Fatalf("dry run made %d provider discovery calls, want 0", p.listCalls)
+	}
+	if _, err := os.Stat(stateDir); !os.IsNotExist(err) {
+		t.Fatalf("dry run created state directory: %v", err)
+	}
+}
+
+func TestRunAlwaysCleansCreatedTailnetWhenACLSetupFails(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	aclErr := errors.New("ACL update denied")
+	manager := &failingACLManager{aclErr: aclErr}
+	recorder := &recordingStateRecorder{}
+	o := &Orchestrator{
+		cfg: &config.Config{
+			CreateTailnet:     true,
+			CleanupNetworking: true,
+			CleanupPolicy:     config.CleanupAlways,
+			RunID:             "tb_2026-07-24_ab12cd",
+			StateDir:          "file://" + filepath.Join(root, "state"),
+		},
+		tailnet:  manager,
+		recorder: recorder,
+	}
+
+	outcome := o.RunWithOutcome(context.Background())
+
+	if outcome.BenchmarkErr == nil || !strings.Contains(outcome.BenchmarkErr.Error(), aclErr.Error()) {
+		t.Fatalf("benchmark error = %v, want ACL failure", outcome.BenchmarkErr)
+	}
+	if outcome.CleanupErr != nil {
+		t.Fatalf("cleanup error = %v, want successful compensating cleanup", outcome.CleanupErr)
+	}
+	if manager.deleteCalls != 1 || manager.deletedDNS != "tail-ab12cd.ts.net" {
+		t.Fatalf("tailnet deletion = %d calls for %q, want one compensating delete", manager.deleteCalls, manager.deletedDNS)
+	}
+	resource, ok := recorder.resource("tailscale/tailnet")
+	if !ok || resource.Status != runstateResourceCleaned {
+		t.Fatalf("tailnet resource = %#v, found %t; want cleaned", resource, ok)
+	}
+}
+
+func TestTSNetStateDirectoryIsRunOwnedAndPreservesLegacyState(t *testing.T) {
+	root := t.TempDir()
+	t.Chdir(root)
+	legacyState := filepath.Join(root, ".tailbench", "tsnet", "sentinel")
+	if err := os.MkdirAll(filepath.Dir(legacyState), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(legacyState, []byte("another run"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	got := tsnetStateDirectory(&config.Config{RunID: "tb_2026-07-24_ab12cd"})
+	want := filepath.Join(".tailbench", "runs", "tb_2026-07-24_ab12cd", "tsnet")
+	if got != want {
+		t.Fatalf("tsnet state directory = %q, want %q", got, want)
+	}
+	data, err := os.ReadFile(legacyState)
+	if err != nil {
+		t.Fatalf("run-scoped path selection removed legacy state: %v", err)
+	}
+	if string(data) != "another run" {
+		t.Fatalf("legacy state = %q, want preserved sentinel", data)
+	}
+}
+
+func TestRelayNetworkMutationHelpersSurfaceEveryHostFailure(t *testing.T) {
+	clientErr := errors.New("client iptables denied")
+	serverErr := errors.New("server iptables denied")
+	routerErr := errors.New("router iptables denied")
+	client := failingCommandExecutor{err: clientErr}
+	server := failingCommandExecutor{err: serverErr}
+	router := failingCommandExecutor{err: routerErr}
+
+	blockErr := blockDirectPair(context.Background(), client, server)
+	for _, want := range []string{"block client direct path", clientErr.Error(), "block server direct path", serverErr.Error()} {
+		if blockErr == nil || !strings.Contains(blockErr.Error(), want) {
+			t.Fatalf("block error = %v, want %q", blockErr, want)
+		}
+	}
+
+	restoreErr := restoreRelayNetwork(context.Background(), client, server, router)
+	for _, want := range []string{
+		"unblock relay port",
+		routerErr.Error(),
+		"unblock client direct path",
+		clientErr.Error(),
+		"unblock server direct path",
+		serverErr.Error(),
+	} {
+		if restoreErr == nil || !strings.Contains(restoreErr.Error(), want) {
+			t.Fatalf("restore error = %v, want %q", restoreErr, want)
+		}
+	}
+}
 
 func TestCompletedForwardModeDoesNotNeedRouter(t *testing.T) {
 	root := t.TempDir()

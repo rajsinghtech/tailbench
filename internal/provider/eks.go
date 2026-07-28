@@ -31,9 +31,11 @@ const (
 
 // EKSProvider manages EKS clusters and node groups via Pulumi Automation API.
 type EKSProvider struct {
-	Region   string
-	AZ       string
-	StateDir string
+	Region    string
+	AZ        string
+	StateDir  string
+	RunID     string
+	ExpiresAt string
 
 	kubeconfig   string
 	tsnetSrv     *tsnet.Server
@@ -41,8 +43,34 @@ type EKSProvider struct {
 }
 
 var _ K8sOperatorProvider = (*EKSProvider)(nil)
+var _ RunScopedProvider = (*EKSProvider)(nil)
 
-func (p *EKSProvider) Name() string { return "eks" }
+func (p *EKSProvider) Name() string             { return "eks" }
+func (p *EKSProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *EKSProvider) ManagesNetworking() bool  { return true }
+
+func (p *EKSProvider) networkStackName() string {
+	return scopedName("tailbench-eks-cluster", p.RunID)
+}
+
+func (p *EKSProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
+	return scopedName("tailbench-eks-"+safeType, p.RunID)
+}
+
+func (p *EKSProvider) resourceTags() pulumi.StringMap {
+	tags := pulumi.StringMap{
+		"Project":           pulumi.String("tailbench"),
+		"TailbenchProvider": pulumi.String(p.Name()),
+	}
+	if p.RunID != "" {
+		tags["TailbenchRunID"] = pulumi.String(p.RunID)
+	}
+	if p.ExpiresAt != "" {
+		tags["TailbenchExpiresAt"] = pulumi.String(p.ExpiresAt)
+	}
+	return tags
+}
 
 func (p *EKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
@@ -59,7 +87,7 @@ func (p *EKSProvider) projectOpts() []auto.LocalWorkspaceOption {
 }
 
 func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
-	stackName := "tailbench-eks-cluster"
+	stackName := p.networkStackName()
 
 	// Derive a second AZ for EKS requirement (needs at least 2 subnets in different AZs)
 	az2 := p.AZ[:len(p.AZ)-1] + "b"
@@ -68,42 +96,46 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	}
 
 	program := func(pCtx *pulumi.Context) error {
-		vpc, err := ec2.NewVpc(pCtx, "tailbench-eks-vpc", &ec2.VpcArgs{
+		vpc, err := ec2.NewVpc(pCtx, scopedName("tailbench-eks-vpc", p.RunID), &ec2.VpcArgs{
 			CidrBlock:          pulumi.String("10.0.0.0/16"),
 			EnableDnsHostnames: pulumi.Bool(true),
 			EnableDnsSupport:   pulumi.Bool(true),
+			Tags:               p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
 
-		subnet1, err := ec2.NewSubnet(pCtx, "tailbench-eks-subnet-1", &ec2.SubnetArgs{
+		subnet1, err := ec2.NewSubnet(pCtx, scopedName("tailbench-eks-subnet-1", p.RunID), &ec2.SubnetArgs{
 			VpcId:               vpc.ID(),
 			CidrBlock:           pulumi.String("10.0.1.0/24"),
 			AvailabilityZone:    pulumi.String(p.AZ),
 			MapPublicIpOnLaunch: pulumi.Bool(true),
+			Tags:                p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
-		subnet2, err := ec2.NewSubnet(pCtx, "tailbench-eks-subnet-2", &ec2.SubnetArgs{
+		subnet2, err := ec2.NewSubnet(pCtx, scopedName("tailbench-eks-subnet-2", p.RunID), &ec2.SubnetArgs{
 			VpcId:               vpc.ID(),
 			CidrBlock:           pulumi.String("10.0.2.0/24"),
 			AvailabilityZone:    pulumi.String(az2),
 			MapPublicIpOnLaunch: pulumi.Bool(true),
+			Tags:                p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
 
-		igw, err := ec2.NewInternetGateway(pCtx, "tailbench-eks-igw", &ec2.InternetGatewayArgs{
+		igw, err := ec2.NewInternetGateway(pCtx, scopedName("tailbench-eks-igw", p.RunID), &ec2.InternetGatewayArgs{
 			VpcId: vpc.ID(),
+			Tags:  p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
 
-		rt, err := ec2.NewRouteTable(pCtx, "tailbench-eks-rt", &ec2.RouteTableArgs{
+		rt, err := ec2.NewRouteTable(pCtx, scopedName("tailbench-eks-rt", p.RunID), &ec2.RouteTableArgs{
 			VpcId: vpc.ID(),
 			Routes: ec2.RouteTableRouteArray{
 				&ec2.RouteTableRouteArgs{
@@ -111,6 +143,7 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 					GatewayId: igw.ID(),
 				},
 			},
+			Tags: p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -128,8 +161,9 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			return err
 		}
 
-		clusterRole, err := iam.NewRole(pCtx, "tailbench-eks-cluster-role", &iam.RoleArgs{
+		clusterRole, err := iam.NewRole(pCtx, scopedName("tailbench-eks-cluster-role", p.RunID), &iam.RoleArgs{
 			AssumeRolePolicy: pulumi.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"eks.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+			Tags:             p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -141,18 +175,20 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			return err
 		}
 
-		cluster, err := awseks.NewCluster(pCtx, "tailbench-eks", &awseks.ClusterArgs{
+		cluster, err := awseks.NewCluster(pCtx, scopedName("tailbench-eks", p.RunID), &awseks.ClusterArgs{
 			RoleArn: clusterRole.Arn,
 			VpcConfig: &awseks.ClusterVpcConfigArgs{
 				SubnetIds: pulumi.StringArray{subnet1.ID(), subnet2.ID()},
 			},
+			Tags: p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
 
-		nodeRole, err := iam.NewRole(pCtx, "tailbench-eks-node-role", &iam.RoleArgs{
+		nodeRole, err := iam.NewRole(pCtx, scopedName("tailbench-eks-node-role", p.RunID), &iam.RoleArgs{
 			AssumeRolePolicy: pulumi.String(`{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ec2.amazonaws.com"},"Action":"sts:AssumeRole"}]}`),
+			Tags:             p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -182,7 +218,9 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	if err != nil {
 		return nil, fmt.Errorf("create cluster stack: %w", err)
 	}
-	stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region})
+	if err := stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region}); err != nil {
+		return nil, fmt.Errorf("set aws:region: %w", err)
+	}
 
 	res, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()))
 	if err != nil {
@@ -221,17 +259,21 @@ func (p *EKSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		return nil, fmt.Errorf("create namespace: %w", err)
 	}
 
-	return &NetworkingOutput{Values: map[string]string{
-		"clusterName": clusterName,
-		"kubeconfig":  p.kubeconfig,
-		"nodeRoleArn": res.Outputs["nodeRoleArn"].Value.(string),
-		"subnetId":    res.Outputs["subnetId"].Value.(string),
-	}}, nil
+	return &NetworkingOutput{
+		StackName:  stackName,
+		ProviderID: clusterName,
+		Values: map[string]string{
+			"clusterName": clusterName,
+			"kubeconfig":  p.kubeconfig,
+			"nodeRoleArn": res.Outputs["nodeRoleArn"].Value.(string),
+			"subnetId":    res.Outputs["subnetId"].Value.(string),
+		},
+	}, nil
 }
 
 func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(strings.ReplaceAll(opts.InstanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-eks-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
 		clusterName := opts.Networking.Values["clusterName"]
@@ -256,7 +298,9 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			},
 			Labels: pulumi.StringMap{
 				"tailbench-pool": pulumi.String(safeType),
+				"tailbench-run":  pulumi.String(runSuffix(p.RunID)),
 			},
+			Tags: p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -272,9 +316,6 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	if err := stack.SetConfig(ctx, "aws:region", auto.ConfigValue{Value: p.Region}); err != nil {
 		return nil, fmt.Errorf("set aws:region: %w", err)
 	}
-
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
 
 	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh()); err != nil {
 		return nil, fmt.Errorf("create node group %s: %w", opts.InstanceType, err)
@@ -295,8 +336,8 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("create auth secret: %w", err)
 	}
 
-	serverName := fmt.Sprintf("tb-eks-server-%s", safeType)
-	clientName := fmt.Sprintf("tb-eks-client-%s", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-eks-server-%s", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-eks-client-%s", safeType), p.RunID)
 
 	benchImage := opts.BenchImage
 	if benchImage == "" {
@@ -346,28 +387,41 @@ func (p *EKSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 func (p *EKSProvider) DestroyPair(ctx context.Context, instanceType string) error {
 	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-eks-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	cs, err := k8s.ClientsetFromKubeconfig(p.kubeconfig)
 	if err == nil {
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-eks-server-%s", safeType))
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-eks-client-%s", safeType))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-eks-server-%s", safeType), p.RunID))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-eks-client-%s", safeType), p.RunID))
 	}
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
+	if err := stack.Cancel(ctx); err != nil {
+		return fmt.Errorf("cancel stack %s: %w", stackName, err)
+	}
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
+		return fmt.Errorf("destroy stack %s: %w", stackName, err)
+	}
+	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+		return fmt.Errorf("remove stack %s: %w", stackName, err)
 	}
 	return nil
 }
 
 func (p *EKSProvider) TeardownNetworking(ctx context.Context) error {
-	stackName := "tailbench-eks-cluster"
+	stackName := p.networkStackName()
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}

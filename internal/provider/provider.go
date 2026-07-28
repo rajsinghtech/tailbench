@@ -19,6 +19,22 @@ type Provider interface {
 	IsQuotaError(err error) bool
 }
 
+// RunScopedProvider reports that stack/resource names include the current run
+// ID and can therefore be cleaned by a named run without targeting another
+// run's resources.
+type RunScopedProvider interface {
+	Provider
+	RunScopedResources() bool
+}
+
+// ManagedNetworkingProvider distinguishes provider-created networking or
+// clusters from bring-your-own networks that Tailbench must never claim or
+// destroy.
+type ManagedNetworkingProvider interface {
+	Provider
+	ManagesNetworking() bool
+}
+
 // K8sOperatorProvider is an optional interface that K8s providers can implement
 // to support installing the Tailscale operator and connecting via API server proxy.
 type K8sOperatorProvider interface {
@@ -55,6 +71,8 @@ type PairOptions struct {
 	// UserData is used.
 	WantRouter     bool
 	RouterUserData string
+	RunID          string
+	ExpiresAt      string
 }
 
 // ClientUD returns the user-data to use for the client VM.
@@ -98,7 +116,9 @@ type PairOutput struct {
 
 // NetworkingOutput carries provider-specific networking references.
 type NetworkingOutput struct {
-	Values map[string]string
+	Values     map[string]string
+	StackName  string
+	ProviderID string
 }
 
 // InstanceInfo describes a single instance type.

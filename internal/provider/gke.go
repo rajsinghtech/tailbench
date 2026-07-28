@@ -25,9 +25,11 @@ import (
 
 // GKEProvider provisions GKE clusters and node pools via Pulumi.
 type GKEProvider struct {
-	Project  string
-	Zone     string
-	StateDir string
+	Project   string
+	Zone      string
+	StateDir  string
+	RunID     string
+	ExpiresAt string
 
 	kubeconfig   string // populated after SetupNetworking
 	clusterName  string // populated after SetupNetworking
@@ -36,8 +38,34 @@ type GKEProvider struct {
 }
 
 var _ K8sOperatorProvider = (*GKEProvider)(nil)
+var _ RunScopedProvider = (*GKEProvider)(nil)
 
-func (p *GKEProvider) Name() string { return "gke" }
+func (p *GKEProvider) Name() string             { return "gke" }
+func (p *GKEProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *GKEProvider) ManagesNetworking() bool  { return true }
+
+func (p *GKEProvider) networkStackName() string {
+	return scopedName("tailbench-gke-cluster", p.RunID)
+}
+
+func (p *GKEProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
+	return scopedName("tailbench-gke-"+safeType, p.RunID)
+}
+
+func (p *GKEProvider) resourceLabels() pulumi.StringMap {
+	labels := pulumi.StringMap{
+		"project":            pulumi.String("tailbench"),
+		"tailbench_provider": pulumi.String(p.Name()),
+	}
+	if suffix := runSuffix(p.RunID); suffix != "" {
+		labels["tailbench_run_id"] = pulumi.String(suffix)
+	}
+	if expiry := runSuffix(p.ExpiresAt); expiry != "" {
+		labels["tailbench_expires_at"] = pulumi.String(expiry)
+	}
+	return labels
+}
 
 func (p *GKEProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
@@ -54,11 +82,11 @@ func (p *GKEProvider) projectOpts() []auto.LocalWorkspaceOption {
 }
 
 func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
-	stackName := "tailbench-gke-cluster"
+	stackName := p.networkStackName()
 
 	program := func(pCtx *pulumi.Context) error {
 		// Create a VPC + subnet (default network may use manual subnet mode)
-		network, err := compute.NewNetwork(pCtx, "tailbench-gke-vpc", &compute.NetworkArgs{
+		network, err := compute.NewNetwork(pCtx, scopedName("tailbench-gke-vpc", p.RunID), &compute.NetworkArgs{
 			Project:               pulumi.String(p.Project),
 			AutoCreateSubnetworks: pulumi.Bool(false),
 		})
@@ -66,7 +94,7 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			return err
 		}
 		region := p.Zone[:strings.LastIndex(p.Zone, "-")]
-		subnet, err := compute.NewSubnetwork(pCtx, "tailbench-gke-subnet", &compute.SubnetworkArgs{
+		subnet, err := compute.NewSubnetwork(pCtx, scopedName("tailbench-gke-subnet", p.RunID), &compute.SubnetworkArgs{
 			Project:     pulumi.String(p.Project),
 			Region:      pulumi.String(region),
 			Network:     network.ID(),
@@ -76,7 +104,7 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			return err
 		}
 
-		cluster, err := container.NewCluster(pCtx, "tailbench-gke", &container.ClusterArgs{
+		cluster, err := container.NewCluster(pCtx, scopedName("tailbench-gke", p.RunID), &container.ClusterArgs{
 			Project:          pulumi.String(p.Project),
 			Location:         pulumi.String(p.Zone),
 			Network:          network.Name,
@@ -87,8 +115,10 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 				OauthScopes: pulumi.StringArray{
 					pulumi.String("https://www.googleapis.com/auth/cloud-platform"),
 				},
+				ResourceLabels: p.resourceLabels(),
 			},
 			DeletionProtection: pulumi.Bool(false),
+			ResourceLabels:     p.resourceLabels(),
 		})
 		if err != nil {
 			return err
@@ -104,8 +134,12 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	if err != nil {
 		return nil, fmt.Errorf("create cluster stack: %w", err)
 	}
-	stack.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: p.Project})
-	stack.SetConfig(ctx, "gcp:zone", auto.ConfigValue{Value: p.Zone})
+	if err := stack.SetConfig(ctx, "gcp:project", auto.ConfigValue{Value: p.Project}); err != nil {
+		return nil, fmt.Errorf("set gcp:project: %w", err)
+	}
+	if err := stack.SetConfig(ctx, "gcp:zone", auto.ConfigValue{Value: p.Zone}); err != nil {
+		return nil, fmt.Errorf("set gcp:zone: %w", err)
+	}
 
 	res, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()))
 	if err != nil {
@@ -147,6 +181,8 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 	}
 
 	return &NetworkingOutput{
+		StackName:  stackName,
+		ProviderID: clusterName,
 		Values: map[string]string{
 			"clusterName": clusterName,
 			"kubeconfig":  p.kubeconfig,
@@ -156,7 +192,7 @@ func (p *GKEProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 
 func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(strings.ReplaceAll(opts.InstanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-gke-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
 		clusterName := opts.Networking.Values["clusterName"]
@@ -173,7 +209,9 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 				},
 				Labels: pulumi.StringMap{
 					"tailbench-pool": pulumi.String(safeType),
+					"tailbench-run":  pulumi.String(runSuffix(p.RunID)),
 				},
+				ResourceLabels: p.resourceLabels(),
 			},
 		})
 		if err != nil {
@@ -194,9 +232,6 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set gcp:zone: %w", err)
 	}
 
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
-
 	if _, err = stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh()); err != nil {
 		return nil, fmt.Errorf("create node pool %s: %w", opts.InstanceType, err)
 	}
@@ -216,8 +251,8 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("create auth secret: %w", err)
 	}
 
-	serverName := fmt.Sprintf("tb-gke-server-%s", safeType)
-	clientName := fmt.Sprintf("tb-gke-client-%s", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-gke-server-%s", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-gke-client-%s", safeType), p.RunID)
 
 	benchImage := opts.BenchImage
 	if benchImage == "" {
@@ -275,55 +310,70 @@ func (p *GKEProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 
 func (p *GKEProvider) DestroyPair(ctx context.Context, instanceType string) error {
 	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-gke-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	cs, err := k8s.ClientsetFromKubeconfig(p.kubeconfig)
 	if err == nil {
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-gke-server-%s", safeType))
-		_ = k8s.DeletePod(ctx, cs, fmt.Sprintf("tb-gke-client-%s", safeType))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-gke-server-%s", safeType), p.RunID))
+		_ = k8s.DeletePod(ctx, cs, scopedName(fmt.Sprintf("tb-gke-client-%s", safeType), p.RunID))
 	}
 
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if !auto.IsSelectStack404Error(err) && err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
 	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+		if err := stack.Cancel(ctx); err != nil {
+			return fmt.Errorf("cancel stack %s: %w", stackName, err)
+		}
+		if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
+			return fmt.Errorf("destroy stack %s: %w", stackName, err)
+		}
+		if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+			return fmt.Errorf("remove stack %s: %w", stackName, err)
+		}
+		return nil
 	}
 
 	// Fallback: delete any node pools with our label via gcloud CLI
-	p.cleanupNodePools(ctx, safeType)
-	return nil
+	return p.cleanupNodePools(ctx, safeType)
 }
 
 // cleanupNodePools deletes any GKE node pools labeled with the given instance type.
-func (p *GKEProvider) cleanupNodePools(ctx context.Context, safeType string) {
+func (p *GKEProvider) cleanupNodePools(ctx context.Context, safeType string) error {
 	if p.clusterName == "" {
-		return
+		return nil
 	}
 	out, err := exec.CommandContext(ctx, "gcloud", "container", "node-pools", "list",
 		"--cluster", p.clusterName, "--project", p.Project, "--zone", p.Zone,
 		"--format=value(name)", "--filter=nodeConfig.labels.tailbench-pool="+safeType,
 	).Output()
 	if err != nil {
-		return
+		return fmt.Errorf("list fallback node pools: %w", err)
 	}
 	for _, pool := range strings.Split(strings.TrimSpace(string(out)), "\n") {
 		if pool == "" || pool == "default-pool" {
 			continue
 		}
 		log.Printf("[gke] cleanup: deleting node pool %s", pool)
-		_ = exec.CommandContext(ctx, "gcloud", "container", "node-pools", "delete", pool,
+		if output, err := exec.CommandContext(ctx, "gcloud", "container", "node-pools", "delete", pool,
 			"--cluster", p.clusterName, "--project", p.Project, "--zone", p.Zone,
 			"--quiet", "--async",
-		).Run()
+		).CombinedOutput(); err != nil {
+			return fmt.Errorf("delete fallback node pool %s: %s: %w", pool, strings.TrimSpace(string(output)), err)
+		}
 	}
+	return nil
 }
 
 func (p *GKEProvider) TeardownNetworking(ctx context.Context) error {
-	stackName := "tailbench-gke-cluster"
+	stackName := p.networkStackName()
 	program := func(_ *pulumi.Context) error { return nil }
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("select cluster stack: %w", err)
 	}

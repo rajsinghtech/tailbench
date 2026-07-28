@@ -25,11 +25,34 @@ type GCPProvider struct {
 	SSHPubKey string
 	SSHUser   string
 	StateDir  string
+	RunID     string
+	ExpiresAt string
 }
 
-var _ Provider = (*GCPProvider)(nil)
+var _ RunScopedProvider = (*GCPProvider)(nil)
 
-func (p *GCPProvider) Name() string { return "gcp" }
+func (p *GCPProvider) Name() string             { return "gcp" }
+func (p *GCPProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *GCPProvider) ManagesNetworking() bool  { return false }
+
+func (p *GCPProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(instanceType, ".", "-")
+	return scopedName("tailbench-gcp-"+safeType, p.RunID)
+}
+
+func (p *GCPProvider) resourceLabels() pulumi.StringMap {
+	labels := pulumi.StringMap{
+		"project":            pulumi.String("tailbench"),
+		"tailbench_provider": pulumi.String(p.Name()),
+	}
+	if suffix := runSuffix(p.RunID); suffix != "" {
+		labels["tailbench_run_id"] = pulumi.String(suffix)
+	}
+	if expiry := runSuffix(p.ExpiresAt); expiry != "" {
+		labels["tailbench_expires_at"] = pulumi.String(expiry)
+	}
+	return labels
+}
 
 func (p *GCPProvider) SetupNetworking(_ context.Context) (*NetworkingOutput, error) {
 	return &NetworkingOutput{Values: map[string]string{
@@ -66,11 +89,11 @@ func (p *GCPProvider) projectOpts() []auto.LocalWorkspaceOption {
 
 func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(opts.InstanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-gcp-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
-	serverName := fmt.Sprintf("tb-%s-server", safeType)
-	clientName := fmt.Sprintf("tb-%s-client", safeType)
-	routerName := fmt.Sprintf("tb-%s-router", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-%s-server", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-%s-client", safeType), p.RunID)
+	routerName := scopedName(fmt.Sprintf("tb-%s-router", safeType), p.RunID)
 	diskType, imageFamily := p.gcpInstanceProps(opts.InstanceType)
 
 	program := func(pCtx *pulumi.Context) error {
@@ -78,7 +101,8 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			// The GCP network is bring-your-own, so open the iperf3 port for the
 			// forwarding-pps sink (public IP, reached via the exit node), and the
 			// Tailscale peer-relay UDP port (relay-throughput benchmark), here.
-			if _, err := compute.NewFirewall(pCtx, fmt.Sprintf("tb-%s-pps", safeType), &compute.FirewallArgs{
+			firewallName := scopedName(fmt.Sprintf("tb-%s-pps", safeType), p.RunID)
+			if _, err := compute.NewFirewall(pCtx, firewallName, &compute.FirewallArgs{
 				Network:   pulumi.String(p.Network),
 				Direction: pulumi.String("INGRESS"),
 				Allows: compute.FirewallAllowArray{
@@ -127,9 +151,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 				Metadata: pulumi.StringMap{
 					"ssh-keys": pulumi.Sprintf("%s:%s", p.SSHUser, p.SSHPubKey),
 				},
-				Labels: pulumi.StringMap{
-					"project": pulumi.String("tailbench"),
-				},
+				Labels: p.resourceLabels(),
 			})
 			if err != nil {
 				return err
@@ -165,9 +187,6 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set gcp:region: %w", err)
 	}
 
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
-
 	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
@@ -200,16 +219,25 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 }
 
 func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) error {
-	safeType := strings.ReplaceAll(instanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-gcp-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
+	if err := stack.Cancel(ctx); err != nil {
+		return fmt.Errorf("cancel stack %s: %w", stackName, err)
+	}
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError()); err != nil {
+		return fmt.Errorf("destroy stack %s: %w", stackName, err)
+	}
+	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+		return fmt.Errorf("remove stack %s: %w", stackName, err)
 	}
 	return nil
 }
