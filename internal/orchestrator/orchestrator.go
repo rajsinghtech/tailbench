@@ -166,6 +166,17 @@ func New(cfg *config.Config, factory ProviderFactory) (*Orchestrator, error) {
 	if err := validateWorkloadConfig(cfg); err != nil {
 		return nil, err
 	}
+	// Nodes join a tailnet with an auth key, and an auth key needs a tailnet to
+	// mint it against. With neither a tailnet to create nor one to join, every
+	// instance would fail at provisioning with "auth key is empty" — after the
+	// networking stack was built. Checked here rather than at parse time so
+	// plan and doctor keep working on a config that is not ready to run.
+	if !cfg.CreateTailnet && cfg.TailnetDNSName == "" {
+		return nil, fmt.Errorf(
+			"no tailnet configured: set tailscale.create_tailnet: true to create an " +
+				"ephemeral tailnet, or tailscale.tailnet_dns_name to benchmark an " +
+				"existing one (for example example-name.ts.net)")
+	}
 	o := &Orchestrator{cfg: cfg}
 
 	for _, name := range cfg.Providers {
@@ -216,7 +227,7 @@ func (o *Orchestrator) RunWithOutcome(ctx context.Context) (outcome Outcome) {
 	var authKey string
 	var authKeyCreated time.Time
 
-	if o.cfg.CreateTailnet {
+	if o.cfg.CreateTailnet || o.cfg.TailnetDNSName != "" {
 		if o.tailnet == nil {
 			o.tailnet = &tailnet.Manager{
 				OrgClientID:     o.cfg.OAuthClientID,
@@ -225,169 +236,209 @@ func (o *Orchestrator) RunWithOutcome(ctx context.Context) (outcome Outcome) {
 			}
 		}
 
-		tailnetStateFile := filepath.Join(".tailbench", "tailnet.json")
-		if o.cfg.CleanupNetworking {
-			defer func() {
-				if o.tailnetDNS == "" ||
-					!shouldCleanup(o.cfg.CleanupPolicy, outcome.BenchmarkErr) {
-					return
-				}
-				if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaning); ok {
-					outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
-				}
-				outcome.CleanupErr = errors.Join(
-					outcome.CleanupErr,
-					o.beforeExternalStep("cleanup-tailnet", "", "delete run-owned tailnet"),
-				)
-				log.Printf("deleting tailnet %s", o.tailnetDNS)
-				delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-				defer cancel()
-				outcome.ResourcesChanged = true
-				if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
-					log.Printf("warning: tailnet deletion failed: %v", err)
-					deleteErr := fmt.Errorf("delete tailnet: %w", err)
-					outcome.CleanupErr = errors.Join(outcome.CleanupErr, deleteErr)
-					outcome.CleanupErr = errors.Join(
-						outcome.CleanupErr,
-						o.afterExternalStep("cleanup-tailnet", "", "failed", deleteErr.Error()),
-					)
-				} else {
-					if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaned); ok {
-						outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
-					}
-					outcome.CleanupErr = errors.Join(
-						outcome.CleanupErr,
-						o.afterExternalStep("cleanup-tailnet", "", "succeeded", "run-owned tailnet deleted"),
-					)
-				}
-				if o.cfg.RunID == "" {
-					removeErr := os.Remove(tailnetStateFile)
-					if removeErr != nil && !os.IsNotExist(removeErr) {
-						log.Printf("warning: remove tailnet state: %v", removeErr)
-						outcome.CleanupErr = errors.Join(
-							outcome.CleanupErr,
-							fmt.Errorf("remove tailnet state: %w", removeErr),
-						)
-					}
-				}
-			}()
-		}
-
-		// Try to reuse an existing tailnet from a previous run
-		info, err := loadTailnetState(tailnetStateFile)
-		if o.cfg.RunID != "" {
-			// Manifest-managed runs must own their tailnet. Reusing a global
-			// tailnet would make cleanup ownership ambiguous across run IDs.
-			info = nil
-			err = os.ErrNotExist
-		}
-		if err == nil {
-			log.Printf("reusing existing tailnet: %s", info.DNSName)
-			o.tailnetDNS = info.DNSName
-			o.cfg.OAuthClientID = info.OAuthClientID
-			o.cfg.OAuthClientSecret = info.OAuthClientSecret
-
-			// Always update ACL to pick up any tag/rule changes
-			log.Println("updating ACL")
+		if !o.cfg.CreateTailnet {
+			// Join an existing tailnet with the configured client. Nothing is
+			// created and nothing is deleted, so no tailnet resource is
+			// recorded and the cleanup defer below is deliberately skipped.
+			//
+			// SetupACL REPLACES the tailnet's policy file wholesale — see
+			// tailnet.buildACL. Point this only at a tailnet dedicated to
+			// benchmarking.
+			o.tailnetDNS = o.cfg.TailnetDNSName
+			log.Printf("using existing tailnet %s (its policy file will be replaced)", o.tailnetDNS)
 			outcome.ResourcesChanged = true
-			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
-				log.Printf("warning: ACL update failed: %v", err)
-				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("update ACL: %w", err))
-			}
-		} else {
-			// No cached tailnet: cfg credentials are the only ones available,
-			// so this is the first point at which they must be usable.
-			if err := validateCredentials(o.cfg); err != nil {
-				outcome.BenchmarkErr = err
-				return outcome
-			}
-
-			// Create a new tailnet
-			tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
-			tailnetResource := ResourceRecord{
-				ID:               "tailscale/tailnet",
-				Kind:             "tailnet",
-				CleanupOwner:     o.cfg.RunID,
-				Status:           runstateResourceCreating,
-				OwnershipCertain: o.cfg.RunID != "",
-			}
-			if o.cfg.RunID != "" {
-				suffix := o.cfg.RunID
-				if index := strings.LastIndex(suffix, "_"); index >= 0 {
-					suffix = suffix[index+1:]
-				}
-				tailnetName = "tailbench-" + suffix
-				if err := o.recordResources(&outcome, tailnetResource); err != nil {
-					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
-					return outcome
-				}
-				if err := o.beforeExternalStep("provision-tailnet", "", "create run-owned tailnet"); err != nil {
-					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
-					return outcome
-				}
-			}
-			log.Printf("creating tailnet %s", tailnetName)
-			outcome.ResourcesChanged = true
-			info, err = o.tailnet.CreateTailnet(ctx, tailnetName)
-			if err != nil {
-				createErr := fmt.Errorf("create tailnet: %w", err)
-				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, createErr)
-				outcome.BenchmarkErr = errors.Join(
-					outcome.BenchmarkErr,
-					o.afterExternalStep("provision-tailnet", "", "failed", createErr.Error()),
-				)
-				return outcome
-			}
-			log.Printf("tailnet created: %s", info.DNSName)
-			o.tailnetDNS = info.DNSName
-			o.cfg.OAuthClientID = info.OAuthClientID
-			o.cfg.OAuthClientSecret = info.OAuthClientSecret
-			if o.cfg.RunID != "" {
-				tailnetResource.ProviderID = info.DNSName
-				tailnetResource.Status = runstateResourceCreated
-				if err := o.recordResources(&outcome, tailnetResource); err != nil {
-					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
-					return outcome
-				}
-				if err := o.afterExternalStep("provision-tailnet", "", "succeeded", "run-owned tailnet created"); err != nil {
-					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
-					return outcome
-				}
-			}
-
-			// Save state for reuse in future runs
-			if o.cfg.RunID == "" {
-				err = saveTailnetState(tailnetStateFile, info)
-			}
-			if err != nil && o.cfg.RunID == "" {
-				log.Printf("warning: could not save tailnet state: %v", err)
-				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("save tailnet state: %w", err))
-			}
-
-			log.Println("setting up ACL")
-			outcome.ResourcesChanged = true
-			if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
+			if err := o.tailnet.SetupACL(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
 				outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("setup ACL: %w", err))
 				return outcome
 			}
-
-			if o.hasK8sProviders() {
-				log.Println("enabling HTTPS on tailnet for operator API server proxy")
-				outcome.ResourcesChanged = true
-				if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+			if o.needsTailnetHTTPS() {
+				log.Println("enabling HTTPS on tailnet (required by l7-serve and the operator proxy)")
+				if err := o.tailnet.EnableHTTPS(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret); err != nil {
 					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("enable HTTPS: %w", err))
 					return outcome
 				}
 			}
 		}
 
+		if o.cfg.CreateTailnet {
+			tailnetStateFile := filepath.Join(".tailbench", "tailnet.json")
+			if o.cfg.CleanupNetworking {
+				defer func() {
+					if o.tailnetDNS == "" ||
+						!shouldCleanup(o.cfg.CleanupPolicy, outcome.BenchmarkErr) {
+						return
+					}
+					if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaning); ok {
+						outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
+					}
+					outcome.CleanupErr = errors.Join(
+						outcome.CleanupErr,
+						o.beforeExternalStep("cleanup-tailnet", "", "delete run-owned tailnet"),
+					)
+					log.Printf("deleting tailnet %s", o.tailnetDNS)
+					delCtx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+					defer cancel()
+					outcome.ResourcesChanged = true
+					if err := o.tailnet.DeleteTailnet(delCtx, o.tailnetDNS); err != nil {
+						log.Printf("warning: tailnet deletion failed: %v", err)
+						deleteErr := fmt.Errorf("delete tailnet: %w", err)
+						outcome.CleanupErr = errors.Join(outcome.CleanupErr, deleteErr)
+						outcome.CleanupErr = errors.Join(
+							outcome.CleanupErr,
+							o.afterExternalStep("cleanup-tailnet", "", "failed", deleteErr.Error()),
+						)
+					} else {
+						if resource, ok := resourceWithStatus(&outcome, "tailscale/tailnet", runstateResourceCleaned); ok {
+							outcome.CleanupErr = errors.Join(outcome.CleanupErr, o.recordResources(&outcome, resource))
+						}
+						outcome.CleanupErr = errors.Join(
+							outcome.CleanupErr,
+							o.afterExternalStep("cleanup-tailnet", "", "succeeded", "run-owned tailnet deleted"),
+						)
+					}
+					if o.cfg.RunID == "" {
+						removeErr := os.Remove(tailnetStateFile)
+						if removeErr != nil && !os.IsNotExist(removeErr) {
+							log.Printf("warning: remove tailnet state: %v", removeErr)
+							outcome.CleanupErr = errors.Join(
+								outcome.CleanupErr,
+								fmt.Errorf("remove tailnet state: %w", removeErr),
+							)
+						}
+					}
+				}()
+			}
+
+			// Try to reuse an existing tailnet from a previous run
+			info, err := loadTailnetState(tailnetStateFile)
+			if o.cfg.RunID != "" {
+				// Manifest-managed runs must own their tailnet. Reusing a global
+				// tailnet would make cleanup ownership ambiguous across run IDs.
+				info = nil
+				err = os.ErrNotExist
+			}
+			if err == nil {
+				log.Printf("reusing existing tailnet: %s", info.DNSName)
+				o.tailnetDNS = info.DNSName
+				o.cfg.OAuthClientID = info.OAuthClientID
+				o.cfg.OAuthClientSecret = info.OAuthClientSecret
+
+				// Always update ACL to pick up any tag/rule changes
+				log.Println("updating ACL")
+				outcome.ResourcesChanged = true
+				if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
+					log.Printf("warning: ACL update failed: %v", err)
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("update ACL: %w", err))
+				}
+				// A tailnet cached by an earlier run may predate the mode list
+				// that now needs HTTPS, so re-assert it here rather than only
+				// at creation.
+				if o.needsTailnetHTTPS() {
+					log.Println("enabling HTTPS on tailnet (required by l7-serve and the operator proxy)")
+					if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("enable HTTPS: %w", err))
+						return outcome
+					}
+				}
+			} else {
+				// No cached tailnet: cfg credentials are the only ones available,
+				// so this is the first point at which they must be usable.
+				if err := validateCredentials(o.cfg); err != nil {
+					outcome.BenchmarkErr = err
+					return outcome
+				}
+
+				// Create a new tailnet
+				tailnetName := fmt.Sprintf("tailbench-%d", time.Now().Unix())
+				tailnetResource := ResourceRecord{
+					ID:               "tailscale/tailnet",
+					Kind:             "tailnet",
+					CleanupOwner:     o.cfg.RunID,
+					Status:           runstateResourceCreating,
+					OwnershipCertain: o.cfg.RunID != "",
+				}
+				if o.cfg.RunID != "" {
+					suffix := o.cfg.RunID
+					if index := strings.LastIndex(suffix, "_"); index >= 0 {
+						suffix = suffix[index+1:]
+					}
+					tailnetName = "tailbench-" + suffix
+					if err := o.recordResources(&outcome, tailnetResource); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+						return outcome
+					}
+					if err := o.beforeExternalStep("provision-tailnet", "", "create run-owned tailnet"); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+						return outcome
+					}
+				}
+				log.Printf("creating tailnet %s", tailnetName)
+				outcome.ResourcesChanged = true
+				info, err = o.tailnet.CreateTailnet(ctx, tailnetName)
+				if err != nil {
+					createErr := fmt.Errorf("create tailnet: %w", err)
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, createErr)
+					outcome.BenchmarkErr = errors.Join(
+						outcome.BenchmarkErr,
+						o.afterExternalStep("provision-tailnet", "", "failed", createErr.Error()),
+					)
+					return outcome
+				}
+				log.Printf("tailnet created: %s", info.DNSName)
+				o.tailnetDNS = info.DNSName
+				o.cfg.OAuthClientID = info.OAuthClientID
+				o.cfg.OAuthClientSecret = info.OAuthClientSecret
+				if o.cfg.RunID != "" {
+					tailnetResource.ProviderID = info.DNSName
+					tailnetResource.Status = runstateResourceCreated
+					if err := o.recordResources(&outcome, tailnetResource); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+						return outcome
+					}
+					if err := o.afterExternalStep("provision-tailnet", "", "succeeded", "run-owned tailnet created"); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, err)
+						return outcome
+					}
+				}
+
+				// Save state for reuse in future runs
+				if o.cfg.RunID == "" {
+					err = saveTailnetState(tailnetStateFile, info)
+				}
+				if err != nil && o.cfg.RunID == "" {
+					log.Printf("warning: could not save tailnet state: %v", err)
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("save tailnet state: %w", err))
+				}
+
+				log.Println("setting up ACL")
+				outcome.ResourcesChanged = true
+				if err := o.tailnet.SetupACL(ctx, info.OAuthClientID, info.OAuthClientSecret, true, o.hasK8sProviders()); err != nil {
+					outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("setup ACL: %w", err))
+					return outcome
+				}
+
+				if o.needsTailnetHTTPS() {
+					log.Println("enabling HTTPS on tailnet (required by l7-serve and the operator proxy)")
+					outcome.ResourcesChanged = true
+					if err := o.tailnet.EnableHTTPS(ctx, info.OAuthClientID, info.OAuthClientSecret); err != nil {
+						outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("enable HTTPS: %w", err))
+						return outcome
+					}
+				}
+			}
+
+		}
+
+		// Shared by both paths: whichever tailnet we ended up on, the nodes
+		// need an auth key minted with the credentials now in cfg.
 		log.Println("creating auth key")
 		outcome.ResourcesChanged = true
-		authKey, err = o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
-		if err != nil {
-			outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("create auth key: %w", err))
+		newKey, keyErr := o.tailnet.CreateAuthKey(ctx, o.cfg.OAuthClientID, o.cfg.OAuthClientSecret)
+		if keyErr != nil {
+			outcome.BenchmarkErr = errors.Join(outcome.BenchmarkErr, fmt.Errorf("create auth key: %w", keyErr))
 			return outcome
 		}
+		authKey = newKey
 		authKeyCreated = time.Now()
 
 		// Keep node state scoped to the manifest-owned run. Reusing and
@@ -606,9 +657,13 @@ func (o *Orchestrator) runProvider(
 			return outcome
 		}
 
+		// family keys the result path (per size on Azure); quotaGroup keys the
+		// quota skip and must be the group-wide selector, so a denial skips the
+		// larger sizes in the same family rather than only the one that failed.
 		family := provider.GetInstanceFamily(p.Name(), inst.Type)
-		if skippedFamilies[family] {
-			lg.Infof("skip %s (family %s quota exceeded)", inst.Type, family)
+		quotaGroup := provider.InstanceFamilyGroup(p.Name(), inst.Type)
+		if skippedFamilies[quotaGroup] {
+			lg.Infof("skip %s (family %s quota exceeded)", inst.Type, quotaGroup)
 			continue
 		}
 
@@ -738,8 +793,8 @@ func (o *Orchestrator) runProvider(
 			recordBenchmarkFailure(createErr)
 			recordBenchmarkFailure(o.afterExternalStep("provision", "", "failed", createErr.Error()))
 			if p.IsQuotaError(err) {
-				lg.Warnf("quota exceeded for %s, skipping family %s", inst.Type, family)
-				skippedFamilies[family] = true
+				lg.Warnf("quota exceeded for %s, skipping family %s", inst.Type, quotaGroup)
+				skippedFamilies[quotaGroup] = true
 			} else {
 				lg.Errf("create pair %s failed after %s: %v",
 					inst.Type, time.Since(provisionStart).Round(time.Second), err)
@@ -960,22 +1015,6 @@ func (o *Orchestrator) afterExternalStep(stage, workID, status, message string) 
 	return nil
 }
 
-func markResource(outcome *Outcome, resourceID, status string) {
-	for index := range outcome.Resources {
-		if outcome.Resources[index].ID == resourceID {
-			outcome.Resources[index].Status = status
-		}
-	}
-}
-
-func markInstanceResources(outcome *Outcome, instanceType, status string) {
-	for index := range outcome.Resources {
-		if outcome.Resources[index].InstanceType == instanceType {
-			outcome.Resources[index].Status = status
-		}
-	}
-}
-
 func resourcesForInstanceStatus(outcome *Outcome, instanceType, status string) []ResourceRecord {
 	var resources []ResourceRecord
 	for index := range outcome.Resources {
@@ -1027,10 +1066,11 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 	}()
 
 	lg.Step("ssh", "waiting for cloud-init ready")
-	if err := serverSSH.WaitForReady(ctx); err != nil {
+	readyTimeout := time.Duration(o.cfg.ReadyTimeout) * time.Second
+	if err := serverSSH.WaitForReady(ctx, readyTimeout); err != nil {
 		return fmt.Errorf("server ready: %w", err)
 	}
-	if err := clientSSH.WaitForReady(ctx); err != nil {
+	if err := clientSSH.WaitForReady(ctx, readyTimeout); err != nil {
 		return fmt.Errorf("client ready: %w", err)
 	}
 
@@ -1047,7 +1087,7 @@ func (o *Orchestrator) runBenchmark(ctx context.Context, p provider.Provider, pa
 				lg.Warnf("close router SSH: %v", err)
 			}
 		}()
-		if err := rSSH.WaitForReady(ctx); err != nil {
+		if err := rSSH.WaitForReady(ctx, readyTimeout); err != nil {
 			return fmt.Errorf("router ready: %w", err)
 		}
 		routerSSH = rSSH
@@ -1328,7 +1368,13 @@ func (o *Orchestrator) runModeLoop(ctx context.Context, runner *benchmark.Runner
 
 		switch p.Name() {
 		case "gcp", "gke":
-			br.Region = o.cfg.GCPZone[:strings.LastIndex(o.cfg.GCPZone, "-")]
+			// Guarded like the sibling derivations in cmd/tailbench/gcp.go and
+			// internal/plan. Unguarded, a zone without "-" yields LastIndex -1
+			// and panics here — after the benchmark ran, at result-write time.
+			br.Region = o.cfg.GCPZone
+			if idx := strings.LastIndex(o.cfg.GCPZone, "-"); idx > 0 {
+				br.Region = o.cfg.GCPZone[:idx]
+			}
 			br.Zone = o.cfg.GCPZone
 		case "aws", "eks":
 			br.Region = o.cfg.AWSRegion
@@ -1455,25 +1501,33 @@ func (o *Orchestrator) warmUpEndpoint(ctx context.Context, executor benchmark.Ex
 }
 
 // pendingModesForInstance returns the subset of modes that don't have result files yet.
+//
+// A mode is done when EITHER result file exists: the mode-suffixed path, or —
+// for l4-kernel only — the legacy no-suffix path written by older versions. The
+// legacy path is a fallback, not a second requirement: treating it as one made
+// l4-kernel permanently pending (no legacy file exists in any provider tree),
+// so every rerun provisioned a pair, skipped every mode in runModeLoop, and
+// destroyed it. That also contradicted the local plan, which reports the same
+// instance as fully satisfied and promises zero compute.
 func pendingModesForInstance(rootDir, providerName, family, instanceType string, modes []string, env string) []string {
+	resultsDir := filepath.Join(rootDir, providerName, family, "results")
+	exists := func(name string) bool {
+		_, err := os.Stat(filepath.Join(resultsDir, name))
+		return err == nil
+	}
+
 	var pending []string
 	for _, mode := range modes {
 		if !benchmark.ModeAppliesTo(mode, env) {
 			continue
 		}
-		// Check for mode-suffixed result file
-		resultPath := filepath.Join(rootDir, providerName, family, "results", instanceType+"-"+mode+".json")
-		if _, err := os.Stat(resultPath); err != nil {
-			pending = append(pending, mode)
+		if exists(instanceType + "-" + mode + ".json") {
 			continue
 		}
-		// Also check legacy path (no mode suffix) for l4-kernel backward compat
-		if mode == "l4-kernel" {
-			legacyPath := filepath.Join(rootDir, providerName, family, "results", instanceType+".json")
-			if _, err := os.Stat(legacyPath); err != nil {
-				pending = append(pending, mode)
-			}
+		if mode == "l4-kernel" && exists(instanceType+".json") {
+			continue
 		}
+		pending = append(pending, mode)
 	}
 	return pending
 }
@@ -1531,6 +1585,18 @@ func isK8sProvider(name string) bool {
 		return true
 	}
 	return false
+}
+
+// needsTailnetHTTPS reports whether the tailnet must have HTTPS enabled.
+//
+// K8s runs need it for the operator's API-server proxy. VM runs need it too
+// whenever an l7-serve mode is configured: cloud-init then runs
+// `tailscale serve --https=443`, which BLOCKS INDEFINITELY when HTTPS is off,
+// so the node never writes /tmp/tailbench-ready and the run stalls until its
+// deadline. Gating this on K8s alone hid the problem only because created
+// tailnets and long-lived ones tend to have HTTPS on already.
+func (o *Orchestrator) needsTailnetHTTPS() bool {
+	return o.hasK8sProviders() || hasL7ServeMode(o.cfg.Modes)
 }
 
 func (o *Orchestrator) hasK8sProviders() bool {
@@ -1594,8 +1660,9 @@ func (o *Orchestrator) listInstancesCached(ctx context.Context, p provider.Provi
 		}
 	}
 
-	// Family validity is settled earlier, by the local plan stage; an unknown
-	// name never reaches a run.
+	// An unrecognized family is not rejected here. The plan stage only warns
+	// that nothing matched the catalog; what actually stops the run is the
+	// no-runnable-work guardrail, before any provider call.
 	var families []string
 	if o.cfg.Family == "all" {
 		families = p.ListFamilies()

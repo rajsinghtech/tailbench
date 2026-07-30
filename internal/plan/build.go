@@ -152,13 +152,26 @@ func Build(ctx context.Context, request Request) (*Plan, error) {
 	if metadata.Source == "" {
 		plan.Warnings = append(plan.Warnings, "local catalog does not identify its pricing source")
 	}
+	if !cost.UpperBoundAvailable && cost.UpperBoundUnavailable != "" {
+		plan.Warnings = append(plan.Warnings, cost.UpperBoundUnavailable)
+	}
 	return plan, nil
 }
 
 func selectInstances(instances []CatalogInstance, family string, filter *regexp.Regexp) []CatalogInstance {
 	selected := make([]CatalogInstance, 0, len(instances))
 	for _, instance := range instances {
-		if family != "" && family != "all" && instance.Family != family {
+		// --family takes the group-wide selector ListFamilies offers, which on
+		// Azure is not the per-size family used for result paths. Match the
+		// group alone: accepting the per-size name too would let `--family
+		// d4sv4` pass the plan and then fail in provider discovery with
+		// "unknown azure family". Rejecting it here surfaces as no-runnable-work
+		// before anything is provisioned. Use --filter to select one size.
+		group := instance.FamilyGroup
+		if group == "" {
+			group = instance.Family
+		}
+		if family != "" && family != "all" && group != family {
 			continue
 		}
 		if filter != nil && !filter.MatchString(instance.Type) {
@@ -250,19 +263,37 @@ func costFor(
 		multiplier = 2
 	}
 	maximum := highest * float64(multiplier)
-	upperBound := 0.0
+	windowEstimate := 0.0
 	estimateWindow := ""
 	if cfg != nil && cfg.MaxDuration > 0 {
-		upperBound = maximum * cfg.MaxDuration.Hours()
+		windowEstimate = maximum * cfg.MaxDuration.Hours()
 		estimateWindow = cfg.MaxDuration.String()
 	}
+	upperBoundAvailable := cfg != nil &&
+		cfg.CleanupPolicy == config.CleanupAlways &&
+		estimateWindow != ""
+	upperBound := 0.0
+	upperBoundUnavailable := ""
+	if upperBoundAvailable {
+		upperBound = windowEstimate
+	} else if cfg != nil &&
+		(cfg.CleanupPolicy == config.CleanupOnSuccess ||
+			cfg.CleanupPolicy == config.CleanupManual) {
+		upperBoundUnavailable = fmt.Sprintf(
+			"cleanup policy %q can leave resources running after max_duration; lifetime cost has no bounded estimate and continues until cleanup succeeds",
+			cfg.CleanupPolicy,
+		)
+	}
 	return CostSummary{
-		Estimate:         maximum > 0,
-		MaximumHourlyUSD: maximum,
-		UpperBoundUSD:    upperBound,
-		EstimateWindow:   estimateWindow,
-		DataSource:       metadata.Source,
-		DataUpdated:      metadata.Updated,
+		Estimate:              maximum > 0,
+		MaximumHourlyUSD:      maximum,
+		ExecutionWindowUSD:    windowEstimate,
+		UpperBoundAvailable:   upperBoundAvailable,
+		UpperBoundUSD:         upperBound,
+		EstimateWindow:        estimateWindow,
+		UpperBoundUnavailable: upperBoundUnavailable,
+		DataSource:            metadata.Source,
+		DataUpdated:           metadata.Updated,
 		Assumptions: []string{
 			"selected compute resources use indicative on-demand Linux prices",
 			"only one benchmark topology runs concurrently",

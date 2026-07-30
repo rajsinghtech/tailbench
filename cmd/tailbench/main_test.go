@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -20,6 +21,129 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/runstate"
 )
 
+// providerFixture holds the instance selection these tests use to reach the
+// behavior under test. Every binary compiles exactly one provider, and an
+// instance type from another cloud resolves nothing out of that provider's
+// price catalog: the plan then selects zero instances and the no-runnable-work
+// guardrail refuses the run (exit 4) long before the code path a test is
+// exercising. Each instanceType below must exist in internal/pricing/data.json
+// under the provider's default region.
+type providerFixture struct {
+	// family is the group-wide --family selector. plan.selectInstances matches
+	// CatalogInstance.FamilyGroup, which on Azure is the SKU family (dsv4) and
+	// not the per-size family used for result paths (d2sv4).
+	family string
+	// instanceType is the single type the filter resolves to.
+	instanceType string
+	// filter is a --filter regex matching instanceType exactly.
+	filter string
+	// resumeFilter is the filter resume rebuilds from one unfinished type.
+	resumeFilter string
+	// stackType is instanceType in Pulumi stack-name form.
+	stackType string
+	// regionYAML is the provider's region/zone config block.
+	regionYAML string
+}
+
+func fixture() providerFixture {
+	switch compiledProviderName {
+	case "aws", "eks":
+		return providerFixture{
+			family:       "c7i",
+			instanceType: "c7i.large",
+			filter:       `^c7i\.large$`,
+			resumeFilter: `^(?:c7i\.large)$`,
+			stackType:    "c7i-large",
+			regionYAML:   "aws:\n  region: us-west-2\n  az: us-west-2a\n",
+		}
+	case "azure", "aks":
+		return providerFixture{
+			family:       "dsv4",
+			instanceType: "Standard_D2s_v4",
+			filter:       `^Standard_D2s_v4$`,
+			resumeFilter: `^(?:Standard_D2s_v4)$`,
+			stackType:    "standard-d2s-v4",
+			regionYAML:   "azure:\n  location: eastus\n",
+		}
+	case "gcp", "gke":
+		return providerFixture{
+			family:       "c3",
+			instanceType: "c3-standard-4",
+			filter:       `^c3-standard-4$`,
+			resumeFilter: `^(?:c3-standard-4)$`,
+			stackType:    "c3-standard-4",
+			regionYAML:   "gcp:\n  zone: us-central1-a\n",
+		}
+	default:
+		panic("no instance fixture for compiled provider " + compiledProviderName)
+	}
+}
+
+func testFamily() string { return fixture().family }
+
+func testInstanceType() string { return fixture().instanceType }
+
+func testFilter() string { return fixture().filter }
+
+func testRegionYAML() string { return fixture().regionYAML }
+
+// testResourceID builds an opaque manifest resource ID in the same
+// provider/type/role shape the runtime records.
+func testResourceID(role string) string {
+	return compiledProviderName + "/" + testInstanceType() + "/" + role
+}
+
+func TestManifestHasUncleanTailnet(t *testing.T) {
+	for _, tc := range []struct {
+		name      string
+		resources []runstate.Resource
+		want      bool
+	}{
+		{name: "existing tailnet run has no owned tailnet"},
+		{
+			name: "provider resources only",
+			resources: []runstate.Resource{
+				{Kind: "vm-pair", Status: runstate.ResourceCreated},
+			},
+		},
+		{
+			name: "run-owned tailnet still needs cleanup",
+			resources: []runstate.Resource{
+				{Kind: "tailnet", Status: runstate.ResourceCreated},
+			},
+			want: true,
+		},
+		{
+			name: "already cleaned tailnet needs no credentials",
+			resources: []runstate.Resource{
+				{Kind: "tailnet", Status: runstate.ResourceCleaned},
+			},
+		},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got := manifestHasUncleanTailnet(&runstate.Manifest{
+				Resources: tc.resources,
+			})
+			if got != tc.want {
+				t.Fatalf("manifestHasUncleanTailnet() = %t, want %t", got, tc.want)
+			}
+		})
+	}
+}
+
+func TestCleanupWithoutOwnedTailnetDoesNotRequireTailscaleCredentials(t *testing.T) {
+	cfg := &config.Config{}
+	if missing := missingCleanupPrerequisites(cfg, false); len(missing) != 0 {
+		t.Fatalf("provider-only cleanup prerequisites = %v, want none", missing)
+	}
+	if missing := missingCleanupPrerequisites(cfg, true); !reflect.DeepEqual(
+		missing,
+		[]string{"OAUTH_CLIENT_ID", "OAUTH_CLIENT_SECRET"},
+	) {
+		t.Fatalf("tailnet cleanup prerequisites = %v", missing)
+	}
+}
+
 type fakeManagedRuntime struct {
 	run      func(context.Context) lifecycle.ExecutionResult
 	recorder *lifecycle.Recorder
@@ -27,7 +151,7 @@ type fakeManagedRuntime struct {
 
 func testCommandDependencies(stdin io.Reader) commandDependencies {
 	dependencies := defaultCommandDependencies(stdin)
-	dependencies.remotePreflight = func(context.Context, *config.Config) *preflight.Report {
+	dependencies.remotePreflight = func(context.Context, *config.Config, bool) *preflight.Report {
 		return &preflight.Report{
 			SchemaVersion: preflight.SchemaVersion,
 			Provider:      compiledProviderName,
@@ -221,15 +345,15 @@ func TestRunMissingSecretsFailsPreflightWithoutCreatingState(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	configPath := filepath.Join(dir, "config.yaml")
-	data := []byte(`tailscale:
+	data := []byte(fmt.Sprintf(`tailscale:
   create_tailnet: true
   oauth_client_id: ${TAILBENCH_TEST_MISSING_ID}
   oauth_client_secret: ${TAILBENCH_TEST_MISSING_SECRET}
-family: c7i
-filter: '^c7i\.large$'
+family: %s
+filter: '%s'
 benchmark:
   modes: [l4-kernel]
-`)
+`, testFamily(), testFilter()))
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -270,16 +394,16 @@ func TestRunMissingEnvironmentFileFailsPreflightWithoutCreatingState(t *testing.
 	dir := t.TempDir()
 	t.Chdir(dir)
 	configPath := filepath.Join(dir, "config.yaml")
-	data := []byte(`env_file: missing.env
+	data := []byte(fmt.Sprintf(`env_file: missing.env
 tailscale:
   create_tailnet: true
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
-family: c7i
-filter: '^c7i\.large$'
+family: %s
+filter: '%s'
 benchmark:
   modes: [l4-kernel]
-`)
+`, testFamily(), testFilter()))
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -325,8 +449,8 @@ func TestRunPlanAndDryRunAliasAreLocalAndSideEffectFree(t *testing.T) {
 				return []string{
 					"plan",
 					"--config", configPath,
-					"--family", "c7i",
-					"--filter", `^c7i\.large$`,
+					"--family", testFamily(),
+					"--filter", testFilter(),
 				}
 			},
 		},
@@ -335,8 +459,8 @@ func TestRunPlanAndDryRunAliasAreLocalAndSideEffectFree(t *testing.T) {
 			args: func(configPath string) []string {
 				return []string{
 					"--config", configPath,
-					"--family", "c7i",
-					"--filter", `^c7i\.large$`,
+					"--family", testFamily(),
+					"--filter", testFilter(),
 					"--dry-run",
 				}
 			},
@@ -346,16 +470,13 @@ func TestRunPlanAndDryRunAliasAreLocalAndSideEffectFree(t *testing.T) {
 			dir := t.TempDir()
 			t.Chdir(dir)
 			configPath := filepath.Join(dir, "config.yaml")
-			data := []byte(`env_file: missing.env
+			data := []byte(fmt.Sprintf(`env_file: missing.env
 tailscale:
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
 benchmark:
   modes: [l4-kernel, l4-lb, forward-pps-exit]
-aws:
-  region: us-west-2
-  az: us-west-2a
-`)
+%s`, testRegionYAML()))
 			if err := os.WriteFile(configPath, data, 0o600); err != nil {
 				t.Fatal(err)
 			}
@@ -378,7 +499,7 @@ aws:
 				"TAILBENCH LOCAL PLAN",
 				"SIDE EFFECTS: none",
 				"provider: " + compiledProviderName,
-				"c7i.large",
+				testInstanceType(),
 			}
 			if workloadForProvider(compiledProviderName) == "kubernetes" {
 				wants = append(wants, "l4-lb: run", "forward-pps-exit: not-applicable")
@@ -403,19 +524,16 @@ func TestRunYAMLDryRunAliasesLocalPlanWithoutLoadingSecrets(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	configPath := filepath.Join(dir, "config.yaml")
-	data := []byte(`env_file: missing.env
+	data := []byte(fmt.Sprintf(`env_file: missing.env
 dry_run: true
-family: c7i
-filter: '^c7i\.large$'
+family: %s
+filter: '%s'
 tailscale:
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
 benchmark:
   modes: [l4-kernel]
-aws:
-  region: us-west-2
-  az: us-west-2a
-`)
+%s`, testFamily(), testFilter(), testRegionYAML()))
 	if err := os.WriteFile(configPath, data, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -436,7 +554,7 @@ aws:
 		for _, want := range []string{
 			"TAILBENCH LOCAL PLAN",
 			"SIDE EFFECTS: none",
-			"c7i.large",
+			testInstanceType(),
 		} {
 			if !strings.Contains(stdout.String(), want) {
 				t.Fatalf("args %v: stdout = %q, want %q", args, stdout.String(), want)
@@ -454,12 +572,12 @@ func TestRunYesRequiresExplicitCostCeilingBeforeSecretLoading(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	configPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(`env_file: missing.env
-family: c7i
-filter: '^c7i\.large$'
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`env_file: missing.env
+family: %s
+filter: '%s'
 benchmark:
   modes: [l4-kernel]
-`), 0o600); err != nil {
+`, testFamily(), testFilter())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -499,14 +617,14 @@ func TestRunInteractiveDeclinePrintsBoundedSummaryAndCreatesNoState(t *testing.T
 	dir := t.TempDir()
 	t.Chdir(dir)
 	configPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(`family: c7i
-filter: '^c7i\.large$'
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`family: %s
+filter: '%s'
 tailscale:
   oauth_client_id: test-client-id
   oauth_client_secret: test-client-secret
 benchmark:
   modes: [l4-kernel]
-`), 0o600); err != nil {
+`, testFamily(), testFilter())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 
@@ -551,7 +669,7 @@ func TestRunRemotePreflightFailureStopsBeforeConfirmationRuntimeAndState(t *test
 	t.Chdir(dir)
 	configPath := writeApprovedRunConfig(t, dir)
 	dependencies := testCommandDependencies(strings.NewReader("yes\n"))
-	dependencies.remotePreflight = func(context.Context, *config.Config) *preflight.Report {
+	dependencies.remotePreflight = func(context.Context, *config.Config, bool) *preflight.Report {
 		return &preflight.Report{
 			SchemaVersion: 1,
 			Provider:      compiledProviderName,
@@ -622,7 +740,7 @@ func TestApprovedRunPersistsRecoveryStateBeforeRuntimeAndReturnsRunID(t *testing
 				t.Fatal("managed runtime did not receive the durable run recorder")
 			}
 			if err := runtime.recorder.RecordResources(runstate.Resource{
-				ID:               "aws/c7i.large/topology",
+				ID:               testResourceID("topology"),
 				Kind:             "vm-pair",
 				CleanupOwner:     runID,
 				Status:           runstate.ResourceCreated,
@@ -637,9 +755,9 @@ func TestApprovedRunPersistsRecoveryStateBeforeRuntimeAndReturnsRunID(t *testing
 			}
 			sawPersistedRunningManifest = manifest.Status == runstate.RunRunning &&
 				len(manifest.Resources) == 1 &&
-				manifest.Resources[0].ID == "aws/c7i.large/topology"
+				manifest.Resources[0].ID == testResourceID("topology")
 			if err := runtime.recorder.RecordResources(runstate.Resource{
-				ID:               "aws/c7i.large/topology",
+				ID:               testResourceID("topology"),
 				Kind:             "vm-pair",
 				CleanupOwner:     runID,
 				Status:           runstate.ResourceCleaned,
@@ -699,7 +817,7 @@ func TestApprovedRunPersistsRecoveryStateBeforeRuntimeAndReturnsRunID(t *testing
 		t.Fatalf("manifest cloud identity = %#v", manifest.Identity)
 	}
 	if len(manifest.Resources) != 1 ||
-		manifest.Resources[0].ID != "aws/c7i.large/topology" ||
+		manifest.Resources[0].ID != testResourceID("topology") ||
 		manifest.Resources[0].Status != runstate.ResourceCleaned {
 		t.Fatalf("manifest resources = %#v", manifest.Resources)
 	}
@@ -720,7 +838,7 @@ func TestApprovedRunPersistsRecoveryStateBeforeRuntimeAndReturnsRunID(t *testing
 	if err != nil {
 		t.Fatalf("effective config is not recoverable: %v", err)
 	}
-	if restored.Filter != `^c7i\.large$` || restored.MaxCostUSD != 10 {
+	if restored.Filter != testFilter() || restored.MaxCostUSD != 10 {
 		t.Fatalf("restored effective config = %#v", restored)
 	}
 }
@@ -859,8 +977,8 @@ func TestResumeContinuesUnfinishedWorkInSameRun(t *testing.T) {
 	if resumedConfig == nil {
 		t.Fatal("resume runtime was not constructed")
 	}
-	if resumedConfig.Filter != `^(?:c7i\.large)$` {
-		t.Fatalf("resume filter = %q, want only unfinished c7i.large", resumedConfig.Filter)
+	if resumedConfig.Filter != fixture().resumeFilter {
+		t.Fatalf("resume filter = %q, want only unfinished %s", resumedConfig.Filter, testInstanceType())
 	}
 	if !reflect.DeepEqual(resumedConfig.Modes, []string{"l4-kernel"}) {
 		t.Fatalf("resume modes = %v, want unfinished l4-kernel", resumedConfig.Modes)
@@ -928,7 +1046,7 @@ func TestRecoveryRemotePreflightFailureDoesNotMutateNamedRun(t *testing.T) {
 				t.Fatal(err)
 			}
 
-			dependencies.remotePreflight = func(context.Context, *config.Config) *preflight.Report {
+			dependencies.remotePreflight = func(context.Context, *config.Config, bool) *preflight.Report {
 				return &preflight.Report{
 					SchemaVersion: preflight.SchemaVersion,
 					Provider:      compiledProviderName,
@@ -1005,7 +1123,7 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 	t.Chdir(dir)
 	configPath := writeApprovedRunConfig(t, dir)
 	runID := "tb_2026-07-24_aabbcc"
-	stackName := "tailbench-" + compiledProviderName + "-c7i-large-aabbcc"
+	stackName := "tailbench-" + compiledProviderName + "-" + fixture().stackType + "-aabbcc"
 	dependencies := testCommandDependencies(strings.NewReader(""))
 	dependencies.newRunID = func() (string, error) { return runID, nil }
 	dependencies.newRuntime = func(_ *config.Config, _ io.Writer) (app.Runtime, error) {
@@ -1016,7 +1134,7 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 				ResourcesChanged: true,
 				Resources: []runstate.Resource{
 					{
-						ID:               "aws/c7i.large/pair",
+						ID:               testResourceID("pair"),
 						Kind:             "vm-pair",
 						StackName:        stackName,
 						Status:           runstate.ResourceCreated,
@@ -1042,6 +1160,24 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 		dependencies,
 	); code != 1 {
 		t.Fatalf("initial exit code = %d, want 1; stderr=%q", code, initialErr.String())
+	}
+	if err := os.Remove(configPath); err != nil {
+		t.Fatal(err)
+	}
+	var cleanupTailscalePreflight *bool
+	dependencies.remotePreflight = func(
+		_ context.Context,
+		_ *config.Config,
+		checkTailscale bool,
+	) *preflight.Report {
+		cleanupTailscalePreflight = &checkTailscale
+		return &preflight.Report{
+			SchemaVersion: preflight.SchemaVersion,
+			Provider:      compiledProviderName,
+			Workload:      workloadForProvider(compiledProviderName),
+			Remote:        true,
+			Ready:         true,
+		}
 	}
 	ownedLock := filepath.Join(
 		dir,
@@ -1083,8 +1219,8 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 		_ io.Writer,
 	) lifecycle.ExecutionResult {
 		cleanupCalled = true
-		if cfg.OAuthClientID != "test-client-id" || cfg.OAuthClientSecret != "test-client-secret" {
-			t.Fatalf("cleanup did not resolve current credentials")
+		if cfg.OAuthClientID != "" || cfg.OAuthClientSecret != "" {
+			t.Fatalf("provider-only cleanup unexpectedly loaded Tailscale credentials")
 		}
 		if manifest.RunID != runID ||
 			len(resources) != 1 ||
@@ -1142,6 +1278,12 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 	if !cleanupCalled {
 		t.Fatal("cleanup adapter was not called")
 	}
+	if cleanupTailscalePreflight == nil || *cleanupTailscalePreflight {
+		t.Fatalf(
+			"cleanup Tailscale preflight = %v, want skipped for provider-only manifest",
+			cleanupTailscalePreflight,
+		)
+	}
 	if _, err := os.Stat(ownedLock); !os.IsNotExist(err) {
 		t.Fatalf("owned Pulumi lock still exists: %v", err)
 	}
@@ -1180,14 +1322,14 @@ func TestCleanupUsesNamedRunResourcesAndMarksSameRunCleaned(t *testing.T) {
 func writeApprovedRunConfig(t *testing.T, dir string) string {
 	t.Helper()
 	configPath := filepath.Join(dir, "config.yaml")
-	if err := os.WriteFile(configPath, []byte(`family: c7i
-filter: '^c7i\.large$'
+	if err := os.WriteFile(configPath, []byte(fmt.Sprintf(`family: %s
+filter: '%s'
 tailscale:
   oauth_client_id: test-client-id
   oauth_client_secret: test-client-secret
 benchmark:
   modes: [l4-kernel]
-`), 0o600); err != nil {
+`, testFamily(), testFilter())), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	return configPath
@@ -1199,7 +1341,7 @@ func TestRunPlanJSONUsesPrimaryStdout(t *testing.T) {
 	configPath := filepath.Join(dir, "config.yaml")
 	if err := os.WriteFile(
 		configPath,
-		[]byte("family: c7i\nbenchmark:\n  modes: [l4-kernel]\n"),
+		[]byte(fmt.Sprintf("family: %s\nbenchmark:\n  modes: [l4-kernel]\n", testFamily())),
 		0o600,
 	); err != nil {
 		t.Fatal(err)
@@ -1211,7 +1353,7 @@ func TestRunPlanJSONUsesPrimaryStdout(t *testing.T) {
 		[]string{
 			"plan",
 			"--config", configPath,
-			"--filter", `^c7i\.large$`,
+			"--filter", testFilter(),
 			"--output", "json",
 		},
 		&stdout,
@@ -1240,8 +1382,8 @@ func TestRunPlanJSONUsesPrimaryStdout(t *testing.T) {
 		report.Provider != compiledProviderName {
 		t.Fatalf("report identity = %#v", report)
 	}
-	if len(report.Instances) != 1 || report.Instances[0].Type != "c7i.large" {
-		t.Fatalf("report instances = %#v, want c7i.large", report.Instances)
+	if len(report.Instances) != 1 || report.Instances[0].Type != testInstanceType() {
+		t.Fatalf("report instances = %#v, want %s", report.Instances, testInstanceType())
 	}
 }
 

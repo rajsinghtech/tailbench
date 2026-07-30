@@ -187,8 +187,11 @@ binary and the other clouds' Pulumi SDKs are never linked:
   `PairOutput.Namespace != ""` is how the orchestrator detects a K8s pair and routes
   to `runK8sBenchmark`.
 
-`families.go` maps instance types → families and is the source of truth for
-`GetInstanceFamily`.
+`families.go` maps instance types → families and holds **two** derivations that are
+easy to confuse: `GetInstanceFamily` is the *result-path* family (per size on Azure:
+`Standard_D4s_v4` → `d4sv4`) and `InstanceFamilyGroup` is the *selector and quota*
+group (`dsv4`). `--family`, `ListFamilies`, and the quota-skip key use the group; the
+result path uses the per-size value. Adding a third caller means picking one deliberately.
 
 Two Pulumi stack lifecycles: **networking** stacks are long-lived (per provider,
 created once, no-op on subsequent runs); **VM-pair** stacks are ephemeral (per instance
@@ -217,6 +220,43 @@ not a directory, despite the name.
 Validation is front-loaded: `config.normalizeStateBackend` rejects unusable values at
 parse time, and `provider.CheckBackendCredentials` fails at startup when Pulumi Cloud is
 selected without `PULUMI_ACCESS_TOKEN` or `~/.pulumi/credentials.json`.
+
+### Tailnet identity and credentials
+
+**Two OAuth identities, and conflating them is the recurring bug.** The client from
+config reaches `tailnet.Manager.OrgClientID/OrgClientSecret` and is used *only* by
+`getOrgToken` → `CreateTailnet` / `DeleteTailnet` (`internal/tailnet/tailnet.go:29`,
+`:63`, `:107`). `CreateTailnet` returns a **per-tailnet** OAuth client, which the
+orchestrator writes back over `cfg.OAuthClientID/Secret`
+(`internal/orchestrator/orchestrator.go:323`, `:389`); `SetupACL`, `EnableHTTPS`,
+`CreateAuthKey`, and `CleanupStaleDevices` all run with that one. Tailnet creation needs
+an organization-level permission that is **not** a published Tailscale scope — a
+tailnet-scoped client with scope `all` still gets `403 actor does not have permission to
+create tailnets` — so the deployment choice is an org-level client, or
+`create_tailnet: false` + `tailscale.tailnet_dns_name`.
+
+**Three tailnet paths converge on one auth-key step.** Anything tailnet-wide has to be
+asserted on all three, or it silently applies to some runs only:
+
+1. **Join** (`orchestrator.go:239`) — `create_tailnet: false` + `tailnet_dns_name`.
+   No create, no delete, no `ResourceRecord`, and the cleanup defer is deliberately
+   skipped. Before `tailnet_dns_name` existed, `create_tailnet: false` had nothing to
+   join and every instance failed with "auth key is empty".
+2. **Reuse** (`orchestrator.go:312`) — a cached `.tailbench/tailnet.json`. Manifest
+   runs (`RunID != ""`) never reuse; cleanup ownership would be ambiguous.
+3. **Create** (`orchestrator.go:342`) — the ephemeral tailnet.
+
+`New()` refuses a config with neither setting (`orchestrator.go:174`) rather than letting
+the failure land after the networking stack is already built.
+
+`SetupACL` **replaces the whole policy file** (`internal/tailnet/tailnet.go:150`,
+`buildACL` at `:160`) — on the join path exactly as on the create path. Never suggest
+pointing tailbench at a shared tailnet.
+
+`needsTailnetHTTPS() = hasK8sProviders() || hasL7ServeMode(modes)`
+(`orchestrator.go:1614`). It is deliberately not K8s-only: cloud-init's
+`tailscale serve --https=443` blocks forever when the tailnet has HTTPS disabled, so a VM
+run with `l7-serve-*` hangs until `ssh.ready_timeout` fires.
 
 ### Benchmark modes
 
@@ -252,6 +292,12 @@ DNS inside bench pods.
   iperf3, mtr, fortio and applies Tailscale performance tuning (UDP GRO, BBR, CPU
   governor). Rendered per-VM in the orchestrator.
 - `internal/sshclient` — SSH over the tsnet interface, with retry and wait-for-ready.
+  `WaitForReady` takes its own bound from `ssh.ready_timeout` (default 300s,
+  `internal/config/config.go:446`) instead of inheriting only the whole-run deadline, and
+  its timeout error names the recipe — key under `.tailbench/ssh/`, then
+  `cloud-init status --long` and `/var/log/cloud-init-output.log`
+  (`internal/sshclient/sshclient.go:92`). Keep both properties: an unbounded wait turns a
+  cloud-init hang into the most expensive and least informative failure the tool can have.
 - `internal/benchmark` — parsers (`iperf.go`, `mtr.go`, `fortio.go`), the `Executor`
   interface (SSH or kubectl-exec), and `Runner` orchestrating a single benchmark.
 - `internal/result` — `types.go` (the `BenchmarkResult` JSON schema), `writer.go`
@@ -303,6 +349,15 @@ running it; do not invoke the tagged Tailbench entry point as a shortcut.
 - **Hostnames** are derived, not arbitrary: `tb-<provider>-<s|c>-<safeType>-<suffix>`
   (`safeHostname` lowercases and replaces `.`/`_` with `-`). Device cleanup matches the
   `tb-<provider>-` prefix — keep the scheme if you rename.
+- **Generated SSH keys are reused, never regenerated.** When no public key is configured,
+  `provider.ResolveSSHPublicKey` / `EnsureSSHKey` (`internal/provider/sshkey.go:35`) mint an
+  ed25519 pair once into `.tailbench/ssh/<scopedName>.pem` (0600) and reuse it forever after;
+  regenerating would change the public key, make Pulumi replace the key-pair resource, and
+  invalidate a private key an operator already saved. Providers with no key-pair resource
+  (GCP, Azure) resolve in **both** `SetupNetworking` and `CreatePair`, because `resume` can
+  reach `CreatePair` without a preceding `SetupNetworking` in the same process. The key
+  exists only for the case where cloud-init dies before `tailscale up` — benchmarks
+  themselves use Tailscale SSH.
 - **New provider**: implement the `Provider` interface in a build-tagged
   `internal/provider/<cloud>.go`, add the matching tagged `cmd/tailbench/<cloud>.go`
   defining `compiledProviderName` and `newCompiledProvider`, register families in
@@ -320,3 +375,23 @@ running it; do not invoke the tagged Tailbench entry point as a shortcut.
   test — its type/vCPUs/price land on the result. v1 uses the same instance type for all three
   nodes; `PPSResult.LimitingResource` flags when the offered-rate ceiling (not the node) capped
   the measurement.
+
+## The Recurring Defect Class Here
+
+Most bugs found in this codebase have one shape: **the check that exists verifies a
+weaker property than the operation needs.** When adding or reviewing a guard, ask what
+the guarded operation actually requires, not what is cheap to assert:
+
+- `doctor --remote` ran `pulumi whoami` and `aws sts get-caller-identity`
+  (`internal/preflight/remote.go:47`, `:102`) — credential *presence and identity*. The
+  run needs *capability*: permission to create tailnets, to run instances. A green doctor
+  still preceded a `403`.
+- The local plan reported `compute=0` for an instance whose results all existed, while
+  `pendingModesForInstance` disagreed and a pair was provisioned anyway
+  (`internal/orchestrator/orchestrator.go:1528`). Two answers to "is there work here".
+- `validateWorkloadConfig` was `return nil` in `k8s_enabled.go` while `guardrail.Check`
+  refused the same mode list with `incompatible-mode`. The lenient layer is the one
+  `resume` goes through.
+- Family derivation lived in three places with two meanings — result path (per size on
+  Azure) versus quota/selector group — so the quota skip keyed on the wrong one skipped a
+  single size instead of the family (`internal/provider/families.go:6`, `:47`).

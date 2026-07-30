@@ -1,0 +1,30 @@
+# Copy to Makefile.local (gitignored) and edit. Included automatically.
+#
+# Everything here is per-operator: which Pulumi ESC environments hold your
+# credentials, and which configuration file names your tailnet. None of it is
+# portable to anyone else, which is why it does not belong in the repository.
+#
+# Use plain `=` rather than `?=`: Makefile.local is included before the defaults,
+# so a plain assignment wins.
+
+# Configuration file for the aws targets. Keep a personal tailnet name, state
+# backend, or region out of the tracked config.yaml by pointing at a copy.
+CONFIG = config.local.yaml
+
+# Credential source. Leave unset to run the binaries directly with credentials
+# already in your environment (what CI does).
+#
+# One environment supplies everything: it should `imports:` both a cloud-login
+# environment and one holding the Tailscale OAuth client. Targets invoke it as
+# `pulumi env run $(ESC_ENV) -- <binary> ...`.
+#
+# If that returns AccessDenied on sts:AssumeRoleWithWebIdentity, the cloud role's
+# trust policy does not admit this environment. ESC mints the OIDC token for the
+# environment you OPEN, so a composed environment presents its OWN subject — the
+# trust policy has to match it, typically with a wildcard over the ESC project.
+ESC_ENV = your-project/your-launch-env
+
+# Optional: defaults for the benchmark targets.
+# FILTER = ^c6in\.large$$
+# MAX_COST = 5
+# MAX_TYPES = 1

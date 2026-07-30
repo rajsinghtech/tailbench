@@ -102,7 +102,10 @@ func TestBuildLocalPlanHonorsSelectorsModesResumeAndTopology(t *testing.T) {
 	if got.Cost.MaximumHourlyUSD <= 0 {
 		t.Fatalf("maximum hourly cost = %f, want positive estimate", got.Cost.MaximumHourlyUSD)
 	}
-	if got.Cost.UpperBoundUSD <= 0 || got.Cost.EstimateWindow != "45m0s" {
+	if !got.Cost.UpperBoundAvailable ||
+		got.Cost.UpperBoundUSD <= 0 ||
+		got.Cost.ExecutionWindowUSD != got.Cost.UpperBoundUSD ||
+		got.Cost.EstimateWindow != "45m0s" {
 		t.Fatalf("bounded cost = %#v, want positive 45m upper bound", got.Cost)
 	}
 	if got.Guardrails.MaxCostUSD != 10 ||
@@ -112,6 +115,49 @@ func TestBuildLocalPlanHonorsSelectorsModesResumeAndTopology(t *testing.T) {
 	}
 	if strings.Contains(got.RedactedConfiguration, "secret") {
 		t.Fatalf("redacted config leaked a secret: %q", got.RedactedConfiguration)
+	}
+}
+
+func TestBuildDoesNotClaimLifetimeCostBoundWhenCleanupCanRetainResources(t *testing.T) {
+	t.Parallel()
+
+	for _, cleanupPolicy := range []string{
+		config.CleanupOnSuccess,
+		config.CleanupManual,
+	} {
+		t.Run(cleanupPolicy, func(t *testing.T) {
+			got, err := Build(context.Background(), Request{
+				CompiledProvider: "aws",
+				Config: &config.Config{
+					Providers:        []string{"aws"},
+					Family:           "c7i",
+					Modes:            []string{"l4-kernel"},
+					MaxDuration:      45 * time.Minute,
+					CleanupPolicy:    cleanupPolicy,
+					AWSRegion:        "us-west-2",
+					MaxCostUSD:       10,
+					MaxInstanceTypes: 1,
+				},
+				Catalog: fakeCatalog{
+					instances: []CatalogInstance{
+						{Type: "c7i.large", Family: "c7i", HourlyUSD: 0.10},
+					},
+				},
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got.Cost.UpperBoundAvailable || got.Cost.UpperBoundUSD != 0 {
+				t.Fatalf("cost = %#v, want no lifetime upper bound", got.Cost)
+			}
+			if got.Cost.ExecutionWindowUSD <= 0 ||
+				got.Cost.EstimateWindow != "45m0s" {
+				t.Fatalf("cost = %#v, want a duration-window estimate", got.Cost)
+			}
+			if !strings.Contains(got.Cost.UpperBoundUnavailable, "continues until cleanup succeeds") {
+				t.Fatalf("unbounded reason = %q", got.Cost.UpperBoundUnavailable)
+			}
+		})
 	}
 }
 
@@ -256,6 +302,58 @@ func TestBuildAndRenderPlanAreSideEffectFreeAndSerializable(t *testing.T) {
 	for _, forbidden := range []string{".tailbench", "state"} {
 		if _, err := os.Stat(filepath.Join(root, forbidden)); !os.IsNotExist(err) {
 			t.Fatalf("plan created %s: %v", forbidden, err)
+		}
+	}
+}
+
+// --family takes the group-wide selector ListFamilies offers. On Azure that is
+// not the per-size family used for result paths, so an exact match against
+// Family alone selected nothing and the guardrails refused the run as
+// "no-runnable-work".
+func TestFamilySelectorAcceptsGroupWideValue(t *testing.T) {
+	instances := []CatalogInstance{
+		{Type: "Standard_D2s_v4", Family: "d2sv4", FamilyGroup: "dsv4", VCPUs: 2},
+		{Type: "Standard_D4s_v4", Family: "d4sv4", FamilyGroup: "dsv4", VCPUs: 4},
+		{Type: "Standard_F16s_v2", Family: "f16sv2", FamilyGroup: "fsv2", VCPUs: 16},
+	}
+
+	selected := selectInstances(instances, "dsv4", nil)
+	if len(selected) != 2 {
+		t.Fatalf("--family dsv4 selected %d instances, want 2: %+v", len(selected), selected)
+	}
+	for _, instance := range selected {
+		if instance.FamilyGroup != "dsv4" {
+			t.Fatalf("selected %q with group %q, want group dsv4", instance.Type, instance.FamilyGroup)
+		}
+	}
+
+	// A per-size Azure family name is NOT a valid --family selector: provider
+	// discovery rejects it with "unknown azure family". Matching nothing here
+	// turns that into an early no-runnable-work refusal instead of a failure
+	// after provisioning has begun. --filter selects a single size.
+	if narrow := selectInstances(instances, "d4sv4", nil); len(narrow) != 0 {
+		t.Fatalf("--family d4sv4 = %+v, want no matches (use --filter for one size)", narrow)
+	}
+}
+
+// The catalog must derive both values from internal/provider so the plan and the
+// orchestrator cannot disagree about which family an instance belongs to.
+func TestCatalogPopulatesBothFamilyValues(t *testing.T) {
+	instances, _, err := PricingCatalog{}.Instances("azure", "eastus")
+	if err != nil {
+		t.Fatalf("catalog: %v", err)
+	}
+	if len(instances) == 0 {
+		t.Skip("no azure entries in the checked-in catalog")
+	}
+	for _, instance := range instances {
+		if instance.Family == "" || instance.FamilyGroup == "" {
+			t.Fatalf("%q has Family=%q FamilyGroup=%q; both are required",
+				instance.Type, instance.Family, instance.FamilyGroup)
+		}
+		if instance.Family == instance.FamilyGroup {
+			t.Fatalf("%q: Azure family %q must differ from group %q",
+				instance.Type, instance.Family, instance.FamilyGroup)
 		}
 	}
 }

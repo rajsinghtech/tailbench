@@ -616,6 +616,71 @@ func TestInstanceCachePathIsKeyedOnFamily(t *testing.T) {
 	assert.Equal(t, instanceCachePath("aws", "all"), instanceCachePath("aws", ""))
 }
 
+// The legacy no-suffix result path is an alternative to the mode-suffixed one,
+// not an additional requirement. Requiring both made l4-kernel permanently
+// pending, because no legacy file exists in any provider tree.
+func TestPendingModesAcceptsEitherResultPath(t *testing.T) {
+	const (
+		provider     = "aws"
+		family       = "c7i"
+		instanceType = "c7i.large"
+	)
+
+	for name, tc := range map[string]struct {
+		modern, legacy bool
+		mode           string
+		wantPending    bool
+	}{
+		"l4-kernel, neither file":    {mode: "l4-kernel", wantPending: true},
+		"l4-kernel, modern only":     {modern: true, mode: "l4-kernel"},
+		"l4-kernel, legacy only":     {legacy: true, mode: "l4-kernel"},
+		"l4-kernel, both":            {modern: true, legacy: true, mode: "l4-kernel"},
+		"other mode, neither file":   {mode: "l7-serve-h1", wantPending: true},
+		"other mode, modern only":    {modern: true, mode: "l7-serve-h1"},
+		"other mode, legacy no help": {legacy: true, mode: "l7-serve-h1", wantPending: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			results := filepath.Join(root, provider, family, "results")
+			require.NoError(t, os.MkdirAll(results, 0o755))
+			write := func(name string) {
+				require.NoError(t, os.WriteFile(filepath.Join(results, name), []byte("{}"), 0o644))
+			}
+			if tc.modern {
+				write(instanceType + "-" + tc.mode + ".json")
+			}
+			if tc.legacy {
+				write(instanceType + ".json")
+			}
+
+			pending := pendingModesForInstance(root, provider, family, instanceType, []string{tc.mode}, "vm")
+			if tc.wantPending {
+				assert.Equal(t, []string{tc.mode}, pending)
+			} else {
+				assert.Empty(t, pending, "a satisfied mode must not be reported pending")
+			}
+		})
+	}
+}
+
+// The local plan reports a fully-satisfied instance as needing no work and
+// promises "compute=0" in the confirmation the user approves. The run path must
+// agree, or it provisions billable resources the approved plan excluded.
+func TestFullySatisfiedInstanceIsNotProvisioned(t *testing.T) {
+	root := t.TempDir()
+	modes := []string{"l4-kernel", "l7-serve-h1", "l7-serve-h2"}
+	results := filepath.Join(root, "aws", "c7i", "results")
+	require.NoError(t, os.MkdirAll(results, 0o755))
+	for _, mode := range modes {
+		require.NoError(t, os.WriteFile(
+			filepath.Join(results, "c7i.large-"+mode+".json"), []byte("{}"), 0o644))
+	}
+
+	assert.Empty(t,
+		pendingModesForInstance(root, "aws", "c7i", "c7i.large", modes, "vm"),
+		"every configured mode has a result, so the run must skip the instance entirely")
+}
+
 func TestCompletedForwardModeDoesNotNeedRouter(t *testing.T) {
 	root := t.TempDir()
 	resultDir := filepath.Join(root, "gcp", "c4", "results")
@@ -673,4 +738,36 @@ func TestBenchmarkRunConfigPropagatesPPSSettings(t *testing.T) {
 	assert.Equal(t, "server", got.ServerHostname)
 	assert.Equal(t, "client", got.ClientHostname)
 	assert.True(t, got.SkipTailscaleSetup)
+}
+
+// cloud-init runs `tailscale serve --https=443` for any l7-serve mode, and that
+// blocks forever when HTTPS is off on the tailnet. Gating HTTPS on K8s alone
+// stalled VM runs until their deadline.
+func TestTailnetHTTPSRequiredByL7ServeAndK8s(t *testing.T) {
+	// failingCreateProvider reports itself as "eks"; an empty provider list
+	// stands in for a VM run, since hasK8sProviders reads the constructed
+	// providers rather than the configured names.
+	k8sProviders := []provider.Provider{&failingCreateProvider{}}
+
+	for name, tc := range map[string]struct {
+		modes     []string
+		providers []provider.Provider
+		want      bool
+	}{
+		"vm, l4 only":            {modes: []string{"l4-kernel"}},
+		"vm, l7-serve-h1":        {modes: []string{"l4-kernel", "l7-serve-h1"}, want: true},
+		"vm, l7-serve-h2":        {modes: []string{"l7-serve-h2"}, want: true},
+		"k8s, no l7-serve":       {modes: []string{"l4-kernel"}, providers: k8sProviders, want: true},
+		"k8s, container l7 only": {modes: []string{"l7-ingress-h1"}, providers: k8sProviders, want: true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			o := &Orchestrator{
+				cfg:       &config.Config{Modes: tc.modes},
+				providers: tc.providers,
+			}
+			if got := o.needsTailnetHTTPS(); got != tc.want {
+				t.Fatalf("needsTailnetHTTPS() = %t, want %t", got, tc.want)
+			}
+		})
+	}
 }

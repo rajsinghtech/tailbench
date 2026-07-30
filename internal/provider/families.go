@@ -14,7 +14,9 @@ func GetInstanceFamily(providerName, instanceType string) string {
 		parts := strings.SplitN(instanceType, ".", 2)
 		return parts[0]
 	case "azure", "aks":
-		// Standard_D4s_v4 -> dsv4
+		// Standard_D4s_v4 -> d4sv4. The vCPU digit is deliberately kept: result
+		// paths are per size on Azure, and the committed azure/ and aks/ trees
+		// depend on it. Use InstanceFamilyGroup for the group-wide selector.
 		name := strings.TrimPrefix(instanceType, "Standard_")
 		var result []rune
 		skipDigits := true
@@ -31,6 +33,41 @@ func GetInstanceFamily(providerName, instanceType string) string {
 		return strings.ToLower(string(result))
 	}
 	return instanceType
+}
+
+// InstanceFamilyGroup returns the family a quota denial applies to: the group
+// that ListFamilies exposes as a --family selector.
+//
+// For AWS and GCP this equals GetInstanceFamily (c6in.xlarge -> c6in,
+// c3-standard-8 -> c3). Azure is the exception. GetInstanceFamily keeps the vCPU
+// digit there (Standard_D4s_v4 -> d4sv4) because result paths are per size, but
+// quota is granted per SKU family (dsv4). Keying the skip on the per-size value
+// made a quota denial skip only the size that failed, so a run kept attempting
+// larger sizes in the same family that were also over quota.
+func InstanceFamilyGroup(providerName, instanceType string) string {
+	family := GetInstanceFamily(providerName, instanceType)
+	switch providerName {
+	case "azure", "aks":
+		return stripSizeDigits(family)
+	}
+	return family
+}
+
+// stripSizeDigits removes the first run of digits, which encodes the vCPU count,
+// and keeps every later digit such as the version suffix: d4sv4 -> dsv4,
+// f16sv2 -> fsv2, d2psv6 -> dpsv6.
+func stripSizeDigits(family string) string {
+	for i := 0; i < len(family); i++ {
+		if family[i] < '0' || family[i] > '9' {
+			continue
+		}
+		end := i
+		for end < len(family) && family[end] >= '0' && family[end] <= '9' {
+			end++
+		}
+		return family[:i] + family[end:]
+	}
+	return family
 }
 
 // IsGraviton returns true if the AWS instance type uses ARM (Graviton).

@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -19,6 +20,7 @@ type Config struct {
 	Family                 string
 	Filter                 string
 	CreateTailnet          bool
+	TailnetDNSName         string
 	OAuthClientID          string
 	OAuthClientSecret      string
 	Tag                    string
@@ -90,6 +92,7 @@ type yamlConfig struct {
 
 	Tailscale struct {
 		CreateTailnet     bool   `yaml:"create_tailnet"`
+		TailnetDNSName    string `yaml:"tailnet_dns_name"`
 		OAuthClientID     string `yaml:"oauth_client_id"`
 		OAuthClientSecret string `yaml:"oauth_client_secret"`
 		Tag               string `yaml:"tag"`
@@ -406,6 +409,7 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 		Family:            or(*familyFlag, yc.Family, "all"),
 		Filter:            or(*filterFlag, yc.Filter),
 		CreateTailnet:     yc.Tailscale.CreateTailnet,
+		TailnetDNSName:    strings.TrimSpace(yc.Tailscale.TailnetDNSName),
 		OAuthClientID:     oauthClientID,
 		OAuthClientSecret: oauthClientSecret,
 		Tag:               or(yc.Tailscale.Tag, "tag:bench"),
@@ -462,22 +466,47 @@ func parseArgs(defaultProvider string, args []string, options parseOptions) (*Co
 	}
 
 	if options.loadSSHKeys {
-		// Load Azure SSH pub key only for execution. Local planning records the
-		// requirement without inspecting files outside the selected config.
+		// Load the Azure SSH public key only for execution. Local planning
+		// records the requirement without inspecting files outside the config.
+		//
+		// Resolution is ordered and every step is explicit:
+		//
+		//  1. azure.ssh_pub_key_file, when set, is authoritative. A read failure
+		//     or an empty file is FATAL. It previously swallowed the error and
+		//     fell through, so a typo in the path silently produced an empty key
+		//     and VMs with no out-of-band login at all.
+		//  2. Otherwise the operator's own public key, so the key you already use
+		//     works on the benchmark VMs without any configuration. A key that is
+		//     present but unreadable is skipped, not fatal — it was never asked
+		//     for.
+		//  3. Otherwise nothing here, and the provider generates and persists a
+		//     run-scoped key pair (provider.ResolveSSHPublicKey).
+		//
+		// Which source won is logged, because "why is my key not on the box"
+		// is otherwise invisible.
 		if pubKeyFile := yc.Azure.SSHPubKeyFile; pubKeyFile != "" {
 			if !filepath.IsAbs(pubKeyFile) {
 				pubKeyFile = filepath.Join(filepath.Dir(*configFile), pubKeyFile)
 			}
-			if data, err := os.ReadFile(pubKeyFile); err == nil {
-				cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
+			data, readErr := os.ReadFile(pubKeyFile)
+			if readErr != nil {
+				return nil, fmt.Errorf("read azure.ssh_pub_key_file %s: %w", pubKeyFile, readErr)
 			}
-		}
-		if cfg.AzureSSHPubKey == "" {
-			// Default: try common SSH key locations.
-			home, _ := os.UserHomeDir()
+			cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
+			if cfg.AzureSSHPubKey == "" {
+				return nil, fmt.Errorf("azure.ssh_pub_key_file %s is empty", pubKeyFile)
+			}
+			log.Printf("azure ssh key: using configured %s", pubKeyFile)
+		} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
 			for _, name := range []string{"id_ed25519.pub", "id_rsa.pub"} {
-				if data, err := os.ReadFile(filepath.Join(home, ".ssh", name)); err == nil {
-					cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
+				candidate := filepath.Join(home, ".ssh", name)
+				data, readErr := os.ReadFile(candidate)
+				if readErr != nil {
+					continue
+				}
+				if key := strings.TrimSpace(string(data)); key != "" {
+					cfg.AzureSSHPubKey = key
+					log.Printf("azure ssh key: using %s (set azure.ssh_pub_key_file to override)", candidate)
 					break
 				}
 			}

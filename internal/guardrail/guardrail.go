@@ -21,6 +21,7 @@ type Violation struct {
 type Decision struct {
 	Allowed               bool        `json:"allowed"`
 	SelectedInstanceTypes int         `json:"selected_instance_types"`
+	EstimatedWindowUSD    float64     `json:"estimated_window_usd,omitempty"`
 	EstimatedUpperUSD     float64     `json:"estimated_upper_usd,omitempty"`
 	Violations            []Violation `json:"violations,omitempty"`
 }
@@ -37,7 +38,10 @@ func Check(localPlan *plan.Plan, cfg *config.Config) Decision {
 	}
 
 	decision.SelectedInstanceTypes = runnableInstanceTypes(localPlan)
-	decision.EstimatedUpperUSD = localPlan.Cost.UpperBoundUSD
+	decision.EstimatedWindowUSD = localPlan.Cost.ExecutionWindowUSD
+	if localPlan.Cost.UpperBoundAvailable {
+		decision.EstimatedUpperUSD = localPlan.Cost.UpperBoundUSD
+	}
 	if decision.SelectedInstanceTypes == 0 {
 		decision.Violations = append(decision.Violations, Violation{
 			Code:        "no-runnable-work",
@@ -84,15 +88,22 @@ func Check(localPlan *plan.Plan, cfg *config.Config) Decision {
 			Message:     "the selected work has no enforceable local cost estimate",
 			Remediation: "select priced instance types or use a reviewed remote plan before running",
 		})
-	} else if localPlan.Cost.UpperBoundUSD > cfg.MaxCostUSD {
+	} else if guardrailCost(localPlan.Cost) > cfg.MaxCostUSD {
+		estimateKind := "estimated upper bound"
+		remediation := "reduce duration/selection or explicitly raise --max-cost-usd"
+		if !localPlan.Cost.UpperBoundAvailable {
+			estimateKind = "estimated execution-window cost"
+			remediation = "reduce duration/selection, explicitly raise --max-cost-usd, or use cleanup_policy always for a bounded estimate"
+		}
 		decision.Violations = append(decision.Violations, Violation{
 			Code: "max-cost-usd",
 			Message: fmt.Sprintf(
-				"estimated upper bound $%.2f exceeds the configured $%.2f ceiling",
-				localPlan.Cost.UpperBoundUSD,
+				"%s $%.2f exceeds the configured $%.2f ceiling",
+				estimateKind,
+				guardrailCost(localPlan.Cost),
 				cfg.MaxCostUSD,
 			),
-			Remediation: "reduce duration/selection or explicitly raise --max-cost-usd",
+			Remediation: remediation,
 		})
 	}
 	if cfg.MaxConcurrentResources < 1 {
@@ -158,18 +169,40 @@ func WriteConfirmation(dst io.Writer, localPlan *plan.Plan, cfg *config.Config, 
 	); err != nil {
 		return err
 	}
-	if _, err := fmt.Fprintf(
-		dst,
-		"duration limit: %s\nestimated cost upper bound: $%.2f\ncost ceiling: $%.2f\ncleanup policy: %s\n",
-		cfg.MaxDuration,
-		localPlan.Cost.UpperBoundUSD,
-		cfg.MaxCostUSD,
-		cfg.CleanupPolicy,
-	); err != nil {
+	if _, err := fmt.Fprintf(dst, "duration limit: %s\n", cfg.MaxDuration); err != nil {
+		return err
+	}
+	if localPlan.Cost.UpperBoundAvailable {
+		if _, err := fmt.Fprintf(
+			dst,
+			"estimated cost upper bound: $%.2f\ncost ceiling: $%.2f\n",
+			localPlan.Cost.UpperBoundUSD,
+			cfg.MaxCostUSD,
+		); err != nil {
+			return err
+		}
+	} else {
+		if _, err := fmt.Fprintf(
+			dst,
+			"estimated execution-window cost: $%.2f\nexecution-window cost ceiling: $%.2f\nlifetime cost upper bound: unavailable\n",
+			localPlan.Cost.ExecutionWindowUSD,
+			cfg.MaxCostUSD,
+		); err != nil {
+			return err
+		}
+	}
+	if _, err := fmt.Fprintf(dst, "cleanup policy: %s\n", cfg.CleanupPolicy); err != nil {
 		return err
 	}
 	_, err := fmt.Fprint(dst, "Proceed? [y/N]: ")
 	return err
+}
+
+func guardrailCost(cost plan.CostSummary) float64 {
+	if cost.UpperBoundAvailable {
+		return cost.UpperBoundUSD
+	}
+	return cost.ExecutionWindowUSD
 }
 
 func runnableInstanceTypes(localPlan *plan.Plan) int {

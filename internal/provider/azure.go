@@ -59,6 +59,34 @@ func (p *AzureProvider) resourceTags() pulumi.StringMap {
 	return tags
 }
 
+// azureDefaultSSHUser mirrors config's default for azure.ssh_user. Azure rejects
+// a VM with an empty AdminUsername, so this must never be empty.
+const azureDefaultSSHUser = "azureuser"
+
+func (p *AzureProvider) sshUser() string {
+	if p.SSHUser != "" {
+		return p.SSHUser
+	}
+	return azureDefaultSSHUser
+}
+
+// resolveSSHPubKey returns the authorized_keys line for this run's VMs,
+// generating and persisting one when azure.ssh_pub_key_file configured none.
+//
+// Azure has no key-pair resource: the public key is embedded in each VM's
+// LinuxConfiguration. So both SetupNetworking (to surface a filesystem error
+// before any cloud call) and CreatePair (which needs the value, and runs without
+// a preceding SetupNetworking in the same process on a resume) resolve it.
+// ResolveSSHPublicKey reuses the key already on disk, so repeated calls return
+// identical material and never force a VM replacement.
+func (p *AzureProvider) resolveSSHPubKey() (authorizedKey, keyPath string, err error) {
+	authorizedKey, keyPath, err = ResolveSSHPublicKey(".", scopedName("tailbench", p.RunID), p.SSHPubKey)
+	if err != nil {
+		return "", "", fmt.Errorf("prepare SSH key: %w", err)
+	}
+	return authorizedKey, keyPath, nil
+}
+
 func (p *AzureProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
 		auto.Project(workspace.Project{
@@ -77,6 +105,15 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 	vnetName := scopedName("tailbench-vnet", p.RunID)
 	subnetName := scopedName("tailbench-subnet", p.RunID)
 	nsgName := scopedName("tailbench-nsg", p.RunID)
+
+	authorizedKey, keyPath, err := p.resolveSSHPubKey()
+	if err != nil {
+		return nil, err
+	}
+	if keyPath != "" {
+		log.Printf("using generated SSH key for %s login %q (private key: %s)", p.Name(), p.sshUser(), keyPath)
+	}
+
 	program := func(pCtx *pulumi.Context) error {
 		vnet, err := aznetwork.NewVirtualNetwork(pCtx, vnetName, &aznetwork.VirtualNetworkArgs{
 			ResourceGroupName:  pulumi.String(p.ResourceGroup),
@@ -229,14 +266,18 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 		return s
 	}
 
-	vnetName := getStr("vnet_name")
+	// Distinct from the vnetName declared above, which is the name requested of
+	// Pulumi; this is the name the applied stack actually exported.
+	appliedVnetName := getStr("vnet_name")
 	return &NetworkingOutput{
 		StackName:  stackName,
-		ProviderID: vnetName,
+		ProviderID: appliedVnetName,
 		Values: map[string]string{
-			"vnet_name": vnetName,
-			"subnet_id": getStr("subnet_id"),
-			"nsg_id":    getStr("nsg_id"),
+			"vnet_name":      appliedVnetName,
+			"subnet_id":      getStr("subnet_id"),
+			"nsg_id":         getStr("nsg_id"),
+			"ssh_user":       p.sshUser(),
+			"ssh_public_key": authorizedKey,
 		},
 	}, nil
 }
@@ -251,6 +292,14 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 
 	subnetID := opts.Networking.Values["subnet_id"]
 	nsgID := opts.Networking.Values["nsg_id"]
+	authorizedKey := opts.Networking.Values["ssh_public_key"]
+	if authorizedKey == "" {
+		var err error
+		if authorizedKey, _, err = p.resolveSSHPubKey(); err != nil {
+			return nil, err
+		}
+	}
+	sshUser := p.sshUser()
 	serverUserData := base64.StdEncoding.EncodeToString([]byte(opts.UserData))
 	clientUserData := base64.StdEncoding.EncodeToString([]byte(opts.ClientUD()))
 	routerUserData := base64.StdEncoding.EncodeToString([]byte(opts.RouterUD()))
@@ -326,15 +375,15 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 				},
 				OsProfile: azcompute.OSProfileArgs{
 					ComputerName:  pulumi.String(name),
-					AdminUsername: pulumi.String(p.SSHUser),
+					AdminUsername: pulumi.String(sshUser),
 					CustomData:    pulumi.String(encodedUserData),
 					LinuxConfiguration: azcompute.LinuxConfigurationArgs{
 						DisablePasswordAuthentication: pulumi.Bool(true),
 						Ssh: azcompute.SshConfigurationArgs{
 							PublicKeys: azcompute.SshPublicKeyTypeArray{
 								azcompute.SshPublicKeyTypeArgs{
-									Path:    pulumi.Sprintf("/home/%s/.ssh/authorized_keys", p.SSHUser),
-									KeyData: pulumi.String(p.SSHPubKey),
+									Path:    pulumi.Sprintf("/home/%s/.ssh/authorized_keys", sshUser),
+									KeyData: pulumi.String(authorizedKey),
 								},
 							},
 						},

@@ -79,7 +79,7 @@ func runWithInput(ctx context.Context, args []string, stdin io.Reader, stdout, s
 type commandDependencies struct {
 	stdin           io.Reader
 	newRuntime      func(*config.Config, io.Writer) (app.Runtime, error)
-	remotePreflight func(context.Context, *config.Config) *preflight.Report
+	remotePreflight func(context.Context, *config.Config, bool) *preflight.Report
 	cleanup         func(
 		context.Context,
 		*config.Config,
@@ -286,7 +286,15 @@ family: all
 filter: ""
 
 tailscale:
-  create_tailnet: false
+  # Create and delete a throwaway tailnet for each run. Requires an
+  # organization-level OAuth client; a tailnet-scoped client fails with
+  # "403 actor does not have permission to create tailnets".
+  create_tailnet: true
+  # Alternative: benchmark an existing tailnet instead of creating one. Use this
+  # when your OAuth client cannot create tailnets. Set create_tailnet: false and
+  # uncomment the line below. Warning: Tailbench REPLACES that tailnet's policy
+  # file, so point it only at a tailnet dedicated to benchmarking.
+  # tailnet_dns_name: example-name.ts.net
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
   tag: tag:bench
@@ -410,7 +418,7 @@ func resumeExecutor(dependencies commandDependencies) app.ExecutorFunc {
 		}
 
 		if failure := remotePreflightFailure(
-			dependencies.remotePreflight(ctx, resumeConfig),
+			dependencies.remotePreflight(ctx, resumeConfig, true),
 			runID,
 		); failure != nil {
 			return *failure
@@ -469,6 +477,7 @@ func cleanupExecutor(dependencies commandDependencies) app.ExecutorFunc {
 				),
 			)
 		}
+		cleanupNeedsTailscale := manifestHasUncleanTailnet(manifest)
 		for _, resource := range manifest.Resources {
 			if resource.Status == runstate.ResourceCleaned {
 				continue
@@ -493,22 +502,26 @@ func cleanupExecutor(dependencies commandDependencies) app.ExecutorFunc {
 		if err != nil {
 			return recoveryFailure("cleanup", runID, err)
 		}
-		currentConfig, err := parseExecutionConfig(recordedExecutionArgs(manifest.CommandLine))
-		if err != nil {
-			var userErr *app.UserError
-			if errors.As(err, &userErr) {
-				userErr.RunID = runID
-				return app.RunOutcome{Status: app.StatusFailed, Error: userErr}
+		if cleanupNeedsTailscale {
+			currentConfig, err := parseExecutionConfig(recordedExecutionArgs(manifest.CommandLine))
+			if err != nil {
+				var userErr *app.UserError
+				if errors.As(err, &userErr) {
+					userErr.RunID = runID
+					return app.RunOutcome{Status: app.StatusFailed, Error: userErr}
+				}
+				return recoveryFailure("cleanup", runID, err)
 			}
-			return recoveryFailure("cleanup", runID, err)
+			cleanupConfig.OAuthClientID = currentConfig.OAuthClientID
+			cleanupConfig.OAuthClientSecret = currentConfig.OAuthClientSecret
 		}
-		cleanupConfig.OAuthClientID = currentConfig.OAuthClientID
-		cleanupConfig.OAuthClientSecret = currentConfig.OAuthClientSecret
-		cleanupConfig.AzureSSHPubKey = currentConfig.AzureSSHPubKey
 		cleanupConfig.Yes = true
 		cleanupConfig.DryRun = false
 		cleanupConfig.RunID = runID
-		if missing := missingRunPrerequisites(cleanupConfig); len(missing) > 0 {
+		if missing := missingCleanupPrerequisites(
+			cleanupConfig,
+			cleanupNeedsTailscale,
+		); len(missing) > 0 {
 			outcome := commandFailure(
 				"TB_PREREQUISITE",
 				app.ExitPrerequisite,
@@ -586,7 +599,11 @@ func cleanupExecutor(dependencies commandDependencies) app.ExecutorFunc {
 		}
 
 		if failure := remotePreflightFailure(
-			dependencies.remotePreflight(ctx, cleanupConfig),
+			dependencies.remotePreflight(
+				ctx,
+				cleanupConfig,
+				cleanupNeedsTailscale,
+			),
 			runID,
 		); failure != nil {
 			return *failure
@@ -976,7 +993,7 @@ func executionExecutor(dependencies commandDependencies) app.ExecutorFunc {
 			}
 		}
 
-		report := dependencies.remotePreflight(ctx, executionConfig)
+		report := dependencies.remotePreflight(ctx, executionConfig, true)
 		if failure := remotePreflightFailure(report, ""); failure != nil {
 			return *failure
 		}
@@ -1060,20 +1077,67 @@ func manifestCloudIdentity(
 	return identity
 }
 
-func runRemotePreflight(ctx context.Context, _ *config.Config) *preflight.Report {
-	return preflight.Doctor(ctx, preflight.Request{
-		Provider:      compiledProviderName,
-		Workload:      workloadForProvider(compiledProviderName),
-		Finder:        preflight.PathFinder{},
-		Remote:        true,
-		RemoteChecker: preflight.CommandRemoteChecker{},
-	})
+func runRemotePreflight(
+	ctx context.Context,
+	cfg *config.Config,
+	checkTailscale bool,
+) *preflight.Report {
+	request := preflight.Request{
+		Provider: compiledProviderName,
+		Workload: workloadForProvider(compiledProviderName),
+		Finder:   preflight.PathFinder{},
+		Remote:   true,
+		RemoteChecker: preflight.CommandRemoteChecker{
+			StateBackend: stateBackend(cfg),
+		},
+	}
+	if checkTailscale {
+		request.Tailscale = tailscalePreflightRequest(cfg)
+		request.TailscaleChecker = preflight.APITailscaleChecker{}
+	}
+	return preflight.Doctor(ctx, request)
 }
 
-func preflightFailureDetail(report *preflight.Report) (error, string) {
+func stateBackend(cfg *config.Config) string {
+	if cfg == nil {
+		return ""
+	}
+	return cfg.StateBackend
+}
+
+func manifestHasUncleanTailnet(manifest *runstate.Manifest) bool {
+	if manifest == nil {
+		return false
+	}
+	for _, resource := range manifest.Resources {
+		if resource.Kind == "tailnet" && resource.Status != runstate.ResourceCleaned {
+			return true
+		}
+	}
+	return false
+}
+
+// tailscalePreflightRequest carries the credentials and the tailnet-relevant
+// configuration the remote Tailscale probes need. Only the explicit remote path
+// calls it, so local doctor never reads a credential.
+func tailscalePreflightRequest(cfg *config.Config) preflight.TailscaleRequest {
+	request := preflight.TailscaleRequest{
+		Workload: workloadForProvider(compiledProviderName),
+	}
+	if cfg == nil {
+		return request
+	}
+	request.OAuthClientID = cfg.OAuthClientID
+	request.OAuthClientSecret = cfg.OAuthClientSecret
+	request.CreateTailnet = cfg.CreateTailnet
+	request.Modes = cfg.Modes
+	return request
+}
+
+func preflightFailureDetail(report *preflight.Report) (remediation string, cause error) {
 	if report == nil {
-		return errors.New("remote preflight returned no report"),
-			"run doctor --remote, repair the reported prerequisite, and retry"
+		return "run doctor --remote, repair the reported prerequisite, and retry",
+			errors.New("remote preflight returned no report")
 	}
 	var causes []string
 	var remediations []string
@@ -1099,7 +1163,7 @@ func preflightFailureDetail(report *preflight.Report) (error, string) {
 			"run doctor --remote, repair the reported prerequisite, and retry",
 		)
 	}
-	return errors.New(strings.Join(causes, "; ")), strings.Join(remediations, "; ")
+	return strings.Join(remediations, "; "), errors.New(strings.Join(causes, "; "))
 }
 
 func remotePreflightFailure(
@@ -1109,7 +1173,7 @@ func remotePreflightFailure(
 	if report != nil && report.Ready {
 		return nil
 	}
-	cause, remediation := preflightFailureDetail(report)
+	remediation, cause := preflightFailureDetail(report)
 	outcome := commandFailure(
 		"TB_PREREQUISITE",
 		app.ExitPrerequisite,
@@ -1507,7 +1571,11 @@ func doctorExecutor() app.ExecutorFunc {
 			Remote:   remote,
 		}
 		if remote {
-			request.RemoteChecker = preflight.CommandRemoteChecker{}
+			request.RemoteChecker = preflight.CommandRemoteChecker{
+				StateBackend: stateBackend(cfg),
+			}
+			request.TailscaleChecker = preflight.APITailscaleChecker{}
+			request.Tailscale = tailscalePreflightRequest(cfg)
 		}
 		report := preflight.Doctor(ctx, request)
 		if report.Ready {
@@ -1707,6 +1775,16 @@ func missingRunPrerequisites(cfg *config.Config) []string {
 		missing = append(missing, "OAUTH_CLIENT_SECRET")
 	}
 	return missing
+}
+
+func missingCleanupPrerequisites(
+	cfg *config.Config,
+	needsTailscale bool,
+) []string {
+	if !needsTailscale {
+		return nil
+	}
+	return missingRunPrerequisites(cfg)
 }
 
 func workloadForProvider(providerName string) string {

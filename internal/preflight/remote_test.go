@@ -13,6 +13,22 @@ type outputCommandRunner struct {
 	errors  map[string]error
 }
 
+type rejectPulumiRunner struct {
+	outputs map[string][]byte
+}
+
+func (r rejectPulumiRunner) Run(
+	_ context.Context,
+	name string,
+	args ...string,
+) ([]byte, error) {
+	if name == "pulumi" {
+		return nil, errors.New("pulumi account login is unavailable")
+	}
+	key := strings.Join(append([]string{name}, args...), " ")
+	return r.outputs[key], nil
+}
+
 func (r outputCommandRunner) Run(
 	_ context.Context,
 	name string,
@@ -28,7 +44,9 @@ func (r outputCommandRunner) Run(
 func TestCommandRemoteCheckerCapturesIdentityWithoutRenderingIt(t *testing.T) {
 	runner := outputCommandRunner{
 		outputs: map[string][]byte{
-			"pulumi whoami": []byte("operator@example.com\n"),
+			"pulumi whoami --verbose --output json": []byte(
+				`{"user":"operator@example.com","url":"https://app.pulumi.com/operator"}`,
+			),
 			"aws sts get-caller-identity --output json": []byte(
 				`{"UserId":"AIDAEXAMPLE","Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/operator"}`,
 			),
@@ -41,7 +59,8 @@ func TestCommandRemoteCheckerCapturesIdentityWithoutRenderingIt(t *testing.T) {
 		Finder:   fakeFinder{"pulumi": true, "aws": true},
 		Remote:   true,
 		RemoteChecker: CommandRemoteChecker{
-			Runner: runner,
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
 		},
 	})
 
@@ -75,7 +94,9 @@ func TestCommandRemoteCheckerCapturesIdentityWithoutRenderingIt(t *testing.T) {
 func TestCommandRemoteCheckerReportsMalformedIdentityAsFailedPreflight(t *testing.T) {
 	runner := outputCommandRunner{
 		outputs: map[string][]byte{
-			"pulumi whoami": []byte("operator\n"),
+			"pulumi whoami --verbose --output json": []byte(
+				`{"user":"operator","url":"https://app.pulumi.com/operator"}`,
+			),
 			"aws sts get-caller-identity --output json": []byte(
 				`{"Account":`,
 			),
@@ -88,7 +109,8 @@ func TestCommandRemoteCheckerReportsMalformedIdentityAsFailedPreflight(t *testin
 		Finder:   fakeFinder{"pulumi": true, "aws": true},
 		Remote:   true,
 		RemoteChecker: CommandRemoteChecker{
-			Runner: runner,
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
 		},
 	})
 
@@ -109,7 +131,7 @@ func TestCommandRemoteCheckerPreservesCommandFailureWithoutOutput(t *testing.T) 
 	runner := outputCommandRunner{
 		outputs: map[string][]byte{},
 		errors: map[string]error{
-			"pulumi whoami": commandErr,
+			"pulumi whoami --verbose --output json":     commandErr,
 			"aws sts get-caller-identity --output json": commandErr,
 		},
 	}
@@ -119,7 +141,8 @@ func TestCommandRemoteCheckerPreservesCommandFailureWithoutOutput(t *testing.T) 
 		Finder:   fakeFinder{"pulumi": true, "aws": true},
 		Remote:   true,
 		RemoteChecker: CommandRemoteChecker{
-			Runner: runner,
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
 		},
 	})
 
@@ -131,5 +154,70 @@ func TestCommandRemoteCheckerPreservesCommandFailureWithoutOutput(t *testing.T) 
 		if !ok || check.Status != StatusFailed || !strings.Contains(check.Detail, commandErr.Error()) {
 			t.Fatalf("%s check = %#v, found %t", name, check, ok)
 		}
+	}
+}
+
+func TestCommandRemoteCheckerRejectsLoginForDifferentPulumiBackend(t *testing.T) {
+	report := Doctor(context.Background(), Request{
+		Provider: "aws",
+		Workload: "vm",
+		Finder:   fakeFinder{"pulumi": true, "aws": true},
+		Remote:   true,
+		RemoteChecker: CommandRemoteChecker{
+			Runner: outputCommandRunner{
+				outputs: map[string][]byte{
+					"pulumi whoami --verbose --output json": []byte(
+						`{"user":"operator","url":"https://api.other.example/operator"}`,
+					),
+					"aws sts get-caller-identity --output json": []byte(
+						`{"Account":"123456789012"}`,
+					),
+				},
+				errors: map[string]error{},
+			},
+			StateBackend: "https://api.pulumi.example",
+		},
+	})
+
+	if report.Ready {
+		t.Fatal("login for a different Pulumi backend reported ready")
+	}
+	check, ok := report.CheckNamed("pulumi-auth")
+	if !ok ||
+		check.Status != StatusFailed ||
+		!strings.Contains(check.Detail, "different state backend") {
+		t.Fatalf("Pulumi check = %#v, found %t", check, ok)
+	}
+}
+
+func TestCommandRemoteCheckerSkipsPulumiAccountLoginForDIYBackends(t *testing.T) {
+	for _, backend := range []string{
+		"",
+		"file:///tmp/tailbench-state",
+		"s3://tailbench-state",
+		"gs://tailbench-state",
+		"azblob://tailbench-state",
+	} {
+		t.Run(backend, func(t *testing.T) {
+			checks, identity, err := (CommandRemoteChecker{
+				Runner: rejectPulumiRunner{outputs: map[string][]byte{
+					"aws sts get-caller-identity --output json": []byte(
+						`{"Account":"123456789012"}`,
+					),
+				}},
+				StateBackend: backend,
+			}).CheckWithIdentity(context.Background(), "aws")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if identity.Account != "123456789012" {
+				t.Fatalf("identity = %#v", identity)
+			}
+			if len(checks) != 2 ||
+				checks[0].Name != "pulumi-auth" ||
+				checks[0].Status != StatusSkipped {
+				t.Fatalf("checks = %#v, want skipped Pulumi account auth", checks)
+			}
+		})
 	}
 }

@@ -4,50 +4,31 @@ import (
 	"strings"
 
 	"github.com/rajsinghtech/tailbench/internal/pricing"
+	"github.com/rajsinghtech/tailbench/internal/provider"
 )
 
 type PricingCatalog struct{}
 
-func (PricingCatalog) Instances(provider, region string) ([]CatalogInstance, CatalogMetadata, error) {
-	entries, meta := pricing.List(provider, region)
+func (PricingCatalog) Instances(providerName, region string) ([]CatalogInstance, CatalogMetadata, error) {
+	entries, meta := pricing.List(providerName, region)
 	instances := make([]CatalogInstance, 0, len(entries))
 	for _, entry := range entries {
 		instances = append(instances, CatalogInstance{
-			Type:      entry.InstanceType,
-			Family:    instanceFamily(provider, entry.InstanceType),
-			VCPUs:     instanceVCPUs(provider, entry.InstanceType),
-			HourlyUSD: entry.HourlyUSD,
+			Type: entry.InstanceType,
+			// Family is the result-path family (per size on Azure); FamilyGroup
+			// is the group-wide --family selector ListFamilies offers. They are
+			// the same string everywhere except Azure. Both come from
+			// internal/provider so the plan and the run cannot disagree — a
+			// private copy of this derivation here previously made
+			// `--family dsv4` match nothing on Azure, which the guardrails then
+			// refused as "no-runnable-work".
+			Family:      provider.GetInstanceFamily(providerName, entry.InstanceType),
+			FamilyGroup: provider.InstanceFamilyGroup(providerName, entry.InstanceType),
+			VCPUs:       instanceVCPUs(providerName, entry.InstanceType),
+			HourlyUSD:   entry.HourlyUSD,
 		})
 	}
 	return instances, CatalogMetadata{Source: meta.Source, Updated: meta.Updated}, nil
-}
-
-func instanceFamily(provider, instanceType string) string {
-	switch canonicalProvider(provider) {
-	case "gcp":
-		family, _, _ := strings.Cut(instanceType, "-")
-		return family
-	case "aws":
-		family, _, _ := strings.Cut(instanceType, ".")
-		return family
-	case "azure":
-		name := strings.TrimPrefix(instanceType, "Standard_")
-		var result []rune
-		skipDigits := true
-		for _, character := range name {
-			if character >= '0' && character <= '9' && skipDigits {
-				continue
-			}
-			skipDigits = false
-			if character == '_' || character == '-' {
-				continue
-			}
-			result = append(result, character)
-		}
-		return strings.ToLower(string(result))
-	default:
-		return instanceType
-	}
 }
 
 func instanceVCPUs(provider, instanceType string) int {

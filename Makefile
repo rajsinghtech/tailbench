@@ -23,6 +23,44 @@ LDFLAGS := -s -w -X main.version=$(VERSION) -X main.commit=$(COMMIT) -X main.dat
 .PHONY: test test-contract test-shared test-command-aws test-orchestrator-aws test-website test-aws test-aws-k8s test-azure test-azure-k8s test-gcp test-gcp-k8s
 .PHONY: build build-aws build-aws-k8s build-azure build-azure-k8s build-gcp build-gcp-k8s
 .PHONY: verify-deps clean golangci-lint
+.PHONY: plan-aws doctor-aws doctor-aws-remote bench-aws
+
+# Per-operator overrides. Makefile.local is gitignored: credential sources,
+# tailnet names, and ESC environment paths are personal and not portable, so they
+# belong there rather than in a checked-in file. Included first so its plain
+# assignments win over the ?= defaults below. See Makefile.local.example.
+-include Makefile.local
+
+# Configuration file the aws targets pass to the binary. Point CONFIG at a
+# gitignored config.local.yaml to keep a personal tailnet or state backend out of
+# the repository.
+CONFIG ?= config.yaml
+
+# Credential source: one Pulumi ESC environment supplying both the cloud login
+# and the Tailscale OAuth client. Empty by default, so with nothing set the
+# targets run the binary directly and expect credentials already in the
+# environment — what CI and anyone not using Pulumi ESC wants.
+#
+# A single environment that `imports:` both halves works only because the IAM
+# trust policy behind it admits the whole ESC project. ESC mints the OIDC token
+# for the environment you OPEN, not the one that defines the login, so a
+# composed environment presents its OWN subject to AWS. While the trust policy
+# named just one environment, composing this way failed
+# AssumeRoleWithWebIdentity and the halves had to be nested instead. If a new
+# launch environment ever returns AccessDenied, that trust policy is the thing
+# to check: tailscale-phase-2/aws-oidc in the tailscale-phase-2 repository.
+ESC_ENV ?=
+
+ifeq ($(strip $(ESC_ENV)),)
+ESC_RUN =
+else
+ESC_RUN = pulumi env run $(ESC_ENV) --
+endif
+
+FILTER ?= ^c6in\.large$$
+MAX_COST ?= 5
+MAX_DURATION ?= 45m
+MAX_TYPES ?= 1
 
 help:
 	@printf '%s\n' 'LOCAL SAFETY: choose exactly one provider variant; cloud SDK builds are memory intensive.'
@@ -105,3 +143,25 @@ verify-deps: ## Verify one VARIANT locally; no VARIANT checks all six on CI/buil
 
 clean: ## Remove generated binaries and repository-local tools
 	rm -rf "$(BIN_DIR)" "$(TOOLS_DIR)"
+
+plan-aws: ## Side-effect-free plan: no credentials, no cloud calls (FILTER=... CONFIG=...)
+	./$(BIN_DIR)/tailbench-aws plan --config $(CONFIG) --filter '$(FILTER)' --max-cost-usd $(MAX_COST)
+
+doctor-aws: ## Local prerequisite checks only
+	./$(BIN_DIR)/tailbench-aws doctor --config $(CONFIG)
+
+doctor-aws-remote: ## Read-only credential checks through ESC (ESC_AWS_ENV=, ESC_TS_ENV=)
+	$(ESC_RUN) ./$(BIN_DIR)/tailbench-aws doctor --remote --config $(CONFIG)
+
+# PROVISIONS BILLABLE AWS RESOURCES. Interactive by default: tailbench prints the
+# topology, cost bound, and cleanup policy and waits for confirmation. Pass YES=1
+# to approve noninteractively, which tailbench allows only with an explicit cost
+# ceiling. Override FILTER/MAX_COST/MAX_DURATION/MAX_TYPES as needed.
+bench-aws: ## Run the AWS benchmark through ESC (FILTER=... MAX_COST=... YES=1)
+	$(ESC_RUN) ./$(BIN_DIR)/tailbench-aws run \
+		--config $(CONFIG) \
+		--filter '$(FILTER)' \
+		--max-cost-usd $(MAX_COST) \
+		--max-duration $(MAX_DURATION) \
+		--max-instance-types $(MAX_TYPES) \
+		$(if $(YES),--yes,)

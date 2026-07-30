@@ -55,10 +55,49 @@ func (p *GCPProvider) resourceLabels() pulumi.StringMap {
 	return labels
 }
 
+// gcpDefaultSSHUser is the login GCP's guest agent provisions from "ssh-keys"
+// metadata. Ubuntu cloud images use "ubuntu". This must never be empty: an empty
+// user made the whole metadata value literally ":", which provisions no login at
+// all and leaves a node that fails cloud-init completely unreachable.
+const gcpDefaultSSHUser = "ubuntu"
+
+func (p *GCPProvider) sshUser() string {
+	if p.SSHUser != "" {
+		return p.SSHUser
+	}
+	return gcpDefaultSSHUser
+}
+
+// resolveSSHPubKey returns the authorized_keys line for this run's instances,
+// generating and persisting one when none is configured.
+//
+// Unlike AWS, GCP has no key-pair resource to create in SetupNetworking; the
+// public key rides along in each instance's metadata. So both SetupNetworking
+// (to surface a filesystem error before any cloud call) and CreatePair (which
+// needs the value, and runs without a preceding SetupNetworking in the same
+// process on a resume) resolve it. ResolveSSHPublicKey reuses the key already on
+// disk, so repeated calls return identical material and never force a replace.
+func (p *GCPProvider) resolveSSHPubKey() (authorizedKey, keyPath string, err error) {
+	authorizedKey, keyPath, err = ResolveSSHPublicKey(".", scopedName("tailbench", p.RunID), p.SSHPubKey)
+	if err != nil {
+		return "", "", fmt.Errorf("prepare SSH key: %w", err)
+	}
+	return authorizedKey, keyPath, nil
+}
+
 func (p *GCPProvider) SetupNetworking(_ context.Context) (*NetworkingOutput, error) {
+	authorizedKey, keyPath, err := p.resolveSSHPubKey()
+	if err != nil {
+		return nil, err
+	}
+	if keyPath != "" {
+		log.Printf("using generated SSH key for %s login %q (private key: %s)", p.Name(), p.sshUser(), keyPath)
+	}
 	return &NetworkingOutput{Values: map[string]string{
-		"network": p.Network,
-		"subnet":  p.Subnet,
+		"network":        p.Network,
+		"subnet":         p.Subnet,
+		"ssh_user":       p.sshUser(),
+		"ssh_public_key": authorizedKey,
 	}}, nil
 }
 
@@ -96,6 +135,18 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	clientName := scopedName(fmt.Sprintf("tb-%s-client", safeType), p.RunID)
 	routerName := scopedName(fmt.Sprintf("tb-%s-router", safeType), p.RunID)
 	diskType, imageFamily := p.gcpInstanceProps(opts.InstanceType)
+
+	authorizedKey := ""
+	if opts.Networking != nil {
+		authorizedKey = opts.Networking.Values["ssh_public_key"]
+	}
+	if authorizedKey == "" {
+		var err error
+		if authorizedKey, _, err = p.resolveSSHPubKey(); err != nil {
+			return nil, err
+		}
+	}
+	sshKeysMetadata := fmt.Sprintf("%s:%s", p.sshUser(), authorizedKey)
 
 	program := func(pCtx *pulumi.Context) error {
 		if opts.WantRouter {
@@ -150,7 +201,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 				},
 				MetadataStartupScript: pulumi.StringPtr(ud),
 				Metadata: pulumi.StringMap{
-					"ssh-keys": pulumi.Sprintf("%s:%s", p.SSHUser, p.SSHPubKey),
+					"ssh-keys": pulumi.String(sshKeysMetadata),
 				},
 				Labels: p.resourceLabels(),
 			})

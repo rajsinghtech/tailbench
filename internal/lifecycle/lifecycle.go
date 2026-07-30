@@ -97,7 +97,7 @@ func (m Manager) Run(ctx context.Context, request Request) (*Outcome, error) {
 	planDigest := sha256.Sum256(planJSON)
 	planHash := "sha256:" + hex.EncodeToString(planDigest[:])
 	startedAt := now()
-	manifest, err := m.Store.Create(runstate.CreateRequest{
+	_, err = m.Store.Create(runstate.CreateRequest{
 		RunID:                  runID,
 		StartedAt:              startedAt,
 		CommandLine:            request.CommandLine,
@@ -134,7 +134,7 @@ func (m Manager) Run(ctx context.Context, request Request) (*Outcome, error) {
 
 	result := request.Execute(ctx, recorder)
 	endedAt := now()
-	manifest, err = m.Store.Update(runID, func(value *runstate.Manifest) error {
+	manifest, err := m.Store.Update(runID, func(value *runstate.Manifest) error {
 		applyExecutionResult(value, result, endedAt)
 		return nil
 	})
@@ -203,7 +203,7 @@ func (m Manager) Resume(
 	for _, work := range unfinished {
 		selected[work.ID] = struct{}{}
 	}
-	manifest, err = m.Store.Update(runID, func(value *runstate.Manifest) error {
+	_, err = m.Store.Update(runID, func(value *runstate.Manifest) error {
 		value.Status = runstate.RunRunning
 		value.EndedAt = nil
 		value.BenchmarkOutcome = runstate.OutcomePending
@@ -289,7 +289,7 @@ func (m Manager) Cleanup(
 		return nil, err
 	}
 	resources := uncleanResources(manifest.Resources)
-	manifest, err = m.Store.Update(runID, func(value *runstate.Manifest) error {
+	_, err = m.Store.Update(runID, func(value *runstate.Manifest) error {
 		value.Status = runstate.RunRunning
 		value.EndedAt = nil
 		value.CleanupOutcome = runstate.OutcomePending

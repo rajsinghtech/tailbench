@@ -146,6 +146,36 @@ func TestWriteConfirmationNamesSelectedInstancesAndModes(t *testing.T) {
 	}
 }
 
+func TestWriteConfirmationDoesNotClaimUpperBoundForRetainedResources(t *testing.T) {
+	localPlan := testPlan()
+	localPlan.Cost.UpperBoundAvailable = false
+	localPlan.Cost.UpperBoundUSD = 0
+	cfg := &config.Config{
+		MaxCostUSD:             10,
+		MaxDuration:            45 * time.Minute,
+		MaxInstanceTypes:       2,
+		MaxConcurrentResources: 1,
+		CleanupPolicy:          config.CleanupManual,
+	}
+	var output bytes.Buffer
+
+	if err := WriteConfirmation(&output, localPlan, cfg, Check(localPlan, cfg)); err != nil {
+		t.Fatalf("WriteConfirmation: %v", err)
+	}
+	for _, want := range []string{
+		"estimated execution-window cost: $5.00",
+		"execution-window cost ceiling: $10.00",
+		"lifetime cost upper bound: unavailable",
+	} {
+		if !strings.Contains(output.String(), want) {
+			t.Fatalf("confirmation = %q, want %q", output.String(), want)
+		}
+	}
+	if strings.Contains(output.String(), "estimated cost upper bound:") {
+		t.Fatalf("confirmation claims a false upper bound: %q", output.String())
+	}
+}
+
 func testPlan() *plan.Plan {
 	return &plan.Plan{
 		Provider: "aws",
@@ -160,7 +190,12 @@ func testPlan() *plan.Plan {
 				Modes: []plan.PlannedMode{{Name: "l4-kernel", Action: plan.ActionRun}},
 			},
 		},
-		Cost: plan.CostSummary{Estimate: true, UpperBoundUSD: 5},
+		Cost: plan.CostSummary{
+			Estimate:            true,
+			ExecutionWindowUSD:  5,
+			UpperBoundAvailable: true,
+			UpperBoundUSD:       5,
+		},
 	}
 }
 

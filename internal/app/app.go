@@ -107,10 +107,6 @@ func (a Application) Run(ctx context.Context, args []string, stdout, stderr io.W
 	return ExitStatus(outcome)
 }
 
-func (a Application) execute(ctx context.Context, args []string, progress io.Writer) RunOutcome {
-	return a.executeWith(a.Execute, ctx, args, progress)
-}
-
 func (a Application) executeWith(execute ExecutorFunc, ctx context.Context, args []string, progress io.Writer) RunOutcome {
 	if execute == nil {
 		return RunOutcome{
@@ -170,6 +166,8 @@ Run selection:
   --filter REGEX         Instance-type filter
   --dry-run              Compatibility preview flag
   --cleanup-networking   Tear down provider networking after the run
+  --state-backend URL    Pulumi state backend: pulumi.com, or an s3://, gs://,
+                          azblob://, or file:// URL (default: local ./state)
   --max-cost-usd USD     Set the required automation cost ceiling
   --max-duration DURATION
                           Bound total execution time (default 45m)

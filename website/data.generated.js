@@ -6174,6 +6174,311 @@ const TAILBENCH_DATA = [
   },
   {
     "baseline_mtr": {
+      "target_ip": "10.0.1.6",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "10.0.1.6",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.2,
+          "avg_ms": 0.2,
+          "best_ms": 0.2,
+          "worst_ms": 0.2,
+          "stdev_ms": 0
+        }
+      ]
+    },
+    "baseline_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 37799.171897165084,
+          "retransmits": 0,
+          "duration_sec": 30.001443,
+          "bytes_transferred": 141753712640
+        },
+        {
+          "bandwidth_mbps": 37823.18547850817,
+          "retransmits": 0,
+          "duration_sec": 30.000554,
+          "bytes_transferred": 141839564800
+        },
+        {
+          "bandwidth_mbps": 37803.94822547763,
+          "retransmits": 0,
+          "duration_sec": 30.001397,
+          "bytes_transferred": 141771407360
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 37808.76853371696,
+        "bandwidth_mbps_min": 37799.171897165084,
+        "bandwidth_mbps_max": 37823.18547850817,
+        "bandwidth_mbps_stddev": 10.379131333974136,
+        "retransmits_avg": 0
+      }
+    },
+    "baseline_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9450.643397206752,
+          "retransmits": 0,
+          "duration_sec": 30.001212,
+          "bytes_transferred": 35441344512
+        },
+        {
+          "bandwidth_mbps": 9451.205135367234,
+          "retransmits": 0,
+          "duration_sec": 30.001204,
+          "bytes_transferred": 35443441664
+        },
+        {
+          "bandwidth_mbps": 9449.7674143174,
+          "retransmits": 0,
+          "duration_sec": 30.001219,
+          "bytes_transferred": 35438067712
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9450.538648963795,
+        "bandwidth_mbps_min": 9449.7674143174,
+        "bandwidth_mbps_max": 9451.205135367234,
+        "bandwidth_mbps_stddev": 0.5916021185927882,
+        "retransmits_avg": 0
+      }
+    },
+    "cloud_provider": "aws",
+    "connection_type": "direct",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "instance_family": "c6in",
+    "instance_type": "c6in.24xlarge",
+    "kernel_version": "6.17.0-1019-aws",
+    "overhead": {
+      "bandwidth_pct": 83.3063344283113,
+      "retransmits_pct": 0
+    },
+    "overhead_single": {
+      "bandwidth_pct": 34.91127485433191,
+      "retransmits_pct": 0
+    },
+    "price_per_hour": 5.4432,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.24xlarge-l4-kernel.json",
+    "system_config": {
+      "tcp_congestion_control": "bbr",
+      "cpu_governor": "",
+      "gro_udp_forwarding": true,
+      "mtu_underlay": 9001,
+      "mtu_tailscale": 1280,
+      "tcp_rmem": "4096\t87380\t67108864",
+      "tcp_wmem": "4096\t65536\t67108864",
+      "kernel_full": "Linux ip-10-0-1-6 6.17.0-1019-aws #19~24.04.1-Ubuntu SMP Tue Jun 23 18:53:06 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
+    },
+    "tailscale_mtr": {
+      "target_ip": "100.87.243.64",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "100.87.243.64",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.2,
+          "avg_ms": 0.2,
+          "best_ms": 0.2,
+          "worst_ms": 0.5,
+          "stdev_ms": 0
+        }
+      ]
+    },
+    "tailscale_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 6340.603990484998,
+          "retransmits": 0,
+          "duration_sec": 30.001466,
+          "bytes_transferred": 23778426880
+        },
+        {
+          "bandwidth_mbps": 6352.211475659442,
+          "retransmits": 0,
+          "duration_sec": 30.001448,
+          "bytes_transferred": 23821942784
+        },
+        {
+          "bandwidth_mbps": 6242.1926612333,
+          "retransmits": 0,
+          "duration_sec": 30.001417,
+          "bytes_transferred": 23409328128
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 6311.66937579258,
+        "bandwidth_mbps_min": 6242.1926612333,
+        "bandwidth_mbps_max": 6352.211475659442,
+        "bandwidth_mbps_stddev": 49.35547134467448,
+        "retransmits_avg": 0
+      }
+    },
+    "tailscale_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 5950.939776330187,
+          "retransmits": 0,
+          "duration_sec": 30.001277,
+          "bytes_transferred": 22316974080
+        },
+        {
+          "bandwidth_mbps": 6130.208388756017,
+          "retransmits": 0,
+          "duration_sec": 30.001254,
+          "bytes_transferred": 22989242368
+        },
+        {
+          "bandwidth_mbps": 6372.557212941335,
+          "retransmits": 0,
+          "duration_sec": 30.001263,
+          "bytes_transferred": 23898095616
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 6151.235126009179,
+        "bandwidth_mbps_min": 5950.939776330187,
+        "bandwidth_mbps_max": 6372.557212941335,
+        "bandwidth_mbps_stddev": 172.76556075266475,
+        "retransmits_avg": 0
+      }
+    },
+    "tailscale_version": "1.98.10",
+    "test_config": {
+      "iperf_duration_sec": 30,
+      "iperf_parallel_streams": 4,
+      "iperf_iterations": 3,
+      "mtr_cycles": 100
+    },
+    "transport_mode": "l4-kernel",
+    "vcpus": 96,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 29052.44238115371,
+      "avg_latency_ms": 0.5504848035045259,
+      "p50_latency_ms": 0.6349741926850926,
+      "p90_latency_ms": 0.9627276322796647,
+      "p99_latency_ms": 2.2986751904634914,
+      "p999_latency_ms": 3.6829289681152684,
+      "status_codes": {
+        "200": 2614777
+      },
+      "bytes_per_sec": 4357866.357173056,
+      "connection_errors": 0
+    },
+    "http_version": "1.1",
+    "instance_family": "c6in",
+    "instance_type": "c6in.24xlarge",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 128733.98987762608,
+        "tailscale": 29052.44238115371,
+        "delta_pct": -77.43218989113068
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5272286420679545,
+        "tailscale_ms": 0.6349741926850926,
+        "delta_pct": 20.43620964796726
+      },
+      "p99_latency": {
+        "baseline_ms": 0.9905692645795411,
+        "tailscale_ms": 2.2986751904634914,
+        "delta_pct": 132.05597757358152
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 5.4432,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.24xlarge-l7-serve-h1.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "l7-serve-h1",
+    "vcpus": 96,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 26917.503033638135,
+      "avg_latency_ms": 0.5941247590453154,
+      "p50_latency_ms": 0.6575929347983421,
+      "p90_latency_ms": 0.9687216532320658,
+      "p99_latency_ms": 1.9900357112285887,
+      "p999_latency_ms": 3.027263880767903,
+      "status_codes": {
+        "200": 2422632
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c6in",
+    "instance_type": "c6in.24xlarge",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 61552.76930753029,
+        "tailscale": 26917.503033638135,
+        "delta_pct": -56.26922503006687
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5400313986723315,
+        "tailscale_ms": 0.6575929347983421,
+        "delta_pct": 21.76938904201421
+      },
+      "p99_latency": {
+        "baseline_ms": 0.9940002944016436,
+        "tailscale_ms": 1.9900357112285887,
+        "delta_pct": 100.20474062601023
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 5.4432,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.24xlarge-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 96,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": {
       "target_ip": "10.0.1.125",
       "hops": [
         {
@@ -7390,6 +7695,311 @@ const TAILBENCH_DATA = [
     "test_config": null,
     "transport_mode": "l7-serve-h2",
     "vcpus": 32,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": {
+      "target_ip": "10.0.1.39",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "10.0.1.39",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.1,
+          "avg_ms": 0.1,
+          "best_ms": 0.1,
+          "worst_ms": 0.2,
+          "stdev_ms": 0
+        }
+      ]
+    },
+    "baseline_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 24636.3655708736,
+          "retransmits": 67,
+          "duration_sec": 30.002806,
+          "bytes_transferred": 92395012096
+        },
+        {
+          "bandwidth_mbps": 24815.78924647934,
+          "retransmits": 0,
+          "duration_sec": 30.002137,
+          "bytes_transferred": 93065838592
+        },
+        {
+          "bandwidth_mbps": 24847.962671551424,
+          "retransmits": 0,
+          "duration_sec": 30.001354,
+          "bytes_transferred": 93184065536
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 24766.705829634786,
+        "bandwidth_mbps_min": 24636.3655708736,
+        "bandwidth_mbps_max": 24847.962671551424,
+        "bandwidth_mbps_stddev": 93.09571995413214,
+        "retransmits_avg": 22.333333333333332
+      }
+    },
+    "baseline_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 9463.50363877972,
+          "retransmits": 0,
+          "duration_sec": 30.000442,
+          "bytes_transferred": 35488661504
+        },
+        {
+          "bandwidth_mbps": 9472.061200128266,
+          "retransmits": 0,
+          "duration_sec": 30.00046,
+          "bytes_transferred": 35520774144
+        },
+        {
+          "bandwidth_mbps": 9470.649772656308,
+          "retransmits": 0,
+          "duration_sec": 30.000613,
+          "bytes_transferred": 35515662336
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 9468.738203854766,
+        "bandwidth_mbps_min": 9463.50363877972,
+        "bandwidth_mbps_max": 9472.061200128266,
+        "bandwidth_mbps_stddev": 3.7459787791536514,
+        "retransmits_avg": 0
+      }
+    },
+    "cloud_provider": "aws",
+    "connection_type": "direct",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "instance_family": "c6in",
+    "instance_type": "c6in.large",
+    "kernel_version": "6.17.0-1019-aws",
+    "overhead": {
+      "bandwidth_pct": 86.91654548938837,
+      "retransmits_pct": 100
+    },
+    "overhead_single": {
+      "bandwidth_pct": 66.70998747997582,
+      "retransmits_pct": 0
+    },
+    "price_per_hour": 0.1134,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.large-l4-kernel.json",
+    "system_config": {
+      "tcp_congestion_control": "bbr",
+      "cpu_governor": "",
+      "gro_udp_forwarding": true,
+      "mtu_underlay": 9001,
+      "mtu_tailscale": 1280,
+      "tcp_rmem": "4096\t87380\t67108864",
+      "tcp_wmem": "4096\t65536\t67108864",
+      "kernel_full": "Linux ip-10-0-1-39 6.17.0-1019-aws #19~24.04.1-Ubuntu SMP Tue Jun 23 18:53:06 UTC 2026 x86_64 x86_64 x86_64 GNU/Linux"
+    },
+    "tailscale_mtr": {
+      "target_ip": "100.83.159.83",
+      "hops": [
+        {
+          "hop": 1,
+          "host": "100.83.159.83",
+          "loss_pct": 0,
+          "snt": 100,
+          "last_ms": 0.2,
+          "avg_ms": 0.2,
+          "best_ms": 0.2,
+          "worst_ms": 0.7,
+          "stdev_ms": 0.1
+        }
+      ]
+    },
+    "tailscale_tcp": {
+      "runs": [
+        {
+          "bandwidth_mbps": 3234.226357507527,
+          "retransmits": 0,
+          "duration_sec": 30.002283,
+          "bytes_transferred": 12129271808
+        },
+        {
+          "bandwidth_mbps": 3247.417225675735,
+          "retransmits": 0,
+          "duration_sec": 30.000855,
+          "bytes_transferred": 12178161664
+        },
+        {
+          "bandwidth_mbps": 3239.3784898085364,
+          "retransmits": 0,
+          "duration_sec": 30.001825,
+          "bytes_transferred": 12148408320
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 3240.340690997266,
+        "bandwidth_mbps_min": 3234.226357507527,
+        "bandwidth_mbps_max": 3247.417225675735,
+        "bandwidth_mbps_stddev": 5.4279599669031935,
+        "retransmits_avg": 0
+      }
+    },
+    "tailscale_tcp_single": {
+      "runs": [
+        {
+          "bandwidth_mbps": 3141.9190064492814,
+          "retransmits": 0,
+          "duration_sec": 30.001327,
+          "bytes_transferred": 11782717440
+        },
+        {
+          "bandwidth_mbps": 3144.38899763368,
+          "retransmits": 0,
+          "duration_sec": 30.001437,
+          "bytes_transferred": 11792023552
+        },
+        {
+          "bandwidth_mbps": 3170.1243965717304,
+          "retransmits": 0,
+          "duration_sec": 30.000666,
+          "bytes_transferred": 11888230400
+        }
+      ],
+      "summary": {
+        "bandwidth_mbps_avg": 3152.144133551564,
+        "bandwidth_mbps_min": 3141.9190064492814,
+        "bandwidth_mbps_max": 3170.1243965717304,
+        "bandwidth_mbps_stddev": 12.753891113918284,
+        "retransmits_avg": 0
+      }
+    },
+    "tailscale_version": "1.98.10",
+    "test_config": {
+      "iperf_duration_sec": 30,
+      "iperf_parallel_streams": 4,
+      "iperf_iterations": 3,
+      "mtr_cycles": 100
+    },
+    "transport_mode": "l4-kernel",
+    "vcpus": 2,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 5688.396406940221,
+      "avg_latency_ms": 2.8121706253992342,
+      "p50_latency_ms": 2.7591014590565535,
+      "p90_latency_ms": 3.987549601747357,
+      "p99_latency_ms": 5.828530937884771,
+      "p999_latency_ms": 7.9180989580317105,
+      "status_codes": {
+        "200": 511980
+      },
+      "bytes_per_sec": 853259.4610410332,
+      "connection_errors": 0
+    },
+    "http_version": "1.1",
+    "instance_family": "c6in",
+    "instance_type": "c6in.large",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 70579.41723727949,
+        "tailscale": 5688.396406940221,
+        "delta_pct": -91.94043160229486
+      },
+      "p50_latency": {
+        "baseline_ms": 0.5258606188940397,
+        "tailscale_ms": 2.7591014590565535,
+        "delta_pct": 424.68303575562277
+      },
+      "p99_latency": {
+        "baseline_ms": 0.9950820752824949,
+        "tailscale_ms": 5.828530937884771,
+        "delta_pct": 485.73368797042224
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 0.1134,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.large-l7-serve-h1.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "l7-serve-h1",
+    "vcpus": 2,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "aws",
+    "connection_type": "",
+    "date": "2026-07-29",
+    "ena_express": false,
+    "environment": "vm",
+    "fortio_result": {
+      "qps": 4910.708824662487,
+      "avg_latency_ms": 3.2575162680135,
+      "p50_latency_ms": 3.2387117668790624,
+      "p90_latency_ms": 4.693651003182631,
+      "p99_latency_ms": 6.500776144990064,
+      "p999_latency_ms": 8.787985746355659,
+      "status_codes": {
+        "200": 441990
+      },
+      "bytes_per_sec": 0,
+      "connection_errors": 0
+    },
+    "http_version": "2",
+    "instance_family": "c6in",
+    "instance_type": "c6in.large",
+    "kernel_version": "",
+    "l7_overhead": {
+      "qps": {
+        "baseline": 25876.89538082914,
+        "tailscale": 4910.708824662487,
+        "delta_pct": -81.02280527709449
+      },
+      "p50_latency": {
+        "baseline_ms": 0.6812442323775753,
+        "tailscale_ms": 3.2387117668790624,
+        "delta_pct": 375.41125677876227
+      },
+      "p99_latency": {
+        "baseline_ms": 1.9839184506123175,
+        "tailscale_ms": 6.500776144990064,
+        "delta_pct": 227.67355649037194
+      }
+    },
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 0.1134,
+    "region": "us-west-2",
+    "source": "aws/c6in/results/c6in.large-l7-serve-h2.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "l7-serve-h2",
+    "vcpus": 2,
     "zone": "us-west-2a"
   },
   {
@@ -10533,7 +11143,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 41.012803516767846,
       "retransmits_pct": 0
     },
-    "price_per_hour": 2.77488,
+    "price_per_hour": 2.844,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l4-kernel.json",
     "system_config": {
@@ -10676,7 +11286,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 2.77488,
+    "price_per_hour": 2.844,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -10734,7 +11344,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 2.77488,
+    "price_per_hour": 2.844,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.12xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -10838,7 +11448,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 41.542877885307504,
       "retransmits_pct": 0
     },
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l4-kernel.json",
     "system_config": {
@@ -10981,7 +11591,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11039,7 +11649,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.16xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11143,7 +11753,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.89666855281838,
       "retransmits_pct": 0
     },
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l4-kernel.json",
     "system_config": {
@@ -11286,7 +11896,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11344,7 +11954,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.24xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11448,7 +12058,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 45.79702616477191,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l4-kernel.json",
     "system_config": {
@@ -11591,7 +12201,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11649,7 +12259,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.2xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -11753,7 +12363,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 48.93385460764241,
       "retransmits_pct": 0
     },
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l4-kernel.json",
     "system_config": {
@@ -11896,7 +12506,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -11954,7 +12564,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.48xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -12058,7 +12668,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.84619833791311,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l4-kernel.json",
     "system_config": {
@@ -12201,7 +12811,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -12259,7 +12869,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.4xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -12363,7 +12973,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 42.187113206334274,
       "retransmits_pct": 0
     },
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l4-kernel.json",
     "system_config": {
@@ -12506,7 +13116,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -12564,7 +13174,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.8xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -12668,7 +13278,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 68.48973832749465,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l4-kernel.json",
     "system_config": {
@@ -12811,7 +13421,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l7-serve-h1.json",
     "system_config": null,
@@ -12869,7 +13479,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.large-l7-serve-h2.json",
     "system_config": null,
@@ -12973,7 +13583,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 78.68140367609118,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l4-kernel.json",
     "system_config": {
@@ -13116,7 +13726,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l7-serve-h1.json",
     "system_config": null,
@@ -13174,7 +13784,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.medium-l7-serve-h2.json",
     "system_config": null,
@@ -13278,7 +13888,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 49.56947330697873,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l4-kernel.json",
     "system_config": {
@@ -13421,7 +14031,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l7-serve-h1.json",
     "system_config": null,
@@ -13479,7 +14089,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "aws/c8gn/results/c8gn.xlarge-l7-serve-h2.json",
     "system_config": null,
@@ -26887,7 +27497,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.70943017548814,
       "retransmits_pct": 100
     },
-    "price_per_hour": 2.77488,
+    "price_per_hour": 2.844,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.12xlarge-l4-kernel.json",
     "system_config": {
@@ -27098,7 +27708,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 73.65367042885352,
       "retransmits_pct": 100
     },
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l4-kernel.json",
     "system_config": {
@@ -27240,7 +27850,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l4-lb.json",
     "system_config": null,
@@ -27299,7 +27909,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -27358,7 +27968,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 3.69984,
+    "price_per_hour": 3.792,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.16xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -27484,7 +28094,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.57897190766923,
       "retransmits_pct": 100
     },
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l4-kernel.json",
     "system_config": {
@@ -27626,7 +28236,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l4-lb.json",
     "system_config": null,
@@ -27685,7 +28295,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -27744,7 +28354,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 5.54976,
+    "price_per_hour": 5.688,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.24xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -27870,7 +28480,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 53.6163837016993,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l4-kernel.json",
     "system_config": {
@@ -28012,7 +28622,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l4-lb.json",
     "system_config": null,
@@ -28070,7 +28680,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28128,7 +28738,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.46248,
+    "price_per_hour": 0.474,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.2xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -28254,7 +28864,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 79.10309559176905,
       "retransmits_pct": 100
     },
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l4-kernel.json",
     "system_config": {
@@ -28396,7 +29006,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l4-lb.json",
     "system_config": null,
@@ -28454,7 +29064,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28512,7 +29122,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 11.09952,
+    "price_per_hour": 11.376,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.48xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -28638,7 +29248,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 52.169994640285545,
       "retransmits_pct": 100
     },
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l4-kernel.json",
     "system_config": {
@@ -28781,7 +29391,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l4-lb.json",
     "system_config": null,
@@ -28839,7 +29449,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -28897,7 +29507,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.92496,
+    "price_per_hour": 0.948,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.4xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -29023,7 +29633,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 74.70146661166024,
       "retransmits_pct": 100
     },
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l4-kernel.json",
     "system_config": {
@@ -29165,7 +29775,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l4-lb.json",
     "system_config": null,
@@ -29223,7 +29833,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -29281,7 +29891,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 1.84992,
+    "price_per_hour": 1.896,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.8xlarge-l7-ingress-h2.json",
     "system_config": null,
@@ -29407,7 +30017,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 71.4532102297983,
       "retransmits_pct": -686.8131868131868
     },
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l4-kernel.json",
     "system_config": {
@@ -29549,7 +30159,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l4-lb.json",
     "system_config": null,
@@ -29607,7 +30217,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l7-ingress-h1.json",
     "system_config": null,
@@ -29665,7 +30275,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.11562,
+    "price_per_hour": 0.1185,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.large-l7-ingress-h2.json",
     "system_config": null,
@@ -29791,7 +30401,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 82.7037143437098,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l4-kernel.json",
     "system_config": {
@@ -29933,7 +30543,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l4-lb.json",
     "system_config": null,
@@ -29991,7 +30601,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l7-ingress-h1.json",
     "system_config": null,
@@ -30049,7 +30659,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.05781,
+    "price_per_hour": 0.0593,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.medium-l7-ingress-h2.json",
     "system_config": null,
@@ -30175,7 +30785,7 @@ const TAILBENCH_DATA = [
       "bandwidth_pct": 59.859275617948185,
       "retransmits_pct": 0
     },
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l4-kernel.json",
     "system_config": {
@@ -30317,7 +30927,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l4-lb.json",
     "system_config": null,
@@ -30375,7 +30985,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l7-ingress-h1.json",
     "system_config": null,
@@ -30433,7 +31043,7 @@ const TAILBENCH_DATA = [
     },
     "overhead": null,
     "overhead_single": null,
-    "price_per_hour": 0.23124,
+    "price_per_hour": 0.237,
     "region": "us-west-2",
     "source": "eks/c8gn/results/c8gn.xlarge-l7-ingress-h2.json",
     "system_config": null,

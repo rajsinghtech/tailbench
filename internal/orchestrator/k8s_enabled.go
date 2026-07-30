@@ -19,11 +19,32 @@ import (
 	"github.com/rajsinghtech/tailbench/internal/result"
 )
 
-func validateWorkloadConfig(*config.Config) error { return nil }
+// validateWorkloadConfig rejects VM-only modes, mirroring the VM build's
+// rejection of Kubernetes-only modes (k8s_disabled.go).
+//
+// This was previously `return nil`, which let a VM-oriented mode list provision
+// a cluster and silently measure only the modes that happened to apply. The
+// strictness matches the guardrail layer, which already refuses a run whose plan
+// contains any non-applicable mode (`incompatible-mode` in
+// internal/guardrail/guardrail.go). Keeping all three layers — plan, guardrail,
+// orchestrator — on one policy is what stops them contradicting each other;
+// notably `resume` bypasses the guardrail, so without this check a VM-only mode
+// list could still reach the orchestrator.
+func validateWorkloadConfig(cfg *config.Config) error {
+	for _, mode := range cfg.Modes {
+		if !benchmark.ModeAppliesTo(mode, "container") {
+			return fmt.Errorf("vm-only benchmark mode %q requires a VM binary", mode)
+		}
+	}
+	return nil
+}
 
+// Both helpers gate cluster-side setup, so they must ignore modes that cannot
+// run here. Without the applicability check, a VM-only fortio mode such as
+// l7-serve-h1 deployed the L7 bench manifests for a benchmark that never ran.
 func hasL7Modes(modes []string) bool {
 	for _, mode := range modes {
-		if benchmark.ModeUsesFortio(mode) {
+		if benchmark.ModeUsesFortio(mode) && benchmark.ModeAppliesTo(mode, "container") {
 			return true
 		}
 	}
@@ -32,7 +53,7 @@ func hasL7Modes(modes []string) bool {
 
 func hasForwardPPSModes(modes []string) bool {
 	for _, mode := range modes {
-		if benchmark.ModeUsesForwardPPS(mode) {
+		if benchmark.ModeUsesForwardPPS(mode) && benchmark.ModeAppliesTo(mode, "container") {
 			return true
 		}
 	}
@@ -180,7 +201,13 @@ func (o *Orchestrator) runK8sBenchmark(ctx context.Context, p provider.Provider,
 		Config: o.benchmarkRunConfig(authKey, serverHostname, clientHostname),
 	}
 	prefix := fmt.Sprintf("[%s/%s]", p.Name(), inst.Type)
-	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container", modeContext{serverHostname: serverHostname, kubeconfig: pair.Kubeconfig})
+	// modeContext.serverHostname must be the sink's real tailnet device name,
+	// which for a pod is pair.ServerName (tb-<provider>-server-<type>, set as
+	// TS_HOSTNAME). The orchestrator-generated serverHostname is the VM-style
+	// tb-<provider>-s-<type>-<suffix> and is never registered on a K8s run, so
+	// using it pointed the egress Service at an FQDN that does not resolve.
+	return o.runModeLoop(ctx, runner, p, pair, inst, family, prefix, "container",
+		modeContext{serverHostname: pair.ServerName, kubeconfig: pair.Kubeconfig})
 }
 
 // runForwardPPS runs one pass of the ProxyGroup forwarding A/B: it applies the

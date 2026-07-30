@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os/exec"
 	"strings"
 )
@@ -23,7 +24,8 @@ func (ExecCommandRunner) Run(ctx context.Context, name string, args ...string) (
 // output is discarded so account IDs, emails, subscriptions, and tokens never
 // become diagnostics.
 type CommandRemoteChecker struct {
-	Runner CommandRunner
+	Runner       CommandRunner
+	StateBackend string
 }
 
 func (c CommandRemoteChecker) Check(ctx context.Context, provider string) ([]Check, error) {
@@ -41,15 +43,7 @@ func (c CommandRemoteChecker) CheckWithIdentity(
 	}
 
 	checks := make([]Check, 0, 2)
-	pulumiCheck, _ := runRemoteCheck(
-		ctx,
-		runner,
-		"pulumi-auth",
-		"pulumi",
-		[]string{"whoami"},
-		"Pulumi authentication succeeded",
-		"run pulumi login and verify the selected backend",
-	)
+	pulumiCheck := checkPulumiBackend(ctx, runner, c.StateBackend)
 	checks = append(checks, pulumiCheck)
 
 	name, args, detail, remediation, err := cloudIdentityCommand(provider)
@@ -76,6 +70,100 @@ func (c CommandRemoteChecker) CheckWithIdentity(
 	}
 	checks = append(checks, cloudCheck)
 	return checks, identity, nil
+}
+
+func checkPulumiBackend(
+	ctx context.Context,
+	runner CommandRunner,
+	stateBackend string,
+) Check {
+	stateBackend = strings.TrimSpace(stateBackend)
+	switch {
+	case stateBackend == "", strings.HasPrefix(stateBackend, "file://"):
+		return Check{
+			Name:   "pulumi-auth",
+			Status: StatusSkipped,
+			Detail: "Pulumi authentication is not required for the local state backend",
+			Remote: true,
+		}
+	case strings.HasPrefix(stateBackend, "s3://"),
+		strings.HasPrefix(stateBackend, "gs://"),
+		strings.HasPrefix(stateBackend, "azblob://"):
+		return Check{
+			Name:   "pulumi-auth",
+			Status: StatusSkipped,
+			Detail: "Pulumi account authentication is not required for the object-store state backend",
+			Remote: true,
+		}
+	default:
+		check := Check{
+			Name:   "pulumi-auth",
+			Status: StatusPassed,
+			Detail: "Pulumi authentication succeeded for the configured state backend",
+			Remote: true,
+		}
+		output, err := runner.Run(ctx, "pulumi", "whoami", "--verbose", "--output", "json")
+		if err != nil {
+			check.Status = StatusFailed
+			check.Detail = fmt.Sprintf("pulumi authentication check failed: %v", err)
+			check.Remediation = fmt.Sprintf(
+				"run pulumi login %s and verify the selected backend",
+				stateBackend,
+			)
+			return check
+		}
+		if err := verifyPulumiBackend(output, stateBackend); err != nil {
+			check.Status = StatusFailed
+			check.Detail = err.Error()
+			check.Remediation = fmt.Sprintf(
+				"run pulumi login %s so the configured state backend is selected",
+				stateBackend,
+			)
+		}
+		return check
+	}
+}
+
+func verifyPulumiBackend(output []byte, configured string) error {
+	var identity struct {
+		URL string `json:"url"`
+	}
+	if err := json.Unmarshal(output, &identity); err != nil {
+		return fmt.Errorf("parse Pulumi backend identity: %w", err)
+	}
+	selected, err := url.Parse(strings.TrimSpace(identity.URL))
+	if err != nil || selected.Host == "" {
+		return fmt.Errorf("parse Pulumi backend identity: backend URL is unavailable")
+	}
+	expected, err := url.Parse(configured)
+	if err != nil || expected.Host == "" {
+		return fmt.Errorf("parse configured Pulumi state backend")
+	}
+	if pulumiBackendHostsMatch(expected.Hostname(), selected.Hostname()) {
+		return nil
+	}
+	return fmt.Errorf("pulumi authentication check selected a different state backend")
+}
+
+func pulumiBackendHostsMatch(expected, selected string) bool {
+	expected = strings.ToLower(expected)
+	selected = strings.ToLower(selected)
+	if expected == selected {
+		return true
+	}
+	for _, prefix := range []string{"api.", "app."} {
+		expectedSuffix, expectedMatch := strings.CutPrefix(expected, prefix)
+		if !expectedMatch {
+			continue
+		}
+		for _, selectedPrefix := range []string{"api.", "app."} {
+			selectedSuffix, selectedMatch := strings.CutPrefix(selected, selectedPrefix)
+			if selectedMatch && expectedSuffix == selectedSuffix {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func runRemoteCheck(

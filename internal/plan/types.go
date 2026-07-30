@@ -13,10 +13,14 @@ type Catalog interface {
 }
 
 type CatalogInstance struct {
-	Type      string  `json:"type"`
-	Family    string  `json:"family"`
-	VCPUs     int     `json:"vcpus,omitempty"`
-	HourlyUSD float64 `json:"hourly_usd,omitempty"`
+	Type string `json:"type"`
+	// Family is the per-size family used for result paths; FamilyGroup is the
+	// group-wide value ListFamilies offers as a --family selector. They differ
+	// only on Azure (d2sv4 vs dsv4), where --family must match the group.
+	Family      string  `json:"family"`
+	FamilyGroup string  `json:"family_group,omitempty"`
+	VCPUs       int     `json:"vcpus,omitempty"`
+	HourlyUSD   float64 `json:"hourly_usd,omitempty"`
 }
 
 type CatalogMetadata struct {
@@ -97,14 +101,17 @@ type ResourceSummary struct {
 }
 
 type CostSummary struct {
-	Estimate         bool     `json:"estimate"`
-	MaximumHourlyUSD float64  `json:"maximum_hourly_usd,omitempty"`
-	UpperBoundUSD    float64  `json:"upper_bound_usd,omitempty"`
-	EstimateWindow   string   `json:"estimate_window,omitempty"`
-	DataSource       string   `json:"data_source,omitempty"`
-	DataUpdated      string   `json:"data_updated,omitempty"`
-	Assumptions      []string `json:"assumptions"`
-	Excluded         []string `json:"excluded"`
+	Estimate              bool     `json:"estimate"`
+	MaximumHourlyUSD      float64  `json:"maximum_hourly_usd,omitempty"`
+	ExecutionWindowUSD    float64  `json:"execution_window_usd,omitempty"`
+	UpperBoundAvailable   bool     `json:"upper_bound_available"`
+	UpperBoundUSD         float64  `json:"upper_bound_usd,omitempty"`
+	EstimateWindow        string   `json:"estimate_window,omitempty"`
+	UpperBoundUnavailable string   `json:"upper_bound_unavailable,omitempty"`
+	DataSource            string   `json:"data_source,omitempty"`
+	DataUpdated           string   `json:"data_updated,omitempty"`
+	Assumptions           []string `json:"assumptions"`
+	Excluded              []string `json:"excluded"`
 }
 
 type GuardrailSummary struct {

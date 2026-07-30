@@ -56,16 +56,20 @@ APIs, create state directories, or delete locks:
 ./dist/tailbench-aws doctor --config config.example.yaml
 ```
 
-`--dry-run` prints the provider, the configured modes, and every instance type that `--family` and `--filter` select, then exits without touching any cloud. An unrecognized `--family` is rejected with the list of valid families rather than selecting nothing.
+`plan` — and its `--dry-run` alias — prints the provider, each configured mode with its applicability, and every instance type that `--family` and `--filter` select, then exits without touching any cloud. An unrecognized `--family` is not rejected outright: the plan warns that nothing matched the local catalog, and the `no-runnable-work` guardrail then refuses the run before anything is provisioned.
 
 An explicit provider must match the binary. For example, `tailbench-aws --provider gcp` fails rather than silently using AWS. Renaming an executable does not change its provider identity.
 
 `doctor --remote` is opt-in. It loads the configured credential source and
 performs read-only Pulumi, Tailscale-value, and cloud CLI checks. `run`, or an
 invocation with no subcommand and `dry_run: false`, can provision billable
-resources. Tailbench prints the selected topology, duration, estimated cost
-bound, and cleanup policy before an interactive run. Automation requires both
-`--yes` and an explicitly configured `--max-cost-usd`:
+resources. Tailbench prints the selected topology, duration, cost estimate, and
+cleanup policy before an interactive run. With `cleanup_policy: always`, the
+duration estimate is presented as an upper bound. With `on-success` or
+`manual`, it is only an execution-window estimate: resources can remain
+billable after `max_duration`, so Tailbench explicitly reports that no lifetime
+cost upper bound is available. Automation requires both `--yes` and an
+explicitly configured `--max-cost-usd`:
 
 ```bash
 # Provisioning: creates billable AWS resources.
@@ -96,6 +100,30 @@ sequentially. For local work, select one exact target such as `make build-aws`,
 `make verify-deps VARIANT=aws` rather than the all-variant form. A single variant
 can still be resource intensive, so start it only on an appropriately sized
 machine.
+
+### Repeatable AWS invocations
+
+The Makefile also wraps the four AWS commands above, so the selector and the
+guardrails stay identical between planning and running. AWS credentials come
+from a Pulumi ESC environment (`esc run`), while Tailscale OAuth still comes
+from `.env` through `env_file:`. All four expect `make build-aws` to have run
+already:
+
+```bash
+make plan-aws            # side-effect-free plan
+make doctor-aws          # local prerequisite checks
+make doctor-aws-remote   # read-only remote checks, through ESC
+make bench-aws           # PROVISIONS; prints the plan and waits for confirmation
+make bench-aws YES=1     # noninteractive, which requires the cost ceiling
+```
+
+Each value is a Make variable with a default: `ESC_ENV=tailscale-phase-2/aws-oidc`,
+`FILTER=^c6in\.large$`, `MAX_COST=5`, `MAX_DURATION=45m`, `MAX_TYPES=1`. Override
+them on the command line, for example
+`make bench-aws FILTER='^c6in\.(large|xlarge)$' MAX_TYPES=2 MAX_COST=15`. Only
+`bench-aws` provisions anything: `plan-aws` reaches no network at all, and
+`doctor-aws-remote` is read-only. Equivalent targets do not yet exist for the
+other five variants — invoke those binaries directly, as shown above.
 
 ## Step-by-step runbooks
 
@@ -154,11 +182,70 @@ Every binary requires:
 
 The managed Kubernetes variants also require permissions to create clusters, node pools or node groups, load balancers, and the resources used by the Tailscale Kubernetes operator. Cloud and Pulumi CLIs are runtime prerequisites and are not embedded in release archives.
 
+### Tailscale credentials and the tailnet
+
+Benchmark nodes join a tailnet with an auth key, and an auth key has to be
+minted against a tailnet, so `tailscale:` must describe one of two models.
+Configuring neither is refused at startup, before anything is provisioned
+(`internal/orchestrator/orchestrator.go:174`):
+
+| `create_tailnet` | Also set | What tailbench does |
+|---|---|---|
+| `true` | — | Creates an ephemeral tailnet, and deletes it under the run's cleanup policy |
+| `false` | `tailnet_dns_name: example.ts.net` | Joins the tailnet the configured OAuth client already belongs to; creates and deletes nothing |
+
+Which model you can use is decided by the OAuth client you are able to issue.
+The client in `.env` is used **only** to create and delete tailnets:
+`CreateTailnet` returns a second, per-tailnet OAuth client
+(`internal/tailnet/tailnet.go:63`), and every later call — policy file, HTTPS,
+auth keys, stale-device cleanup — is made with that one instead. Creating a
+tailnet needs an organization-level permission that is not one of the published
+Tailscale OAuth scopes, so a tailnet-scoped client still fails with
+`403 actor does not have permission to create tailnets` even when it holds scope
+`all`. If you cannot issue an org-level client, use `create_tailnet: false` with
+`tailnet_dns_name`.
+
+> **Warning:** on both paths, tailbench **replaces the tailnet's entire policy
+> file** with an allow-all benchmark ACL (`internal/tailnet/tailnet.go:150-160`).
+> Joining is not read-only. Point `tailnet_dns_name` at a tailnet dedicated to
+> benchmarking, never at one carrying real traffic.
+
+Tailbench also enables HTTPS on the tailnet whenever the run needs it — for the
+Kubernetes operator's API-server proxy, and for any `l7-serve-*` mode on VMs
+(`internal/orchestrator/orchestrator.go:1614`). Without HTTPS, cloud-init blocks
+indefinitely in `tailscale serve --https=443` and the node never reports ready.
+
 ## Infrastructure lifecycle
 
-For each selected instance type, Tailbench provisions a server/client pair, runs the applicable benchmark modes, writes compatible JSON results, and destroys the pair. Provider networking or cluster infrastructure is reused unless `--cleanup-networking` is set. Existing results are skipped for resume support, and quota failures skip the remaining types in the affected family.
+For each selected instance type, Tailbench provisions a server/client pair, runs the applicable benchmark modes, writes compatible JSON results, and destroys the pair. Existing results are skipped for resume support, and quota failures skip the remaining types in the affected family.
+
+Provider networking and cluster infrastructure are **no longer reused by default**. `cleanup_networking` is derived from `cleanup_policy` (`internal/config/config.go:457`), which defaults to `always`, so a completed run also tears down its networking stack and the tailnet it created. Set `cleanup_policy: manual` to keep them for the next run — note that the instance-type cache is only read when networking is being kept.
 
 Generated benchmark data continues to aggregate into `website/data.generated.js`.
+
+### SSH access to benchmark nodes
+
+Benchmarks themselves run over Tailscale SSH, so a cloud SSH key is only needed
+for the failure that matters most: cloud-init dying before `tailscale up`, which
+otherwise leaves a billed instance with no way in at all.
+
+When no public key is configured, tailbench generates an ed25519 key pair,
+writes the private half to `.tailbench/ssh/<name>.pem` with mode `0600`
+(`.tailbench/` is gitignored), and installs the public half on every node it
+creates (`internal/provider/sshkey.go:35`). An existing key is reused and never
+regenerated: a new public key would make Pulumi replace the key-pair resource
+and would silently invalidate a private key you had already saved.
+
+| Provider | Configure your own key with | Otherwise |
+|---|---|---|
+| AWS/EKS | `aws.key_name` — an existing EC2 key pair, used as-is | Generates the key and creates the EC2 key pair from it |
+| Azure/AKS | `azure.ssh_pub_key_file` — a path, whose read errors are fatal | Generates the key and embeds it in each VM |
+| GCP/GKE | *(no configuration key)* | Always generates; login user defaults to `ubuntu` |
+
+`ssh.ready_timeout` (default 300 seconds) bounds the wait for
+`/tmp/tailbench-ready`. On expiry the error names the diagnostic recipe: connect
+with the saved key, then read `cloud-init status --long` and
+`/var/log/cloud-init-output.log`.
 
 ### Pulumi state backend
 
@@ -284,3 +371,35 @@ checklist and the CI/build-host boundary.
 ## Dashboard
 
 Open `website/index.html` locally to view aggregated results, or use the repository's deployed GitHub Pages site.
+
+### Reading the overhead number
+
+The dashboard's headline overhead is `overhead.bandwidth_pct`, derived from the
+**multi-stream** iperf3 run (`benchmark.iperf_parallel`, 4 by default). The
+checked-in `c6in` results (`aws/c6in/results/*-l4-kernel.json`, `us-west-2`)
+show why that number should be read with care:
+
+| Instance | vCPUs | Baseline, 1 → 4 streams | Tailscale, 1 → 4 streams |
+|---|---|---|---|
+| `c6in.large` | 2 | 9.5 → 24.8 Gbps (2.6x) | 3.15 → 3.24 Gbps (1.03x) |
+| `c6in.2xlarge` | 8 | 9.5 → 37.4 Gbps (3.9x) | 3.96 → 4.25 Gbps (1.07x) |
+| `c6in.8xlarge` | 32 | 9.5 → 37.9 Gbps (4.0x) | 6.18 → 6.34 Gbps (1.03x) |
+| `c6in.32xlarge` | 128 | 9.5 → 37.7 Gbps (4.0x) | 5.70 → 5.79 Gbps (1.02x) |
+
+Across the whole family — every size from 2 to 128 vCPUs, plus `c6in.metal` —
+Tailscale TCP throughput gains only **1.02x to 1.13x** from four parallel
+streams versus one, and plateaus near 6 Gbps. The non-Tailscale baseline is a
+flat ~9.5 Gbps on a single stream and scales to 24.8–37.9 Gbps on four. So the
+multi-stream overhead sits at 83–89% at every size, and what moves inside that
+band is mostly how far the *baseline* scaled out, not what the crypto path cost.
+The single-stream comparison is the fairer read: `overhead_single` in the same
+result files ranges from 66.7% at 2 vCPUs to 34.7% at 32, which is the figure
+that actually tracks vCPU count. It is recorded in the result JSON but not
+charted.
+
+This is an observation about these result files, not a vendor claim — rerun the
+family yourself before generalizing it. It is also the empirical reason this
+repository sizes exit nodes and relay nodes in **packets per second** rather
+than Gbps: a parallel-stream Gbps figure is largely a statement about the
+instance, while the per-packet crypto work is what actually bounds a forwarding
+node.

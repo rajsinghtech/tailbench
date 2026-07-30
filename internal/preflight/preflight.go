@@ -61,6 +61,10 @@ type Request struct {
 	Finder        Finder
 	Remote        bool
 	RemoteChecker RemoteChecker
+	// Tailscale and TailscaleChecker are consulted only when Remote is true. A
+	// local doctor run leaves both zero and reads no credentials.
+	Tailscale        TailscaleRequest
+	TailscaleChecker TailscaleChecker
 }
 
 type PathFinder struct{}
@@ -151,6 +155,15 @@ func Doctor(ctx context.Context, request Request) *Report {
 					}
 				}
 				report.Checks = append(report.Checks, checks...)
+			}
+		}
+		if request.TailscaleChecker != nil {
+			for _, check := range request.TailscaleChecker.CheckTailscale(ctx, request.Tailscale) {
+				check.Remote = true
+				if check.Status == StatusFailed {
+					report.Ready = false
+				}
+				report.Checks = append(report.Checks, check)
 			}
 		}
 	}

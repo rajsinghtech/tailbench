@@ -84,7 +84,34 @@ func (p *AWSProvider) projectOpts() []auto.LocalWorkspaceOption {
 func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
 	stackName := p.networkStackName()
 
+	// An explicit key_name is used as-is and nothing is generated. Otherwise
+	// tailbench creates its own key pair so a node that never reaches
+	// `tailscale up` is still reachable for diagnosis. Generated outside the
+	// Pulumi program so the key material is stable across retries and a
+	// filesystem error surfaces before any cloud call.
+	generatedKeyName := ""
+	authorizedKey := ""
+	if p.KeyName == "" {
+		generatedKeyName = scopedName("tailbench", p.RunID)
+		var keyPath string
+		var err error
+		authorizedKey, keyPath, err = EnsureSSHKey(".", generatedKeyName)
+		if err != nil {
+			return nil, fmt.Errorf("prepare SSH key pair: %w", err)
+		}
+		log.Printf("using generated SSH key pair %q (private key: %s)", generatedKeyName, keyPath)
+	}
+
 	program := func(pCtx *pulumi.Context) error {
+		if generatedKeyName != "" {
+			if _, err := ec2.NewKeyPair(pCtx, "tailbench-keypair", &ec2.KeyPairArgs{
+				KeyName:   pulumi.String(generatedKeyName),
+				PublicKey: pulumi.String(authorizedKey),
+				Tags:      p.resourceTags(generatedKeyName),
+			}); err != nil {
+				return err
+			}
+		}
 		vpc, err := ec2.NewVpc(pCtx, "tailbench-vpc", &ec2.VpcArgs{
 			CidrBlock:          pulumi.String("10.0.0.0/16"),
 			EnableDnsHostnames: pulumi.Bool(true),
@@ -210,6 +237,14 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 		pCtx.Export("subnet_id", subnet.ID())
 		pCtx.Export("sg_id", sg.ID())
 		pCtx.Export("placement_group_name", pg.Name)
+		// Empty when neither configured nor generated; CreatePair then omits
+		// KeyName entirely rather than sending "" and tripping
+		// InvalidKeyPair.NotFound.
+		effectiveKeyName := p.KeyName
+		if effectiveKeyName == "" {
+			effectiveKeyName = generatedKeyName
+		}
+		pCtx.Export("key_name", pulumi.String(effectiveKeyName))
 		return nil
 	}
 
@@ -245,6 +280,7 @@ func (p *AWSProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, e
 			"subnet_id":            getOutput("subnet_id"),
 			"sg_id":                getOutput("sg_id"),
 			"placement_group_name": getOutput("placement_group_name"),
+			"key_name":             getOutput("key_name"),
 		},
 	}, nil
 }
@@ -261,6 +297,7 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 	subnetID := net.Values["subnet_id"]
 	sgID := net.Values["sg_id"]
 	pgName := net.Values["placement_group_name"]
+	keyName := net.Values["key_name"]
 
 	arch := "amd64"
 	nameFilter := "ubuntu/images/hvm-ssd-gp3/ubuntu-noble-24.04-amd64-server-*"
@@ -296,10 +333,9 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 			case routerName:
 				ud = opts.RouterUD()
 			}
-			inst, err := ec2.NewInstance(pCtx, name, &ec2.InstanceArgs{
+			instanceArgs := &ec2.InstanceArgs{
 				Ami:          pulumi.String(ami.Id),
 				InstanceType: pulumi.String(opts.InstanceType),
-				KeyName:      pulumi.String(p.KeyName),
 				SubnetId:     pulumi.String(subnetID),
 				VpcSecurityGroupIds: pulumi.StringArray{
 					pulumi.String(sgID),
@@ -311,7 +347,14 @@ func (p *AWSProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 					VolumeType: pulumi.String("gp3"),
 				},
 				Tags: p.resourceTags(name),
-			})
+			}
+			// Either the configured key_name or the one SetupNetworking
+			// generated. Empty only when generation was skipped; sending "" is
+			// what trips InvalidKeyPair.NotFound, so omit the field instead.
+			if keyName != "" {
+				instanceArgs.KeyName = pulumi.String(keyName)
+			}
+			inst, err := ec2.NewInstance(pCtx, name, instanceArgs)
 			if err != nil {
 				return err
 			}

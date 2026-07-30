@@ -20,7 +20,15 @@ filter: ""
 state_backend: ""
 
 tailscale:
+  # false: join the tailnet the OAuth client already belongs to, rather than
+  # creating an ephemeral one (which needs org-level tailnet-create permission).
+  # tailbench REPLACES this tailnet's policy file — use a dedicated tailnet.
   create_tailnet: true
+  # Alternative when your OAuth client cannot create tailnets: join the one it
+  # already belongs to. Tailbench REPLACES that tailnet's policy file, so use a
+  # tailnet dedicated to benchmarking.
+  # create_tailnet: false
+  # tailnet_dns_name: example-name.ts.net
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
   tag: tag:bench
@@ -61,7 +69,7 @@ ssh:
 aws:
   region: us-west-2
   az: us-west-2a
-  key_name: raj_macbook
+  key_name: ""            # empty: tailbench generates one into .tailbench/ssh/
 
 gcp:
   project: tailscale-sandbox

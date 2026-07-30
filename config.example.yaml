@@ -11,8 +11,18 @@ family: all
 filter: ""
 
 tailscale:
-  # Set this only when the run should create an ephemeral test tailnet.
-  create_tailnet: false
+  # Every run needs a tailnet: create an ephemeral one, or join an existing one.
+  # Configuring neither is refused at startup.
+  #
+  # create_tailnet: true needs an OAuth client with organization-level
+  # permission to create tailnets. A tailnet-scoped client reports scope "all"
+  # and still fails with "actor does not have permission to create tailnets".
+  create_tailnet: true
+  # The alternative, for a client that cannot create tailnets: join the tailnet
+  # it already belongs to. Tailbench REPLACES that tailnet's policy file with an
+  # allow-all benchmark ACL, so use a tailnet dedicated to benchmarking.
+  # create_tailnet: false
+  # tailnet_dns_name: example-name.ts.net
   oauth_client_id: ${OAUTH_CLIENT_ID}
   oauth_client_secret: ${OAUTH_CLIENT_SECRET}
   tag: tag:bench
@@ -37,7 +47,10 @@ ssh:
 aws:
   region: us-west-2
   az: us-west-2a
-  key_name: YOUR_AWS_KEY_PAIR
+  # Optional. Empty means tailbench generates a key pair and saves the private
+  # key under .tailbench/ssh/. Benchmark access is Tailscale SSH either way;
+  # this key is the way in when cloud-init fails before `tailscale up`.
+  key_name: ""
 
 gcp:
   project: YOUR_GCP_PROJECT_ID

@@ -105,14 +105,32 @@ func (p *Plan) WriteText(dst io.Writer) error {
 		); err != nil {
 			return err
 		}
-		if _, err := fmt.Fprintf(
-			dst,
-			"estimated upper bound for %s: $%.2f (guardrail $%.2f)\n",
-			p.Cost.EstimateWindow,
-			p.Cost.UpperBoundUSD,
-			p.Guardrails.MaxCostUSD,
-		); err != nil {
-			return err
+		if p.Cost.UpperBoundAvailable {
+			if _, err := fmt.Fprintf(
+				dst,
+				"estimated upper bound for %s: $%.2f (guardrail $%.2f)\n",
+				p.Cost.EstimateWindow,
+				p.Cost.UpperBoundUSD,
+				p.Guardrails.MaxCostUSD,
+			); err != nil {
+				return err
+			}
+		} else {
+			if _, err := fmt.Fprintf(
+				dst,
+				"estimated compute cost for %s execution window: $%.2f (window guardrail $%.2f)\n",
+				p.Cost.EstimateWindow,
+				p.Cost.ExecutionWindowUSD,
+				p.Guardrails.MaxCostUSD,
+			); err != nil {
+				return err
+			}
+			if _, err := fmt.Fprintln(
+				dst,
+				"estimated lifetime cost upper bound: unavailable",
+			); err != nil {
+				return err
+			}
 		}
 	} else {
 		if _, err := fmt.Fprintln(dst, "estimated maximum compute rate: unavailable"); err != nil {
