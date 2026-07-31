@@ -372,6 +372,27 @@ checklist and the CI/build-host boundary.
 
 Open `website/index.html` locally to view aggregated results, or use the repository's deployed GitHub Pages site.
 
+### Metric definitions and result fields
+
+The dashboard groups records by provider, family, instance type, and
+environment. Forwarding values are never inferred from an L4 endpoint test:
+they appear only when a record has `forward_pps`.
+
+| Dashboard surface | Definition | Aggregated result field(s) |
+|---|---|---|
+| `$/hr` and Avg cost | Curated Linux, shared-tenancy, on-demand hourly price. The headline tile averages priced instances and also reports the cheapest. | `price_per_hour`, injected by `cmd/aggregate` |
+| `Usable pps` | Highest achieved forwarding rate at or below `loss_threshold_pct`. The headline uses the `imix-avg` size (or the highest usable measured size only for legacy results without IMIX) and the best measured `forward-pps-*` mode in the grouped row. | `forward_pps.sizes[].usable_pps` |
+| `pps/$` and Best pps/$ | Headline usable pps divided by on-demand `price_per_hour`; this is packet-rate capacity per hourly dollar, not a workload bill estimate. | `forward_pps.sizes[].usable_pps / price_per_hour` |
+| `Opt gain` | IMIX usable-pps change from K8s ProxyGroup optimizations off to on: `(on - off) / off * 100`. It is computed during aggregation and stored only on the matched optimized record. | `forwarding_optimization.gain_pct`, with `state`, `baseline_mode`, and `baseline_usable_pps`; per-size comparisons are in `forwarding_optimization.sizes[]` |
+| Limiting resource | What capped a forwarding sweep. `instance-pps-cap` means the result may be cloud-limit-bound; `node-cpu` or `proxy-cpu` identifies the measured forwarding node/pod as the bound; `unknown` makes no stronger claim. | `forward_pps.limiting_resource` |
+
+Forwarding pps sizes a router or exit path (`client -> router/proxy -> sink`);
+it is not endpoint-to-endpoint pps. The mode breakdown always identifies VM
+exit-node versus K8s ProxyGroup topology. For the K8s A/B pair, the
+`forwarding_optimizations` state is shown with the measurement, and `Opt gain`
+is labeled `off→on`. Treat a cloud packet-limit-capped result as a lower bound
+on node capacity, not proof that the node itself saturated.
+
 ### Reading the overhead number
 
 The dashboard's headline overhead is `overhead.bandwidth_pct`, derived from the

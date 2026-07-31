@@ -622,8 +622,8 @@ func (o *Orchestrator) runProvider(
 		}
 	}
 
-	if err := o.setupK8s(ctx, p, net, lg); err != nil {
-		recordBenchmarkFailure(fmt.Errorf("setup kubernetes workload: %w", err))
+	if isK8sProvider(p.Name()) && net.Values["kubeconfig"] == "" {
+		recordBenchmarkFailure(errors.New("setup kubernetes workload: provider networking did not return a kubeconfig"))
 		return outcome
 	}
 
@@ -650,6 +650,7 @@ func (o *Orchestrator) runProvider(
 	lg.Infof("found %d instance types to benchmark", len(instances))
 
 	skippedFamilies := map[string]bool{}
+	k8sSetupComplete := false
 
 	for _, inst := range instances {
 		if ctx.Err() != nil {
@@ -827,7 +828,20 @@ func (o *Orchestrator) runProvider(
 
 		lg.Infof("provisioned %s in %s", inst.Type, time.Since(provisionStart).Round(time.Second))
 
-		benchErr := o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
+		var benchErr error
+		// Kubernetes workload setup needs schedulable nodes. Managed clusters
+		// create their per-instance node pool in CreatePair, so installing the
+		// operator before this point leaves Helm waiting on Pending pods.
+		if isK8sProvider(p.Name()) && !k8sSetupComplete {
+			if err := o.setupK8s(ctx, p, net, lg); err != nil {
+				benchErr = fmt.Errorf("setup kubernetes workload: %w", err)
+			} else {
+				k8sSetupComplete = true
+			}
+		}
+		if benchErr == nil {
+			benchErr = o.runBenchmark(ctx, p, pair, inst, family, lg, serverHostname, clientHostname, routerHostname, *authKey)
+		}
 		if benchErr != nil {
 			lg.Errf("benchmark %s: %v", inst.Type, benchErr)
 			recordBenchmarkFailure(fmt.Errorf("benchmark %s: %w", inst.Type, benchErr))

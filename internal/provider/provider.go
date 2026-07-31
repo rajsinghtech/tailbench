@@ -51,6 +51,7 @@ type K8sOperatorProvider interface {
 type OperatorInstallConfig struct {
 	OAuthClientID     string
 	OAuthClientSecret string
+	Hostname          string // run-unique operator hostname on the tailnet
 	Tag               string
 	TailnetDNS        string // e.g. "tailXXXX.ts.net"
 	TsnetSrv          *tsnet.Server

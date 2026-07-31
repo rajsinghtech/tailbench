@@ -367,7 +367,10 @@ func (p *AKSProvider) SetTsnetServer(srv *tsnet.Server) { p.tsnetSrv = srv }
 func (p *AKSProvider) OperatorProxyFQDN() string        { return p.operatorFQDN }
 
 func (p *AKSProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
-	hostname := "tailbench-aks-operator"
+	hostname := cfg.Hostname
+	if hostname == "" {
+		hostname = "tailbench-aks-operator"
+	}
 	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
 		OAuthClientID:     cfg.OAuthClientID,
 		OAuthClientSecret: cfg.OAuthClientSecret,

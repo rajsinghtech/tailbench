@@ -60,6 +60,14 @@ func hasForwardPPSModes(modes []string) bool {
 	return false
 }
 
+func operatorHostname(providerName, runID string) string {
+	hostname := fmt.Sprintf("tailbench-%s-operator", providerName)
+	if index := strings.LastIndex(runID, "_"); index >= 0 && index+1 < len(runID) {
+		hostname += "-" + runID[index+1:]
+	}
+	return hostname
+}
+
 func (o *Orchestrator) setupK8s(ctx context.Context, p provider.Provider, net *provider.NetworkingOutput, lg *logger.Logger) error {
 	var setupErrors []error
 	if kop, ok := p.(provider.K8sOperatorProvider); ok {
@@ -67,6 +75,7 @@ func (o *Orchestrator) setupK8s(ctx context.Context, p provider.Provider, net *p
 		if err := kop.InstallOperator(ctx, provider.OperatorInstallConfig{
 			OAuthClientID:     o.cfg.OAuthClientID,
 			OAuthClientSecret: o.cfg.OAuthClientSecret,
+			Hostname:          operatorHostname(p.Name(), o.cfg.RunID),
 			Tag:               o.cfg.Tag,
 			TailnetDNS:        o.tailnetDNS,
 			TsnetSrv:          o.tsnetSrv,

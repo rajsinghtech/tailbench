@@ -25459,6 +25459,157 @@ const TAILBENCH_DATA = [
     "zone": "us-west-2a"
   },
   {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "eks",
+    "connection_type": "",
+    "date": "2026-07-30",
+    "ena_express": false,
+    "environment": "container",
+    "forward_pps": {
+      "sizes": [
+        {
+          "label": "64",
+          "datagram_bytes": 64,
+          "offered_pps": 25781,
+          "usable_pps": 25756.392366465545,
+          "loss_pct": 0.0917988699688401,
+          "jitter_ms": 0.0174973632382913,
+          "mbps": 13.199711843496301
+        },
+        {
+          "label": "imix-avg",
+          "datagram_bytes": 340,
+          "offered_pps": 17968,
+          "usable_pps": 17962.07862687743,
+          "loss_pct": 0.013728109231225883,
+          "jitter_ms": 0.03930685135104595,
+          "mbps": 48.87242891960574
+        },
+        {
+          "label": "mtu",
+          "datagram_bytes": 1400,
+          "offered_pps": 781,
+          "usable_pps": 780.9611601982995,
+          "loss_pct": 0,
+          "jitter_ms": 0.011577435273804323,
+          "mbps": 8.7470903698007
+        }
+      ],
+      "loss_threshold_pct": 0.1
+    },
+    "forward_role": "proxygroup",
+    "forwarding_optimization": {
+      "state": "on",
+      "baseline_mode": "forward-pps-exit-k8s",
+      "baseline_usable_pps": 20310.049561664757,
+      "gain_pct": -11.560636165157977,
+      "sizes": [
+        {
+          "label": "64",
+          "datagram_bytes": 64,
+          "baseline_usable_pps": 25756.521660293154,
+          "optimized_usable_pps": 25756.392366465545,
+          "gain_pct": -0.0005019848150091617
+        },
+        {
+          "label": "imix-avg",
+          "datagram_bytes": 340,
+          "baseline_usable_pps": 20310.049561664757,
+          "optimized_usable_pps": 17962.07862687743,
+          "gain_pct": -11.560636165157977
+        },
+        {
+          "label": "mtu",
+          "datagram_bytes": 1400,
+          "baseline_usable_pps": 780.9727700827498,
+          "optimized_usable_pps": 780.9611601982995,
+          "gain_pct": -0.0014865927334545065
+        }
+      ]
+    },
+    "forwarding_optimizations": "on",
+    "instance_family": "c6in",
+    "instance_type": "c6in.large",
+    "kernel_version": "",
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 0.1134,
+    "region": "us-west-2",
+    "source": "eks/c6in/results/c6in.large-forward-pps-exit-k8s-opton.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "forward-pps-exit-k8s-opton",
+    "vcpus": 2,
+    "zone": "us-west-2a"
+  },
+  {
+    "baseline_mtr": null,
+    "baseline_tcp": null,
+    "baseline_tcp_single": null,
+    "cloud_provider": "eks",
+    "connection_type": "",
+    "date": "2026-07-30",
+    "ena_express": false,
+    "environment": "container",
+    "forward_pps": {
+      "sizes": [
+        {
+          "label": "64",
+          "datagram_bytes": 64,
+          "offered_pps": 25781,
+          "usable_pps": 25756.521660293154,
+          "loss_pct": 0.09050616217669906,
+          "jitter_ms": 0.02065291783293909,
+          "mbps": 13.199633712331915
+        },
+        {
+          "label": "imix-avg",
+          "datagram_bytes": 340,
+          "offered_pps": 20312,
+          "usable_pps": 20310.049561664757,
+          "loss_pct": 0.0062360509386897725,
+          "jitter_ms": 0.01798508635995181,
+          "mbps": 55.247954925358925
+        },
+        {
+          "label": "mtu",
+          "datagram_bytes": 1400,
+          "offered_pps": 781,
+          "usable_pps": 780.9727700827498,
+          "loss_pct": 0,
+          "jitter_ms": 0.021579700378116923,
+          "mbps": 8.7471031987246
+        }
+      ],
+      "loss_threshold_pct": 0.1
+    },
+    "forward_role": "proxygroup",
+    "forwarding_optimizations": "off",
+    "instance_family": "c6in",
+    "instance_type": "c6in.large",
+    "kernel_version": "",
+    "overhead": null,
+    "overhead_single": null,
+    "price_per_hour": 0.1134,
+    "region": "us-west-2",
+    "source": "eks/c6in/results/c6in.large-forward-pps-exit-k8s.json",
+    "system_config": null,
+    "tailscale_mtr": null,
+    "tailscale_tcp": null,
+    "tailscale_tcp_single": null,
+    "tailscale_version": "1.98.10",
+    "test_config": null,
+    "transport_mode": "forward-pps-exit-k8s",
+    "vcpus": 2,
+    "zone": "us-west-2a"
+  },
+  {
     "baseline_mtr": {
       "target_ip": "10.0.1.245",
       "hops": [

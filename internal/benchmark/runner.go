@@ -348,7 +348,9 @@ func probeUDPRate(ctx context.Context, c Executor, targetIP string, datagramByte
 	bitsPerSec := int64(pps) * int64(datagramBytes) * 8
 	cmd := fmt.Sprintf("iperf3 -c %s -p %d -u -l %d -b %d -P 1 -O %d -t %d -J",
 		targetIP, IPerfPort, datagramBytes, bitsPerSec, warmupSec, durationSec)
-	stdout, _, err := c.Run(ctx, cmd)
+	probeCtx, cancel := context.WithTimeout(ctx, time.Duration(durationSec+warmupSec+15)*time.Second)
+	defer cancel()
+	stdout, _, err := c.Run(probeCtx, cmd)
 	if err != nil {
 		return nil, err
 	}
@@ -369,7 +371,10 @@ func probeUDPRate(ctx context.Context, c Executor, targetIP string, datagramByte
 // maxSteps trials are spent. Each trial is a real ~PPSDurationSec benchmark, so
 // the step budget is deliberately small.
 func (r *Runner) runUDPSweep(ctx context.Context, c Executor, targetIP string, datagramBytes int, cfg RunConfig) (result.PPSSizeResult, error) {
-	const maxSteps = 8
+	// Thirteen probes are enough to halve the default 2M ceiling below 1k
+	// before tightening the bracket. The K8s egress path can have a much lower
+	// MTU-datagram ceiling than its small-packet ceiling.
+	const maxSteps = 12
 	const bracketTolerancePct = 5.0
 
 	threshold := cfg.PPSLossThresholdPct
@@ -391,9 +396,12 @@ func (r *Runner) runUDPSweep(ctx context.Context, c Executor, targetIP string, d
 			return best, fmt.Errorf("udp probe at %d pps (%dB): %w", rate, datagramBytes, err)
 		}
 
-		usablePPS := 0.0
-		if stats.Seconds > 0 {
-			usablePPS = float64(stats.Packets-stats.LostPackets) / stats.Seconds
+		usablePPS, valid := usableUDPResult(stats)
+		if !valid {
+			r.Log.Infof("pps %dB: offered %d pps -> invalid receiver counters (packets=%d lost=%d seconds=%.2f loss=%.3f%%), treating as lossy",
+				datagramBytes, rate, stats.Packets, stats.LostPackets, stats.Seconds, stats.LossPct)
+			hi = rate
+			continue
 		}
 		r.Log.Infof("pps %dB: offered %d pps -> loss %.3f%%, usable %.0f pps, jitter %.2f ms",
 			datagramBytes, rate, stats.LossPct, usablePPS, stats.JitterMs)
@@ -421,10 +429,27 @@ func (r *Runner) runUDPSweep(ctx context.Context, c Executor, targetIP string, d
 	}
 
 	if !found {
-		return best, fmt.Errorf("no offered rate sustained loss <= %.3f%% for %dB (floor above %d pps?)",
-			threshold, datagramBytes, cfg.PPSMaxRatePPS)
+		return best, fmt.Errorf("no offered rate sustained loss <= %.3f%% for %dB (lowest probed rate %d pps was still lossy)",
+			threshold, datagramBytes, hi)
 	}
 	return best, nil
+}
+
+// usableUDPResult rejects empty or internally inconsistent receiver summaries.
+// iperf3 can report zero packets and zero loss when every datagram is dropped,
+// and under extreme overload its inferred lost_packets can exceed packets.
+// Neither result is evidence that the offered rate met the loss budget.
+func usableUDPResult(stats *UDPStats) (float64, bool) {
+	if stats == nil ||
+		stats.Seconds <= 0 ||
+		stats.Packets <= 0 ||
+		stats.LostPackets < 0 ||
+		stats.LostPackets > stats.Packets ||
+		stats.LossPct < 0 ||
+		stats.LossPct > 100 {
+		return 0, false
+	}
+	return float64(stats.Packets-stats.LostPackets) / stats.Seconds, true
 }
 
 // RunForwardingPPS measures usable forwarding pps from the client to

@@ -4,8 +4,10 @@ apiVersion: tailscale.com/v1alpha1
 kind: ProxyClass
 metadata:
   name: common
+spec: {}
 ---
 apiVersion: tailscale.com/v1alpha1
 kind: ProxyClass
 metadata:
   name: common-accept-routes
+spec: {}

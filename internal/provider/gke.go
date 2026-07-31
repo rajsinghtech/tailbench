@@ -416,7 +416,10 @@ func (p *GKEProvider) OperatorProxyFQDN() string {
 }
 
 func (p *GKEProvider) InstallOperator(ctx context.Context, cfg OperatorInstallConfig) error {
-	hostname := "tailbench-gke-operator"
+	hostname := cfg.Hostname
+	if hostname == "" {
+		hostname = "tailbench-gke-operator"
+	}
 	if err := k8s.InstallOperator(ctx, p.kubeconfig, k8s.OperatorConfig{
 		OAuthClientID:     cfg.OAuthClientID,
 		OAuthClientSecret: cfg.OAuthClientSecret,
