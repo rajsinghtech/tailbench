@@ -145,6 +145,19 @@ func TestForwardPPSJSON(t *testing.T) {
 		TransportMode:        "forward-pps-exit-k8s-opton",
 		ForwardRole:          "proxygroup",
 		ForwardOptimizations: "on",
+		ForwardingOptimization: &ForwardingOptimization{
+			State:             "on",
+			BaselineMode:      "forward-pps-exit-k8s",
+			BaselineUsablePPS: 62_000,
+			GainPct:           33.87096774193548,
+			Sizes: []ForwardingOptimizationSizeGain{{
+				Label:              "64",
+				DatagramBytes:      64,
+				BaselineUsablePPS:  62_000,
+				OptimizedUsablePPS: 83_000,
+				GainPct:            33.87096774193548,
+			}},
+		},
 		ForwardPPS: &PPSResult{
 			Sizes: []PPSSizeResult{{
 				Label:         "64",
@@ -167,10 +180,17 @@ func TestForwardPPSJSON(t *testing.T) {
 	assert.JSONEq(t, `"on"`, string(raw["forwarding_optimizations"]))
 	assert.JSONEq(t, `"proxygroup"`, string(raw["forward_role"]))
 	assert.Contains(t, string(raw["forward_pps"]), `"limiting_resource":"proxy-cpu"`)
+	assert.Contains(t, string(raw["forwarding_optimization"]), `"gain_pct":33.87096774193548`)
 
 	var decoded BenchmarkResult
 	require.NoError(t, json.Unmarshal(data, &decoded))
 	assert.Equal(t, "on", decoded.ForwardOptimizations)
+	require.NotNil(t, decoded.ForwardingOptimization)
+	assert.Equal(t, "on", decoded.ForwardingOptimization.State)
+	assert.Equal(t, "forward-pps-exit-k8s", decoded.ForwardingOptimization.BaselineMode)
+	assert.InDelta(t, 33.87096774193548, decoded.ForwardingOptimization.GainPct, 0.000_001)
+	require.Len(t, decoded.ForwardingOptimization.Sizes, 1)
+	assert.Equal(t, 62_000.0, decoded.ForwardingOptimization.Sizes[0].BaselineUsablePPS)
 	require.NotNil(t, decoded.ForwardPPS)
 	assert.Equal(t, 83000.0, decoded.ForwardPPS.Sizes[0].UsablePPS)
 	assert.Equal(t, "proxy-cpu", decoded.ForwardPPS.LimitingResource)
@@ -180,6 +200,7 @@ func TestForwardPPSJSON(t *testing.T) {
 	require.NoError(t, err)
 	assert.NotContains(t, string(plain), "forward_pps")
 	assert.NotContains(t, string(plain), "forwarding_optimizations")
+	assert.NotContains(t, string(plain), "forwarding_optimization")
 }
 
 func TestRelayJSON(t *testing.T) {

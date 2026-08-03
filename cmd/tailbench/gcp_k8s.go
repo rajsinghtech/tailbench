@@ -10,5 +10,9 @@ import (
 const compiledProviderName = "gke"
 
 func newCompiledProvider(cfg *config.Config) provider.Provider {
-	return &provider.GKEProvider{Project: cfg.GCPProject, Zone: cfg.GCPZone, StateDir: providerStateDir(cfg.StateDir, compiledProviderName)}
+	return &provider.GKEProvider{
+		Project: cfg.GCPProject, Zone: cfg.GCPZone,
+		StateDir: provider.BackendURL(cfg.StateBackend, cfg.StateDir, compiledProviderName),
+		RunID:    cfg.RunID, ExpiresAt: cfg.ResourceExpiresAt,
+	}
 }

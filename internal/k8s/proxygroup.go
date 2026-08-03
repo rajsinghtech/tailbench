@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"reflect"
 	"strconv"
 	"strings"
 	"time"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	apierrors "k8s.io/apimachinery/pkg/api/errors"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/client-go/kubernetes"
 )
@@ -27,6 +29,9 @@ const (
 	ProxyGroupAnnotation = "tailscale.com/proxy-group"
 	// TailnetFQDNAnnotation points an egress service at a tailnet host.
 	TailnetFQDNAnnotation = "tailscale.com/tailnet-fqdn"
+	// egressServiceReadyCondition is set by the Tailscale operator after it
+	// has created the backing ClusterIP Service and endpoint mapping.
+	egressServiceReadyCondition = "TailscaleEgressSvcReady"
 	// forwardingOptEnv toggles Tailscale forwarding optimizations on the
 	// ProxyClasses (A/B knob for the forwarding-pps benchmark).
 	forwardingOptEnv = "TS_EXPERIMENTAL_ENABLE_FORWARDING_OPTIMIZATIONS"
@@ -167,49 +172,123 @@ func WaitForProxyGroupReady(ctx context.Context, cs kubernetes.Interface, name s
 	}
 }
 
-// EnsureEgressService idempotently creates a ClusterIP service in the bench
-// namespace that exposes a tailnet host (via the egress ProxyGroup) to
-// cluster workloads over UDP. Returns the service ClusterIP. If the service
-// already exists but points at a stale FQDN (the server hostname varies per
-// run), the annotation is updated in place.
-func EnsureEgressService(ctx context.Context, cs kubernetes.Interface, namespace, name, tailnetFQDN string, port int32) (string, error) {
-	svcs := cs.CoreV1().Services(namespace)
-	annotations := map[string]string{
-		TailnetFQDNAnnotation: tailnetFQDN,
-		ProxyGroupAnnotation:  ProxyGroupName,
-	}
-
-	if existing, err := svcs.Get(ctx, name, metav1.GetOptions{}); err == nil {
-		if existing.Annotations[TailnetFQDNAnnotation] != tailnetFQDN {
-			existing.Annotations = annotations
-			if _, err := svcs.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
-				return "", fmt.Errorf("update egress service %s/%s: %w", namespace, name, err)
-			}
-			log.Printf("updated egress service %s/%s tailnet FQDN to %s", namespace, name, tailnetFQDN)
-		}
-		return existing.Spec.ClusterIP, nil
-	}
-
-	svc := &corev1.Service{
+func newEgressService(namespace, name, tailnetFQDN string, port int32) *corev1.Service {
+	return &corev1.Service{
 		ObjectMeta: metav1.ObjectMeta{
-			Name:        name,
-			Namespace:   namespace,
-			Annotations: annotations,
-			Labels:      map[string]string{"app": "tailbench", "role": name},
+			Name:      name,
+			Namespace: namespace,
+			Annotations: map[string]string{
+				TailnetFQDNAnnotation: tailnetFQDN,
+				ProxyGroupAnnotation:  ProxyGroupName,
+			},
+			Labels: map[string]string{"app": "tailbench", "role": name},
 		},
 		Spec: corev1.ServiceSpec{
-			Type: corev1.ServiceTypeClusterIP,
+			Type:         corev1.ServiceTypeExternalName,
+			ExternalName: "placeholder",
 			Ports: []corev1.ServicePort{
-				{Name: "udp", Protocol: corev1.ProtocolUDP, Port: port},
+				{Name: "iperf-control", Protocol: corev1.ProtocolTCP, Port: port},
+				{Name: "iperf-udp", Protocol: corev1.ProtocolUDP, Port: port},
 			},
 		},
 	}
-	created, err := svcs.Create(ctx, svc, metav1.CreateOptions{})
-	if err != nil {
-		return "", fmt.Errorf("create egress service %s/%s: %w", namespace, name, err)
+}
+
+func egressServiceReady(svc *corev1.Service) bool {
+	if svc.Spec.Type != corev1.ServiceTypeExternalName ||
+		svc.Spec.ExternalName == "" ||
+		svc.Spec.ExternalName == "placeholder" {
+		return false
 	}
-	log.Printf("created egress service %s/%s -> %s (clusterIP %s)", namespace, name, tailnetFQDN, created.Spec.ClusterIP)
-	return created.Spec.ClusterIP, nil
+	for _, condition := range svc.Status.Conditions {
+		if condition.Type == egressServiceReadyCondition &&
+			condition.Status == metav1.ConditionTrue {
+			return true
+		}
+	}
+	return false
+}
+
+func waitForEgressServiceReady(ctx context.Context, cs kubernetes.Interface, namespace, name string, timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	for {
+		svc, err := cs.CoreV1().Services(namespace).Get(ctx, name, metav1.GetOptions{})
+		if err == nil && egressServiceReady(svc) {
+			log.Printf("egress service %s/%s ready via %s", namespace, name, svc.Spec.ExternalName)
+			return nil
+		}
+		if err != nil && !apierrors.IsNotFound(err) {
+			log.Printf("waiting for egress service %s/%s: %v", namespace, name, err)
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("egress service %s/%s not ready after %v", namespace, name, timeout)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(2 * time.Second):
+		}
+	}
+}
+
+// EnsureEgressService idempotently creates the annotated ExternalName Service
+// the Tailscale operator requires to expose a tailnet host through an egress
+// ProxyGroup. The operator rewrites ExternalName to its backing ClusterIP
+// Service and marks TailscaleEgressSvcReady after the endpoint mapping is live.
+// The returned target is the stable Service DNS name used by benchmark pods.
+func EnsureEgressService(ctx context.Context, cs kubernetes.Interface, namespace, name, tailnetFQDN string, port int32) (string, error) {
+	svcs := cs.CoreV1().Services(namespace)
+	desired := newEgressService(namespace, name, tailnetFQDN, port)
+
+	existing, err := svcs.Get(ctx, name, metav1.GetOptions{})
+	switch {
+	case apierrors.IsNotFound(err):
+		if _, err := svcs.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
+			return "", fmt.Errorf("create egress service %s/%s: %w", namespace, name, err)
+		}
+		log.Printf("created egress service %s/%s -> %s", namespace, name, tailnetFQDN)
+	case err != nil:
+		return "", fmt.Errorf("get egress service %s/%s: %w", namespace, name, err)
+	case existing.Spec.Type != corev1.ServiceTypeExternalName:
+		// Service type/ClusterIP fields are not safely mutable across this
+		// transition. Recreate old pre-ExternalName resources defensively.
+		if err := svcs.Delete(ctx, name, metav1.DeleteOptions{}); err != nil {
+			return "", fmt.Errorf("delete incompatible egress service %s/%s: %w", namespace, name, err)
+		}
+		for {
+			_, err := svcs.Get(ctx, name, metav1.GetOptions{})
+			if apierrors.IsNotFound(err) {
+				break
+			}
+			if err != nil {
+				return "", fmt.Errorf("wait for egress service %s/%s deletion: %w", namespace, name, err)
+			}
+			select {
+			case <-ctx.Done():
+				return "", ctx.Err()
+			case <-time.After(500 * time.Millisecond):
+			}
+		}
+		if _, err := svcs.Create(ctx, desired, metav1.CreateOptions{}); err != nil {
+			return "", fmt.Errorf("recreate egress service %s/%s: %w", namespace, name, err)
+		}
+		log.Printf("recreated egress service %s/%s as ExternalName -> %s", namespace, name, tailnetFQDN)
+	case existing.Annotations[TailnetFQDNAnnotation] != tailnetFQDN ||
+		existing.Annotations[ProxyGroupAnnotation] != ProxyGroupName ||
+		!reflect.DeepEqual(existing.Spec.Ports, desired.Spec.Ports):
+		existing.Annotations = desired.Annotations
+		existing.Spec.ExternalName = desired.Spec.ExternalName
+		existing.Spec.Ports = desired.Spec.Ports
+		if _, err := svcs.Update(ctx, existing, metav1.UpdateOptions{}); err != nil {
+			return "", fmt.Errorf("update egress service %s/%s: %w", namespace, name, err)
+		}
+		log.Printf("updated egress service %s/%s tailnet FQDN to %s", namespace, name, tailnetFQDN)
+	}
+
+	if err := waitForEgressServiceReady(ctx, cs, namespace, name, 5*time.Minute); err != nil {
+		return "", err
+	}
+	return fmt.Sprintf("%s.%s.svc.cluster.local", name, namespace), nil
 }
 
 // findProxyPod returns a running pod of the ProxyGroup's StatefulSet in the
@@ -247,12 +326,15 @@ type cpuSample struct {
 //
 //	v2: "v2", usage_usec, cpu.max ("<quota|max> <period>")
 //	v1: "v1", cpuacct.usage (ns), cfs_quota_us, cfs_period_us
-const cpuSampleCmd = `if [ -f /sys/fs/cgroup/cpu.stat ]; then ` +
+const cpuSampleCmd = `if [ -f /sys/fs/cgroup/cpu.stat ] && [ -f /sys/fs/cgroup/cpu.max ]; then ` +
 	`echo v2; awk '/^usage_usec/{print $2}' /sys/fs/cgroup/cpu.stat; cat /sys/fs/cgroup/cpu.max; ` +
-	`else echo v1; ` +
+	`elif { [ -f /sys/fs/cgroup/cpu/cpuacct.usage ] || [ -f /sys/fs/cgroup/cpuacct.usage ]; } && ` +
+	`{ [ -f /sys/fs/cgroup/cpu/cpu.cfs_quota_us ] || [ -f /sys/fs/cgroup/cpu.cfs_quota_us ]; } && ` +
+	`{ [ -f /sys/fs/cgroup/cpu/cpu.cfs_period_us ] || [ -f /sys/fs/cgroup/cpu.cfs_period_us ]; }; then echo v1; ` +
 	`cat /sys/fs/cgroup/cpu/cpuacct.usage 2>/dev/null || cat /sys/fs/cgroup/cpuacct.usage; ` +
 	`cat /sys/fs/cgroup/cpu/cpu.cfs_quota_us 2>/dev/null || cat /sys/fs/cgroup/cpu.cfs_quota_us; ` +
-	`cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null || cat /sys/fs/cgroup/cpu.cfs_period_us; fi`
+	`cat /sys/fs/cgroup/cpu/cpu.cfs_period_us 2>/dev/null || cat /sys/fs/cgroup/cpu.cfs_period_us; ` +
+	`else echo none; fi`
 
 func readCPUSample(ctx context.Context, exec *KubeExecExecutor) (cpuSample, error) {
 	stdout, stderr, err := exec.Run(ctx, cpuSampleCmd)
@@ -260,6 +342,9 @@ func readCPUSample(ctx context.Context, exec *KubeExecExecutor) (cpuSample, erro
 		return cpuSample{}, fmt.Errorf("exec cpu sample: %s: %w", strings.TrimSpace(stderr), err)
 	}
 	lines := strings.Fields(stdout)
+	if len(lines) == 1 && lines[0] == "none" {
+		return cpuSample{}, nil
+	}
 	if len(lines) < 3 {
 		return cpuSample{}, fmt.Errorf("unexpected cpu sample output: %q", stdout)
 	}
@@ -331,7 +416,6 @@ func ProxyPodCPUThrottled(ctx context.Context, cs kubernetes.Interface, kubeconf
 		return false, nil
 	}
 	if first.quota <= 0 {
-		log.Printf("cpu throttle check: pod %s has no cpu quota, cannot be throttled", podName)
 		return false, nil
 	}
 	select {

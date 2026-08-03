@@ -24,13 +24,68 @@ type AzureProvider struct {
 	SSHUser       string
 	SSHPubKey     string
 	StateDir      string
+	RunID         string
+	ExpiresAt     string
 
 	skuCache []azureSKU // cached SKU list, loaded once
 }
 
-var _ Provider = (*AzureProvider)(nil)
+var _ RunScopedProvider = (*AzureProvider)(nil)
 
-func (p *AzureProvider) Name() string { return "azure" }
+func (p *AzureProvider) Name() string             { return "azure" }
+func (p *AzureProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *AzureProvider) ManagesNetworking() bool  { return true }
+
+func (p *AzureProvider) networkStackName() string {
+	return scopedName("tailbench-azure-networking", p.RunID)
+}
+
+func (p *AzureProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
+	return scopedName("tailbench-azure-"+safeType, p.RunID)
+}
+
+func (p *AzureProvider) resourceTags() pulumi.StringMap {
+	tags := pulumi.StringMap{
+		"Project":           pulumi.String("tailbench"),
+		"TailbenchProvider": pulumi.String(p.Name()),
+	}
+	if p.RunID != "" {
+		tags["TailbenchRunID"] = pulumi.String(p.RunID)
+	}
+	if p.ExpiresAt != "" {
+		tags["TailbenchExpiresAt"] = pulumi.String(p.ExpiresAt)
+	}
+	return tags
+}
+
+// azureDefaultSSHUser mirrors config's default for azure.ssh_user. Azure rejects
+// a VM with an empty AdminUsername, so this must never be empty.
+const azureDefaultSSHUser = "azureuser"
+
+func (p *AzureProvider) sshUser() string {
+	if p.SSHUser != "" {
+		return p.SSHUser
+	}
+	return azureDefaultSSHUser
+}
+
+// resolveSSHPubKey returns the authorized_keys line for this run's VMs,
+// generating and persisting one when azure.ssh_pub_key_file configured none.
+//
+// Azure has no key-pair resource: the public key is embedded in each VM's
+// LinuxConfiguration. So both SetupNetworking (to surface a filesystem error
+// before any cloud call) and CreatePair (which needs the value, and runs without
+// a preceding SetupNetworking in the same process on a resume) resolve it.
+// ResolveSSHPublicKey reuses the key already on disk, so repeated calls return
+// identical material and never force a VM replacement.
+func (p *AzureProvider) resolveSSHPubKey() (authorizedKey, keyPath string, err error) {
+	authorizedKey, keyPath, err = ResolveSSHPublicKey(".", scopedName("tailbench", p.RunID), p.SSHPubKey)
+	if err != nil {
+		return "", "", fmt.Errorf("prepare SSH key: %w", err)
+	}
+	return authorizedKey, keyPath, nil
+}
 
 func (p *AzureProvider) projectOpts() []auto.LocalWorkspaceOption {
 	return []auto.LocalWorkspaceOption{
@@ -39,7 +94,7 @@ func (p *AzureProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
-		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
+		auto.WorkDir(WorkDir(p.StateDir, p.Name())),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -47,35 +102,47 @@ func (p *AzureProvider) projectOpts() []auto.LocalWorkspaceOption {
 }
 
 func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput, error) {
+	vnetName := scopedName("tailbench-vnet", p.RunID)
+	subnetName := scopedName("tailbench-subnet", p.RunID)
+	nsgName := scopedName("tailbench-nsg", p.RunID)
+
+	authorizedKey, keyPath, err := p.resolveSSHPubKey()
+	if err != nil {
+		return nil, err
+	}
+	if keyPath != "" {
+		log.Printf("using generated SSH key for %s login %q (private key: %s)", p.Name(), p.sshUser(), keyPath)
+	}
+
 	program := func(pCtx *pulumi.Context) error {
-		vnet, err := aznetwork.NewVirtualNetwork(pCtx, "tailbench-vnet", &aznetwork.VirtualNetworkArgs{
+		vnet, err := aznetwork.NewVirtualNetwork(pCtx, vnetName, &aznetwork.VirtualNetworkArgs{
 			ResourceGroupName:  pulumi.String(p.ResourceGroup),
-			VirtualNetworkName: pulumi.String("tailbench-vnet"),
+			VirtualNetworkName: pulumi.String(vnetName),
 			Location:           pulumi.String(p.Location),
 			AddressSpace: aznetwork.AddressSpaceArgs{
 				AddressPrefixes: pulumi.StringArray{pulumi.String("10.0.0.0/16")},
 			},
-			Tags: pulumi.StringMap{"Project": pulumi.String("tailbench")},
+			Tags: p.resourceTags(),
 		})
 		if err != nil {
 			return err
 		}
 
-		subnet, err := aznetwork.NewSubnet(pCtx, "tailbench-subnet", &aznetwork.SubnetArgs{
+		subnet, err := aznetwork.NewSubnet(pCtx, subnetName, &aznetwork.SubnetArgs{
 			ResourceGroupName:  pulumi.String(p.ResourceGroup),
 			VirtualNetworkName: vnet.Name,
-			SubnetName:         pulumi.String("tailbench-subnet"),
+			SubnetName:         pulumi.String(subnetName),
 			AddressPrefix:      pulumi.String("10.0.1.0/24"),
 		})
 		if err != nil {
 			return err
 		}
 
-		nsg, err := aznetwork.NewNetworkSecurityGroup(pCtx, "tailbench-nsg", &aznetwork.NetworkSecurityGroupArgs{
+		nsg, err := aznetwork.NewNetworkSecurityGroup(pCtx, nsgName, &aznetwork.NetworkSecurityGroupArgs{
 			ResourceGroupName:        pulumi.String(p.ResourceGroup),
-			NetworkSecurityGroupName: pulumi.String("tailbench-nsg"),
+			NetworkSecurityGroupName: pulumi.String(nsgName),
 			Location:                 pulumi.String(p.Location),
-			Tags:                     pulumi.StringMap{"Project": pulumi.String("tailbench")},
+			Tags:                     p.resourceTags(),
 		})
 		if err != nil {
 			return err
@@ -175,7 +242,8 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 		return nil
 	}
 
-	stack, err := auto.UpsertStackInlineSource(ctx, "tailbench-azure-networking", "tailbench", program, p.projectOpts()...)
+	stackName := p.networkStackName()
+	stack, err := auto.UpsertStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
 	if err != nil {
 		return nil, fmt.Errorf("create networking stack: %w", err)
 	}
@@ -198,23 +266,40 @@ func (p *AzureProvider) SetupNetworking(ctx context.Context) (*NetworkingOutput,
 		return s
 	}
 
-	return &NetworkingOutput{Values: map[string]string{
-		"vnet_name": getStr("vnet_name"),
-		"subnet_id": getStr("subnet_id"),
-		"nsg_id":    getStr("nsg_id"),
-	}}, nil
+	// Distinct from the vnetName declared above, which is the name requested of
+	// Pulumi; this is the name the applied stack actually exported.
+	appliedVnetName := getStr("vnet_name")
+	return &NetworkingOutput{
+		StackName:  stackName,
+		ProviderID: appliedVnetName,
+		Values: map[string]string{
+			"vnet_name":      appliedVnetName,
+			"subnet_id":      getStr("subnet_id"),
+			"nsg_id":         getStr("nsg_id"),
+			"ssh_user":       p.sshUser(),
+			"ssh_public_key": authorizedKey,
+		},
+	}, nil
 }
 
 func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(strings.ReplaceAll(opts.InstanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-azure-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
-	serverName := fmt.Sprintf("tb-%s-server", safeType)
-	clientName := fmt.Sprintf("tb-%s-client", safeType)
-	routerName := fmt.Sprintf("tb-%s-router", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-%s-server", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-%s-client", safeType), p.RunID)
+	routerName := scopedName(fmt.Sprintf("tb-%s-router", safeType), p.RunID)
 
 	subnetID := opts.Networking.Values["subnet_id"]
 	nsgID := opts.Networking.Values["nsg_id"]
+	authorizedKey := opts.Networking.Values["ssh_public_key"]
+	if authorizedKey == "" {
+		var err error
+		if authorizedKey, _, err = p.resolveSSHPubKey(); err != nil {
+			return nil, err
+		}
+	}
+	sshUser := p.sshUser()
 	serverUserData := base64.StdEncoding.EncodeToString([]byte(opts.UserData))
 	clientUserData := base64.StdEncoding.EncodeToString([]byte(opts.ClientUD()))
 	routerUserData := base64.StdEncoding.EncodeToString([]byte(opts.RouterUD()))
@@ -240,7 +325,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 				Sku: aznetwork.PublicIPAddressSkuArgs{
 					Name: pulumi.String("Standard"),
 				},
-				Tags: pulumi.StringMap{"Project": pulumi.String("tailbench")},
+				Tags: p.resourceTags(),
 			})
 			if err != nil {
 				return err
@@ -265,7 +350,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 				NetworkSecurityGroup: aznetwork.NetworkSecurityGroupTypeArgs{
 					Id: pulumi.String(nsgID),
 				},
-				Tags: pulumi.StringMap{"Project": pulumi.String("tailbench")},
+				Tags: p.resourceTags(),
 			})
 			if err != nil {
 				return err
@@ -290,15 +375,15 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 				},
 				OsProfile: azcompute.OSProfileArgs{
 					ComputerName:  pulumi.String(name),
-					AdminUsername: pulumi.String(p.SSHUser),
+					AdminUsername: pulumi.String(sshUser),
 					CustomData:    pulumi.String(encodedUserData),
 					LinuxConfiguration: azcompute.LinuxConfigurationArgs{
 						DisablePasswordAuthentication: pulumi.Bool(true),
 						Ssh: azcompute.SshConfigurationArgs{
 							PublicKeys: azcompute.SshPublicKeyTypeArray{
 								azcompute.SshPublicKeyTypeArgs{
-									Path:    pulumi.Sprintf("/home/%s/.ssh/authorized_keys", p.SSHUser),
-									KeyData: pulumi.String(p.SSHPubKey),
+									Path:    pulumi.Sprintf("/home/%s/.ssh/authorized_keys", sshUser),
+									KeyData: pulumi.String(authorizedKey),
 								},
 							},
 						},
@@ -312,7 +397,7 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 						},
 					},
 				},
-				Tags: pulumi.StringMap{"Project": pulumi.String("tailbench")},
+				Tags: p.resourceTags(),
 			})
 			if err != nil {
 				return err
@@ -340,9 +425,6 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 	if err := stack.SetConfig(ctx, "azure-native:location", auto.ConfigValue{Value: p.Location}); err != nil {
 		return nil, fmt.Errorf("set azure-native:location: %w", err)
 	}
-
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
 
 	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
@@ -376,31 +458,44 @@ func (p *AzureProvider) CreatePair(ctx context.Context, opts PairOptions) (*Pair
 }
 
 func (p *AzureProvider) DestroyPair(ctx context.Context, instanceType string) error {
-	safeType := strings.ReplaceAll(strings.ReplaceAll(instanceType, ".", "-"), "_", "-")
-	stackName := fmt.Sprintf("tailbench-azure-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
+	if err := stack.Cancel(ctx); err != nil {
+		return fmt.Errorf("cancel stack %s: %w", stackName, err)
+	}
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
+		return fmt.Errorf("destroy stack %s: %w", stackName, err)
+	}
+	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+		return fmt.Errorf("remove stack %s: %w", stackName, err)
 	}
 	return nil
 }
 
 func (p *AzureProvider) TeardownNetworking(ctx context.Context) error {
+	stackName := p.networkStackName()
 	program := func(_ *pulumi.Context) error { return nil }
 
-	stack, err := auto.SelectStackInlineSource(ctx, "tailbench-azure-networking", "tailbench", program, p.projectOpts()...)
+	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
 	if err != nil {
 		return fmt.Errorf("select networking stack: %w", err)
 	}
 	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer())); err != nil {
 		return fmt.Errorf("destroy networking stack: %w", err)
 	}
-	return stack.Workspace().RemoveStack(ctx, "tailbench-azure-networking")
+	return stack.Workspace().RemoveStack(ctx, stackName)
 }
 
 func (p *AzureProvider) ListFamilies() []string {

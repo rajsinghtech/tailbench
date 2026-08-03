@@ -1,0 +1,59 @@
+{
+  "cloud_provider": "eks",
+  "instance_family": "c6in",
+  "instance_type": "c6in.large",
+  "vcpus": 2,
+  "region": "us-west-2",
+  "zone": "us-west-2a",
+  "date": "2026-07-30",
+  "tailscale_version": "1.98.10",
+  "kernel_version": "",
+  "connection_type": "",
+  "ena_express": false,
+  "environment": "container",
+  "system_config": null,
+  "test_config": null,
+  "baseline_tcp": null,
+  "tailscale_tcp": null,
+  "overhead": null,
+  "baseline_tcp_single": null,
+  "tailscale_tcp_single": null,
+  "overhead_single": null,
+  "baseline_mtr": null,
+  "tailscale_mtr": null,
+  "transport_mode": "forward-pps-exit-k8s",
+  "forward_pps": {
+    "sizes": [
+      {
+        "label": "64",
+        "datagram_bytes": 64,
+        "offered_pps": 25781,
+        "usable_pps": 25756.521660293154,
+        "loss_pct": 0.09050616217669906,
+        "jitter_ms": 0.02065291783293909,
+        "mbps": 13.199633712331915
+      },
+      {
+        "label": "imix-avg",
+        "datagram_bytes": 340,
+        "offered_pps": 20312,
+        "usable_pps": 20310.049561664757,
+        "loss_pct": 0.0062360509386897725,
+        "jitter_ms": 0.01798508635995181,
+        "mbps": 55.247954925358925
+      },
+      {
+        "label": "mtu",
+        "datagram_bytes": 1400,
+        "offered_pps": 781,
+        "usable_pps": 780.9727700827498,
+        "loss_pct": 0,
+        "jitter_ms": 0.021579700378116923,
+        "mbps": 8.7471031987246
+      }
+    ],
+    "loss_threshold_pct": 0.1
+  },
+  "forward_role": "proxygroup",
+  "forwarding_optimizations": "off"
+}

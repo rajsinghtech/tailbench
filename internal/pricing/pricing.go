@@ -8,6 +8,7 @@ import (
 	_ "embed"
 	"encoding/json"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 )
@@ -19,6 +20,11 @@ var dataJSON []byte
 type Meta struct {
 	Source  string `json:"source"`
 	Updated string `json:"updated"`
+}
+
+type Entry struct {
+	InstanceType string
+	HourlyUSD    float64
 }
 
 var (
@@ -121,4 +127,30 @@ func Lookup(provider, region, instanceType string) (float64, bool) {
 	}
 
 	return 0, false
+}
+
+// List returns the checked-in prices available for a provider and region.
+// Kubernetes providers use their underlying VM catalog. When a requested
+// region is not curated, the canonical region is used as an explicitly
+// best-effort local catalog.
+func List(provider, region string) ([]Entry, Meta) {
+	load()
+
+	cp := canonicalProvider(provider)
+	byRegion := prices[cp]
+	selectedRegion := canonicalRegion(cp, region)
+	byType := byRegion[selectedRegion]
+	if len(byType) == 0 {
+		selectedRegion = canonicalRegions[cp]
+		byType = byRegion[selectedRegion]
+	}
+
+	entries := make([]Entry, 0, len(byType))
+	for instanceType, hourlyUSD := range byType {
+		entries = append(entries, Entry{InstanceType: instanceType, HourlyUSD: hourlyUSD})
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].InstanceType < entries[j].InstanceType
+	})
+	return entries, meta
 }

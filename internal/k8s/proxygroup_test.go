@@ -3,12 +3,15 @@
 package k8s
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
 
 	appsv1 "k8s.io/api/apps/v1"
 	corev1 "k8s.io/api/core/v1"
+	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
+	"k8s.io/client-go/kubernetes/fake"
 )
 
 const proxyGroupManifests = "../../manifests/proxygroup"
@@ -31,6 +34,9 @@ func TestProxyClassBaseHasNoForwardingOptimizations(t *testing.T) {
 		if !strings.Contains(base, "name: "+name) {
 			t.Errorf("base proxyclasses.yaml missing ProxyClass %q", name)
 		}
+	}
+	if count := strings.Count(base, "spec: {}"); count != 2 {
+		t.Errorf("base proxyclasses.yaml has %d non-nil specs, want 2", count)
 	}
 }
 
@@ -60,6 +66,62 @@ func TestProxyGroupBaseSpec(t *testing.T) {
 		if !strings.Contains(pg, want) {
 			t.Errorf("base proxygroup.yaml missing %q", want)
 		}
+	}
+}
+
+func TestNewEgressServiceUsesOperatorContract(t *testing.T) {
+	svc := newEgressService("bench", "sink", "sink.example.ts.net", 5201)
+	if svc.Spec.Type != corev1.ServiceTypeExternalName {
+		t.Fatalf("service type = %q, want ExternalName", svc.Spec.Type)
+	}
+	if svc.Spec.ExternalName != "placeholder" {
+		t.Fatalf("externalName = %q, want placeholder", svc.Spec.ExternalName)
+	}
+	if got := svc.Annotations[TailnetFQDNAnnotation]; got != "sink.example.ts.net" {
+		t.Fatalf("tailnet FQDN annotation = %q", got)
+	}
+	if got := svc.Annotations[ProxyGroupAnnotation]; got != ProxyGroupName {
+		t.Fatalf("ProxyGroup annotation = %q", got)
+	}
+	if len(svc.Spec.Ports) != 2 ||
+		svc.Spec.Ports[0].Protocol != corev1.ProtocolTCP ||
+		svc.Spec.Ports[0].Port != 5201 ||
+		svc.Spec.Ports[1].Protocol != corev1.ProtocolUDP ||
+		svc.Spec.Ports[1].Port != 5201 {
+		t.Fatalf("service ports = %#v, want TCP/5201 and UDP/5201", svc.Spec.Ports)
+	}
+}
+
+func TestEgressServiceReadyRequiresConditionAndOperatorRewrite(t *testing.T) {
+	svc := newEgressService("bench", "sink", "sink.example.ts.net", 5201)
+	svc.Status.Conditions = []metav1.Condition{{
+		Type:   egressServiceReadyCondition,
+		Status: metav1.ConditionTrue,
+	}}
+	if egressServiceReady(svc) {
+		t.Fatal("placeholder ExternalName must not be treated as ready")
+	}
+	svc.Spec.ExternalName = "ts-sink.tailscale.svc.cluster.local"
+	if !egressServiceReady(svc) {
+		t.Fatal("rewritten ExternalName with ready condition should be ready")
+	}
+}
+
+func TestEnsureEgressServiceReturnsStableDNSForReadyService(t *testing.T) {
+	svc := newEgressService("bench", "sink", "sink.example.ts.net", 5201)
+	svc.Spec.ExternalName = "ts-sink.tailscale.svc.cluster.local"
+	svc.Status.Conditions = []metav1.Condition{{
+		Type:   egressServiceReadyCondition,
+		Status: metav1.ConditionTrue,
+	}}
+	cs := fake.NewSimpleClientset(svc)
+
+	got, err := EnsureEgressService(context.Background(), cs, "bench", "sink", "sink.example.ts.net", 5201)
+	if err != nil {
+		t.Fatalf("EnsureEgressService: %v", err)
+	}
+	if want := "sink.bench.svc.cluster.local"; got != want {
+		t.Fatalf("target = %q, want %q", got, want)
 	}
 }
 

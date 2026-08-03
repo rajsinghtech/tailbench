@@ -3,6 +3,7 @@ package sshclient
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -79,8 +80,22 @@ func (c *Client) Run(ctx context.Context, cmd string) (string, string, error) {
 	}
 }
 
-// WaitForReady polls the remote host every 5s until /tmp/tailbench-ready exists.
-func (c *Client) WaitForReady(ctx context.Context) error {
+// WaitForReady polls the remote host every 5s until cloud-init writes
+// /tmp/tailbench-ready, giving up after timeout.
+//
+// The bound matters: cloud-init can block indefinitely on a prerequisite the
+// node cannot satisfy — `tailscale serve --https` waits forever when HTTPS is
+// not enabled on the tailnet — and without a timeout of its own this inherits
+// only the whole-run deadline. That turns a fixable misconfiguration into the
+// most expensive possible failure: instances billing for the full run duration
+// with no diagnosis. A timeout of 0 or less waits for the context alone.
+func (c *Client) WaitForReady(ctx context.Context, timeout time.Duration) error {
+	if timeout > 0 {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, timeout)
+		defer cancel()
+	}
+
 	ticker := time.NewTicker(5 * time.Second)
 	defer ticker.Stop()
 
@@ -91,6 +106,14 @@ func (c *Client) WaitForReady(ctx context.Context) error {
 		}
 		select {
 		case <-ctx.Done():
+			if errors.Is(ctx.Err(), context.DeadlineExceeded) {
+				return fmt.Errorf(
+					"cloud-init did not finish within %s: /tmp/tailbench-ready was never written. "+
+						"SSH to the node with the key under .tailbench/ssh/ and check "+
+						"`cloud-init status --long` and /var/log/cloud-init-output.log; a common "+
+						"cause is `tailscale serve --https` blocking because HTTPS is not enabled "+
+						"on the tailnet", timeout)
+			}
 			return ctx.Err()
 		case <-ticker.C:
 		}

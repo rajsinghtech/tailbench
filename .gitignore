@@ -22,6 +22,16 @@ state/
 # Runtime artifacts
 .run/
 
+# Local mise overrides (mise.toml itself is committed)
+mise.local.toml
+.mise.local.toml
+
+# Per-operator overrides: credential sources, tailnet names, ESC environments.
+# These are personal and not portable to other people on the team.
+Makefile.local
+config.local.yaml
+*.local.yaml
+
 # Temp
 /tmp/
 *.log

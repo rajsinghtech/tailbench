@@ -1,0 +1,223 @@
+package preflight
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"strings"
+	"testing"
+)
+
+type outputCommandRunner struct {
+	outputs map[string][]byte
+	errors  map[string]error
+}
+
+type rejectPulumiRunner struct {
+	outputs map[string][]byte
+}
+
+func (r rejectPulumiRunner) Run(
+	_ context.Context,
+	name string,
+	args ...string,
+) ([]byte, error) {
+	if name == "pulumi" {
+		return nil, errors.New("pulumi account login is unavailable")
+	}
+	key := strings.Join(append([]string{name}, args...), " ")
+	return r.outputs[key], nil
+}
+
+func (r outputCommandRunner) Run(
+	_ context.Context,
+	name string,
+	args ...string,
+) ([]byte, error) {
+	key := strings.Join(append([]string{name}, args...), " ")
+	if err := r.errors[key]; err != nil {
+		return nil, err
+	}
+	return r.outputs[key], nil
+}
+
+func TestCommandRemoteCheckerCapturesIdentityWithoutRenderingIt(t *testing.T) {
+	runner := outputCommandRunner{
+		outputs: map[string][]byte{
+			"pulumi whoami --verbose --output json": []byte(
+				`{"user":"operator@example.com","url":"https://app.pulumi.com/operator"}`,
+			),
+			"aws sts get-caller-identity --output json": []byte(
+				`{"UserId":"AIDAEXAMPLE","Account":"123456789012","Arn":"arn:aws:iam::123456789012:user/operator"}`,
+			),
+		},
+		errors: map[string]error{},
+	}
+	report := Doctor(context.Background(), Request{
+		Provider: "aws",
+		Workload: "vm",
+		Finder:   fakeFinder{"pulumi": true, "aws": true},
+		Remote:   true,
+		RemoteChecker: CommandRemoteChecker{
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
+		},
+	})
+
+	if !report.Ready {
+		t.Fatalf("report = %#v, want ready", report)
+	}
+	if report.Identity.Account != "123456789012" {
+		t.Fatalf("identity = %#v", report.Identity)
+	}
+	text := new(strings.Builder)
+	if err := report.WriteText(text); err != nil {
+		t.Fatal(err)
+	}
+	jsonData, err := json.Marshal(report)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, rendered := range []string{text.String(), string(jsonData)} {
+		for _, secretIdentity := range []string{
+			"123456789012",
+			"AIDAEXAMPLE",
+			"operator@example.com",
+		} {
+			if strings.Contains(rendered, secretIdentity) {
+				t.Fatalf("rendered preflight leaked identity %q: %s", secretIdentity, rendered)
+			}
+		}
+	}
+}
+
+func TestCommandRemoteCheckerReportsMalformedIdentityAsFailedPreflight(t *testing.T) {
+	runner := outputCommandRunner{
+		outputs: map[string][]byte{
+			"pulumi whoami --verbose --output json": []byte(
+				`{"user":"operator","url":"https://app.pulumi.com/operator"}`,
+			),
+			"aws sts get-caller-identity --output json": []byte(
+				`{"Account":`,
+			),
+		},
+		errors: map[string]error{},
+	}
+	report := Doctor(context.Background(), Request{
+		Provider: "aws",
+		Workload: "vm",
+		Finder:   fakeFinder{"pulumi": true, "aws": true},
+		Remote:   true,
+		RemoteChecker: CommandRemoteChecker{
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
+		},
+	})
+
+	if report.Ready {
+		t.Fatal("malformed cloud identity reported ready")
+	}
+	check, ok := report.CheckNamed("cloud-auth")
+	if !ok || check.Status != StatusFailed {
+		t.Fatalf("cloud check = %#v, found %t", check, ok)
+	}
+	if !strings.Contains(check.Detail, "parse AWS account identity") {
+		t.Fatalf("cloud check detail = %q", check.Detail)
+	}
+}
+
+func TestCommandRemoteCheckerPreservesCommandFailureWithoutOutput(t *testing.T) {
+	commandErr := errors.New("exit status 1")
+	runner := outputCommandRunner{
+		outputs: map[string][]byte{},
+		errors: map[string]error{
+			"pulumi whoami --verbose --output json":     commandErr,
+			"aws sts get-caller-identity --output json": commandErr,
+		},
+	}
+	report := Doctor(context.Background(), Request{
+		Provider: "aws",
+		Workload: "vm",
+		Finder:   fakeFinder{"pulumi": true, "aws": true},
+		Remote:   true,
+		RemoteChecker: CommandRemoteChecker{
+			Runner:       runner,
+			StateBackend: "https://api.pulumi.com",
+		},
+	})
+
+	if report.Ready {
+		t.Fatal("failed commands reported ready")
+	}
+	for _, name := range []string{"pulumi-auth", "cloud-auth"} {
+		check, ok := report.CheckNamed(name)
+		if !ok || check.Status != StatusFailed || !strings.Contains(check.Detail, commandErr.Error()) {
+			t.Fatalf("%s check = %#v, found %t", name, check, ok)
+		}
+	}
+}
+
+func TestCommandRemoteCheckerRejectsLoginForDifferentPulumiBackend(t *testing.T) {
+	report := Doctor(context.Background(), Request{
+		Provider: "aws",
+		Workload: "vm",
+		Finder:   fakeFinder{"pulumi": true, "aws": true},
+		Remote:   true,
+		RemoteChecker: CommandRemoteChecker{
+			Runner: outputCommandRunner{
+				outputs: map[string][]byte{
+					"pulumi whoami --verbose --output json": []byte(
+						`{"user":"operator","url":"https://api.other.example/operator"}`,
+					),
+					"aws sts get-caller-identity --output json": []byte(
+						`{"Account":"123456789012"}`,
+					),
+				},
+				errors: map[string]error{},
+			},
+			StateBackend: "https://api.pulumi.example",
+		},
+	})
+
+	if report.Ready {
+		t.Fatal("login for a different Pulumi backend reported ready")
+	}
+	check, ok := report.CheckNamed("pulumi-auth")
+	if !ok ||
+		check.Status != StatusFailed ||
+		!strings.Contains(check.Detail, "different state backend") {
+		t.Fatalf("Pulumi check = %#v, found %t", check, ok)
+	}
+}
+
+func TestCommandRemoteCheckerSkipsPulumiAccountLoginForDIYBackends(t *testing.T) {
+	for _, backend := range []string{
+		"",
+		"file:///tmp/tailbench-state",
+		"s3://tailbench-state",
+		"gs://tailbench-state",
+		"azblob://tailbench-state",
+	} {
+		t.Run(backend, func(t *testing.T) {
+			checks, identity, err := (CommandRemoteChecker{
+				Runner: rejectPulumiRunner{outputs: map[string][]byte{
+					"aws sts get-caller-identity --output json": []byte(
+						`{"Account":"123456789012"}`,
+					),
+				}},
+				StateBackend: backend,
+			}).CheckWithIdentity(context.Background(), "aws")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if identity.Account != "123456789012" {
+				t.Fatalf("identity = %#v", identity)
+			}
+			if len(checks) != 2 ||
+				checks[0].Name != "pulumi-auth" ||
+				checks[0].Status != StatusSkipped {
+				t.Fatalf("checks = %#v, want skipped Pulumi account auth", checks)
+			}
+		})
+	}
+}

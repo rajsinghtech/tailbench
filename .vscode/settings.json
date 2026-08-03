@@ -1,0 +1,18 @@
+{
+  "//": "cmd/tailbench and internal/provider/*.go are behind mutually exclusive cloud build tags, so gopls must be told which variant to analyze. Without this it reports compiledProviderName/newCompiledProvider as undefined and treats every provider file as excluded. Change 'aws' below to azure or gcp (optionally ',k8s') to work on a different variant; only one can be active at a time.",
+  "gopls": {
+    "build.buildFlags": ["-tags=aws"],
+    "build.directoryFilters": [
+      "-**/node_modules",
+      "-dist",
+      "-state",
+      "-.tools",
+      "-.tailbench"
+    ],
+    "ui.diagnostic.staticcheck": true
+  },
+  "go.buildTags": "aws",
+  "go.testTags": "aws",
+  "go.lintTool": "golangci-lint",
+  "go.lintFlags": ["--build-tags=aws"]
+}

@@ -4,68 +4,95 @@ import (
 	"bufio"
 	"flag"
 	"fmt"
+	"io"
+	"log"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
+	"time"
 
 	"gopkg.in/yaml.v3"
 )
 
 type Config struct {
-	Providers           []string
-	Family              string
-	Filter              string
-	CreateTailnet       bool
-	OAuthClientID       string
-	OAuthClientSecret   string
-	Tag                 string
-	IPerfDuration       int
-	IPerfParallel       int
-	IPerfIterations     int
-	MTRCycles           int
-	CooldownSec         int
-	CreditRetrySec      int
-	SSHTimeout          int
-	ReadyTimeout        int
-	AWSRegion           string
-	AWSAZ               string
-	AWSKeyName          string
-	GCPProject          string
-	GCPZone             string
-	AzureLocation       string
-	AzureResourceGroup  string
-	AzureSSHUser        string
-	AzureSSHPubKey      string
-	CleanupNetworking   bool
-	DryRun              bool
-	AuthKeyRefreshSec   int
-	RootDir             string
-	StateDir            string
-	BenchImage          string
-	TSImage             string
-	FortioDuration      int
-	FortioConnections   int
-	FortioQPS           int
-	FortioIterations    int
-	PPSDatagramSizes    []int
-	PPSLossThresholdPct float64
-	PPSDurationSec      int
-	PPSMaxRatePPS       int
-	Modes               []string
-	IngressFQDN         string
-	ServeFQDN           string
-	ClusterLabel        string
+	Providers              []string
+	Family                 string
+	Filter                 string
+	CreateTailnet          bool
+	TailnetDNSName         string
+	OAuthClientID          string
+	OAuthClientSecret      string
+	Tag                    string
+	IPerfDuration          int
+	IPerfParallel          int
+	IPerfIterations        int
+	MTRCycles              int
+	CooldownSec            int
+	CreditRetrySec         int
+	SSHTimeout             int
+	ReadyTimeout           int
+	AWSRegion              string
+	AWSAZ                  string
+	AWSKeyName             string
+	GCPProject             string
+	GCPZone                string
+	AzureLocation          string
+	AzureResourceGroup     string
+	AzureSSHUser           string
+	AzureSSHPubKey         string
+	CleanupNetworking      bool
+	DryRun                 bool
+	AuthKeyRefreshSec      int
+	RootDir                string
+	StateDir               string
+	StateBackend           string
+	BenchImage             string
+	TSImage                string
+	FortioDuration         int
+	FortioConnections      int
+	FortioQPS              int
+	FortioIterations       int
+	PPSDatagramSizes       []int
+	PPSLossThresholdPct    float64
+	PPSDurationSec         int
+	PPSMaxRatePPS          int
+	Modes                  []string
+	IngressFQDN            string
+	ServeFQDN              string
+	ClusterLabel           string
+	Yes                    bool
+	MaxCostUSD             float64
+	MaxCostSet             bool
+	MaxDuration            time.Duration
+	MaxInstanceTypes       int
+	MaxConcurrentResources int
+	CleanupPolicy          string
+	RunID                  string
+	ResourceExpiresAt      string
 }
 
+const (
+	DefaultMaxCostUSD             = 10.0
+	DefaultMaxDuration            = 45 * time.Minute
+	DefaultMaxInstanceTypes       = 1
+	DefaultMaxConcurrentResources = 1
+
+	CleanupAlways    = "always"
+	CleanupOnSuccess = "on-success"
+	CleanupManual    = "manual"
+)
+
 type yamlConfig struct {
-	EnvFile   string   `yaml:"env_file"`
-	Providers []string `yaml:"providers"`
-	Family    string   `yaml:"family"`
-	Filter    string   `yaml:"filter"`
+	EnvFile      string   `yaml:"env_file"`
+	Providers    []string `yaml:"providers"`
+	Family       string   `yaml:"family"`
+	Filter       string   `yaml:"filter"`
+	StateBackend string   `yaml:"state_backend"`
 
 	Tailscale struct {
 		CreateTailnet     bool   `yaml:"create_tailnet"`
+		TailnetDNSName    string `yaml:"tailnet_dns_name"`
 		OAuthClientID     string `yaml:"oauth_client_id"`
 		OAuthClientSecret string `yaml:"oauth_client_secret"`
 		Tag               string `yaml:"tag"`
@@ -122,26 +149,33 @@ type yamlConfig struct {
 		ClusterLabel string `yaml:"cluster_label"`
 	} `yaml:"l7_endpoints"`
 
-	CleanupNetworking bool `yaml:"cleanup_networking"`
-	DryRun            bool `yaml:"dry_run"`
+	CleanupNetworking      bool     `yaml:"cleanup_networking"`
+	DryRun                 bool     `yaml:"dry_run"`
+	MaxCostUSD             *float64 `yaml:"max_cost_usd"`
+	MaxDuration            string   `yaml:"max_duration"`
+	MaxInstanceTypes       int      `yaml:"max_instance_types"`
+	MaxConcurrentResources int      `yaml:"max_concurrent_resources"`
+	CleanupPolicy          string   `yaml:"cleanup_policy"`
 }
 
 var envVarRe = regexp.MustCompile(`\$\{(\w+)\}`)
 
-func expandEnvVars(s string) string {
+func expandEnvVars(s string, lookup func(string) (string, bool)) string {
 	return envVarRe.ReplaceAllStringFunc(s, func(match string) string {
 		key := envVarRe.FindStringSubmatch(match)[1]
-		return os.Getenv(key)
+		value, _ := lookup(key)
+		return value
 	})
 }
 
-func loadEnvFile(path string) error {
+func readEnvFile(path string) (map[string]string, error) {
 	f, err := os.Open(path)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	defer func() { _ = f.Close() }()
 
+	values := map[string]string{}
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
@@ -152,11 +186,45 @@ func loadEnvFile(path string) error {
 		if !ok {
 			continue
 		}
-		if err := os.Setenv(strings.TrimSpace(k), strings.TrimSpace(v)); err != nil {
-			return fmt.Errorf("set environment variable: %w", err)
+		key := strings.TrimSpace(k)
+		if key == "" {
+			continue
+		}
+		values[key] = strings.TrimSpace(v)
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	return values, nil
+}
+
+// backendSchemes are the URL schemes Pulumi accepts as a state backend.
+var backendSchemes = []string{"file://", "s3://", "gs://", "azblob://", "https://", "http://"}
+
+// normalizeStateBackend canonicalizes the configured Pulumi backend and rejects
+// values Pulumi cannot use. Validating here means a typo fails at startup with
+// a usable message, rather than partway into the first stack operation.
+//
+// An empty value keeps state local, under ./state/<provider>.
+func normalizeStateBackend(s string) (string, error) {
+	s = strings.TrimSpace(s)
+	if s == "" {
+		return "", nil
+	}
+	// Pulumi Cloud is spelled several ways in the docs and UI; api.pulumi.com is
+	// the endpoint `backend.url` actually wants.
+	switch strings.TrimSuffix(s, "/") {
+	case "pulumi.com", "app.pulumi.com", "https://pulumi.com", "https://app.pulumi.com":
+		return "https://api.pulumi.com", nil
+	}
+	for _, scheme := range backendSchemes {
+		if strings.HasPrefix(s, scheme) {
+			return s, nil
 		}
 	}
-	return scanner.Err()
+	return "", fmt.Errorf(
+		"invalid state_backend %q: use \"pulumi.com\" for Pulumi Cloud, or a URL with one of these schemes: %s",
+		s, strings.Join(backendSchemes, " "))
 }
 
 func or(vals ...string) string {
@@ -182,47 +250,168 @@ func Parse(defaultProvider string) (*Config, error) {
 }
 
 func ParseArgs(defaultProvider string, args []string) (*Config, error) {
+	return parseArgs(defaultProvider, args, parseOptions{
+		resolveSecrets: true,
+		loadSSHKeys:    true,
+	})
+}
+
+// ParseLocalArgs loads only user-owned configuration and non-secret defaults.
+// It deliberately does not open env_file, expand secret values, or inspect SSH
+// keys in the user's home directory.
+func ParseLocalArgs(defaultProvider string, args []string) (*Config, error) {
+	return parseArgs(defaultProvider, args, parseOptions{})
+}
+
+type parseOptions struct {
+	resolveSecrets bool
+	loadSSHKeys    bool
+}
+
+func parseArgs(defaultProvider string, args []string, options parseOptions) (*Config, error) {
 	flags := flag.NewFlagSet("tailbench", flag.ContinueOnError)
+	flags.SetOutput(io.Discard)
 	configFile := flags.String("config", "config.yaml", "Path to config.yaml")
 	providerFlag := flags.String("provider", "", "Provider override")
 	familyFlag := flags.String("family", "", "Instance family override")
 	filterFlag := flags.String("filter", "", "Regex filter for instance types")
 	dryRun := flags.Bool("dry-run", false, "Preview what would run")
 	cleanup := flags.Bool("cleanup-networking", false, "Tear down clusters after run")
+	yes := flags.Bool("yes", false, "Approve a noninteractive run")
+	maxCostFlag := flags.Float64("max-cost-usd", 0, "Maximum estimated run cost in USD")
+	maxDurationFlag := flags.Duration("max-duration", 0, "Maximum total run duration")
+	maxInstanceTypesFlag := flags.Int("max-instance-types", 0, "Maximum instance types with pending work")
+	maxConcurrentResourcesFlag := flags.Int("max-concurrent-resources", 0, "Maximum concurrent benchmark topologies")
+	cleanupPolicyFlag := flags.String("cleanup-policy", "", "Cleanup policy: always, on-success, or manual")
+	stateBackend := flags.String("state-backend", "",
+		"Pulumi state backend: \"pulumi.com\", or an s3://, gs://, azblob://, or file:// URL (default: local ./state)")
 	if err := flags.Parse(args); err != nil {
 		return nil, err
 	}
+	specifiedFlags := make(map[string]bool)
+	flags.Visit(func(value *flag.Flag) {
+		specifiedFlags[value.Name] = true
+	})
 
 	data, err := os.ReadFile(*configFile)
 	if err != nil {
-		return nil, fmt.Errorf("read %s: %w", *configFile, err)
+		return nil, &LoadError{Kind: ErrorReadConfig, Path: *configFile, Err: err}
 	}
 
 	var yc yamlConfig
 	if err := yaml.Unmarshal(data, &yc); err != nil {
-		return nil, fmt.Errorf("parse %s: %w", *configFile, err)
+		return nil, &LoadError{Kind: ErrorParseConfig, Path: *configFile, Err: err}
 	}
 
-	// Load env file for ${VAR} expansion
-	if yc.EnvFile != "" {
+	// Secret resolution is an explicit run/remote-preflight stage. Local plan
+	// and doctor never open the environment file.
+	fileEnvironment := map[string]string{}
+	if options.resolveSecrets && yc.EnvFile != "" {
 		envPath := yc.EnvFile
 		if !filepath.IsAbs(envPath) {
 			envPath = filepath.Join(filepath.Dir(*configFile), envPath)
 		}
-		if err := loadEnvFile(envPath); err != nil {
-			return nil, fmt.Errorf("load env file %s: %w", envPath, err)
+		fileEnvironment, err = readEnvFile(envPath)
+		if err != nil {
+			return nil, &LoadError{Kind: ErrorEnvironmentFile, Path: envPath, Err: err}
 		}
 	}
 
 	rootDir, _ := os.Getwd()
+	// fileEnvironment stays empty unless secrets were resolved, so local plan and
+	// doctor expand ${VAR} from the process environment alone and never read the
+	// environment file. Non-secret values such as state_backend can therefore use
+	// the same lookup on every path.
+	lookup := func(key string) (string, bool) {
+		if value, ok := os.LookupEnv(key); ok {
+			return value, true
+		}
+		value, ok := fileEnvironment[key]
+		return value, ok
+	}
+	oauthClientID := ""
+	oauthClientSecret := ""
+	if options.resolveSecrets {
+		oauthClientID = expandEnvVars(yc.Tailscale.OAuthClientID, lookup)
+		oauthClientSecret = expandEnvVars(yc.Tailscale.OAuthClientSecret, lookup)
+	}
+
+	maxCostUSD := DefaultMaxCostUSD
+	maxCostSet := false
+	if yc.MaxCostUSD != nil {
+		maxCostUSD = *yc.MaxCostUSD
+		maxCostSet = true
+	}
+	if specifiedFlags["max-cost-usd"] {
+		maxCostUSD = *maxCostFlag
+		maxCostSet = true
+	}
+	if maxCostUSD <= 0 {
+		return nil, fmt.Errorf("max_cost_usd must be greater than zero")
+	}
+
+	maxDuration := DefaultMaxDuration
+	if yc.MaxDuration != "" {
+		parsed, err := time.ParseDuration(yc.MaxDuration)
+		if err != nil {
+			return nil, fmt.Errorf("invalid max_duration %q: %w", yc.MaxDuration, err)
+		}
+		maxDuration = parsed
+	}
+	if specifiedFlags["max-duration"] {
+		maxDuration = *maxDurationFlag
+	}
+	if maxDuration <= 0 {
+		return nil, fmt.Errorf("max_duration must be greater than zero")
+	}
+
+	maxInstanceTypes := orInt(yc.MaxInstanceTypes, DefaultMaxInstanceTypes)
+	if specifiedFlags["max-instance-types"] {
+		maxInstanceTypes = *maxInstanceTypesFlag
+	}
+	if maxInstanceTypes <= 0 {
+		return nil, fmt.Errorf("max_instance_types must be greater than zero")
+	}
+
+	maxConcurrentResources := orInt(yc.MaxConcurrentResources, DefaultMaxConcurrentResources)
+	if specifiedFlags["max-concurrent-resources"] {
+		maxConcurrentResources = *maxConcurrentResourcesFlag
+	}
+	if maxConcurrentResources <= 0 {
+		return nil, fmt.Errorf("max_concurrent_resources must be greater than zero")
+	}
+
+	cleanupPolicy := or(yc.CleanupPolicy, CleanupAlways)
+	if specifiedFlags["cleanup-policy"] {
+		cleanupPolicy = *cleanupPolicyFlag
+	}
+	if *cleanup || (yc.CleanupNetworking && yc.CleanupPolicy == "") {
+		cleanupPolicy = CleanupAlways
+	}
+	switch cleanupPolicy {
+	case CleanupAlways, CleanupOnSuccess, CleanupManual:
+	default:
+		return nil, fmt.Errorf(
+			"invalid cleanup_policy %q; expected always, on-success, or manual",
+			cleanupPolicy,
+		)
+	}
+
+	// Env expansion runs first so state_backend can be supplied as ${VAR} from
+	// the env file, the same way credentials are.
+	backend, err := normalizeStateBackend(or(*stateBackend, expandEnvVars(yc.StateBackend, lookup)))
+	if err != nil {
+		return nil, err
+	}
 
 	cfg := &Config{
 		Providers:         yc.Providers,
 		Family:            or(*familyFlag, yc.Family, "all"),
 		Filter:            or(*filterFlag, yc.Filter),
 		CreateTailnet:     yc.Tailscale.CreateTailnet,
-		OAuthClientID:     expandEnvVars(yc.Tailscale.OAuthClientID),
-		OAuthClientSecret: expandEnvVars(yc.Tailscale.OAuthClientSecret),
+		TailnetDNSName:    strings.TrimSpace(yc.Tailscale.TailnetDNSName),
+		OAuthClientID:     oauthClientID,
+		OAuthClientSecret: oauthClientSecret,
 		Tag:               or(yc.Tailscale.Tag, "tag:bench"),
 
 		IPerfDuration:     orInt(yc.Benchmark.IPerfDuration, 30),
@@ -237,15 +426,22 @@ func ParseArgs(defaultProvider string, args []string) (*Config, error) {
 		FortioIterations:  orInt(yc.Benchmark.FortioIterations, 3),
 		// PPS params forwarded raw; benchmark.RunConfig.defaults() supplies
 		// defaults (sizes 64/340/1400, 0.1% loss, 15s, 2M pps ceiling).
-		PPSDatagramSizes:    yc.Benchmark.PPSDatagramSizes,
-		PPSLossThresholdPct: yc.Benchmark.PPSLossThresholdPct,
-		PPSDurationSec:      yc.Benchmark.PPSDurationSec,
-		PPSMaxRatePPS:       yc.Benchmark.PPSMaxRatePPS,
-		Modes:               yc.Benchmark.Modes,
-		IngressFQDN:         yc.L7Endpoints.IngressFQDN,
-		ServeFQDN:           yc.L7Endpoints.ServeFQDN,
-		ClusterLabel:        or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
-		AuthKeyRefreshSec:   1800,
+		PPSDatagramSizes:       yc.Benchmark.PPSDatagramSizes,
+		PPSLossThresholdPct:    yc.Benchmark.PPSLossThresholdPct,
+		PPSDurationSec:         yc.Benchmark.PPSDurationSec,
+		PPSMaxRatePPS:          yc.Benchmark.PPSMaxRatePPS,
+		Modes:                  yc.Benchmark.Modes,
+		IngressFQDN:            yc.L7Endpoints.IngressFQDN,
+		ServeFQDN:              yc.L7Endpoints.ServeFQDN,
+		ClusterLabel:           or(yc.L7Endpoints.ClusterLabel, "app.kubernetes.io/part-of=tailbench-l7"),
+		AuthKeyRefreshSec:      1800,
+		Yes:                    *yes,
+		MaxCostUSD:             maxCostUSD,
+		MaxCostSet:             maxCostSet,
+		MaxDuration:            maxDuration,
+		MaxInstanceTypes:       maxInstanceTypes,
+		MaxConcurrentResources: maxConcurrentResources,
+		CleanupPolicy:          cleanupPolicy,
 
 		SSHTimeout:   orInt(yc.SSH.Timeout, 120),
 		ReadyTimeout: orInt(yc.SSH.ReadyTimeout, 300),
@@ -262,28 +458,57 @@ func ParseArgs(defaultProvider string, args []string) (*Config, error) {
 		BenchImage: or(yc.Images.Bench, "ghcr.io/rajsinghtech/tailbench-tools:latest"),
 		TSImage:    or(yc.Images.Tailscale, "ghcr.io/tailscale/tailscale:latest"),
 
-		CleanupNetworking: yc.CleanupNetworking || *cleanup,
+		CleanupNetworking: cleanupPolicy != CleanupManual,
 		DryRun:            yc.DryRun || *dryRun,
 		RootDir:           rootDir,
 		StateDir:          "file://" + rootDir + "/state",
+		StateBackend:      backend,
 	}
 
-	// Load Azure SSH pub key
-	if pubKeyFile := yc.Azure.SSHPubKeyFile; pubKeyFile != "" {
-		if !filepath.IsAbs(pubKeyFile) {
-			pubKeyFile = filepath.Join(filepath.Dir(*configFile), pubKeyFile)
-		}
-		if data, err := os.ReadFile(pubKeyFile); err == nil {
+	if options.loadSSHKeys {
+		// Load the Azure SSH public key only for execution. Local planning
+		// records the requirement without inspecting files outside the config.
+		//
+		// Resolution is ordered and every step is explicit:
+		//
+		//  1. azure.ssh_pub_key_file, when set, is authoritative. A read failure
+		//     or an empty file is FATAL. It previously swallowed the error and
+		//     fell through, so a typo in the path silently produced an empty key
+		//     and VMs with no out-of-band login at all.
+		//  2. Otherwise the operator's own public key, so the key you already use
+		//     works on the benchmark VMs without any configuration. A key that is
+		//     present but unreadable is skipped, not fatal — it was never asked
+		//     for.
+		//  3. Otherwise nothing here, and the provider generates and persists a
+		//     run-scoped key pair (provider.ResolveSSHPublicKey).
+		//
+		// Which source won is logged, because "why is my key not on the box"
+		// is otherwise invisible.
+		if pubKeyFile := yc.Azure.SSHPubKeyFile; pubKeyFile != "" {
+			if !filepath.IsAbs(pubKeyFile) {
+				pubKeyFile = filepath.Join(filepath.Dir(*configFile), pubKeyFile)
+			}
+			data, readErr := os.ReadFile(pubKeyFile)
+			if readErr != nil {
+				return nil, fmt.Errorf("read azure.ssh_pub_key_file %s: %w", pubKeyFile, readErr)
+			}
 			cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
-		}
-	}
-	if cfg.AzureSSHPubKey == "" {
-		// Default: try common SSH key locations
-		home, _ := os.UserHomeDir()
-		for _, name := range []string{"id_ed25519.pub", "id_rsa.pub"} {
-			if data, err := os.ReadFile(filepath.Join(home, ".ssh", name)); err == nil {
-				cfg.AzureSSHPubKey = strings.TrimSpace(string(data))
-				break
+			if cfg.AzureSSHPubKey == "" {
+				return nil, fmt.Errorf("azure.ssh_pub_key_file %s is empty", pubKeyFile)
+			}
+			log.Printf("azure ssh key: using configured %s", pubKeyFile)
+		} else if home, homeErr := os.UserHomeDir(); homeErr == nil {
+			for _, name := range []string{"id_ed25519.pub", "id_rsa.pub"} {
+				candidate := filepath.Join(home, ".ssh", name)
+				data, readErr := os.ReadFile(candidate)
+				if readErr != nil {
+					continue
+				}
+				if key := strings.TrimSpace(string(data)); key != "" {
+					cfg.AzureSSHPubKey = key
+					log.Printf("azure ssh key: using %s (set azure.ssh_pub_key_file to override)", candidate)
+					break
+				}
 			}
 		}
 	}

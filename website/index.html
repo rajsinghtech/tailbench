@@ -335,7 +335,7 @@ footer a:hover { text-decoration: underline; }
     return {provs:p, fams:f, envs:e};
   }
 
-  var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2','forward-pps-exit-k8s','forward-pps-exit-k8s-opton','relay-throughput'];
+  var modeOrder=['l4-kernel','l4-userspace','l4-lb','l7-serve-h1','l7-serve-h2','l7-ingress-h1','l7-ingress-h2','forward-pps-exit','forward-pps-exit-k8s','forward-pps-exit-k8s-opton','relay-throughput'];
   var maxBW = 0;
   TAILBENCH_DATA.forEach(function(d) { if (d.baseline_tcp) { var b=d.baseline_tcp.summary.bandwidth_mbps_avg; if(b>maxBW) maxBW=b; } });
 
@@ -373,16 +373,41 @@ footer a:hover { text-decoration: underline; }
   }
   // Headline pps is the best usable pps across any forward-pps-* mode present
   // (e.g. the K8s A/B pair reports two modes; the VM exit-node test reports one).
-  function forwardPPS(g) {
-    var best = 0;
+  function bestForwarding(g) {
+    var best = null;
     Object.keys(g.modes).forEach(function(m) {
       if (m.indexOf('forward-pps-') !== 0) return;
       var size = forwardPPSSize(g.modes[m]);
-      if (size && size.usable_pps > best) best = size.usable_pps;
+      if (size && (!best || size.usable_pps > best.pps)) {
+        best = {pps:size.usable_pps,mode:m,data:g.modes[m]};
+      }
     });
     return best;
   }
+  function forwardPPS(g) { var best=bestForwarding(g); return best?best.pps:0; }
   function ppsPerDollar(g) { var p=forwardPPS(g); return (p&&g.price)?p/g.price:0; }
+  function forwardingOptimization(g) {
+    var optimized = g.modes['forward-pps-exit-k8s-opton'];
+    if (optimized && optimized.forwarding_optimization) return optimized.forwarding_optimization;
+    var comparison = null;
+    Object.values(g.modes).some(function(d) {
+      if (!d.forwarding_optimization) return false;
+      comparison = d.forwarding_optimization;
+      return true;
+    });
+    return comparison;
+  }
+  function optimizationGain(g) {
+    var comparison = forwardingOptimization(g);
+    return comparison && comparison.state==='on' ? comparison.gain_pct : null;
+  }
+  function modeLabel(mode) {
+    if (mode==='forward-pps-exit') return 'fwd-pps VM';
+    if (mode==='forward-pps-exit-k8s') return 'fwd-pps K8s off';
+    if (mode==='forward-pps-exit-k8s-opton') return 'fwd-pps K8s on';
+    if (mode==='relay-throughput') return 'relay';
+    return mode.replace('l4-','').replace('l7-','');
+  }
   // Peer-relay headline is the IMIX-average usable pps for a given path
   // result (direct / peer_relay / derp), same convention as forwardPPSSize.
   function relayIMIXPPS(pathResult) {
@@ -412,6 +437,7 @@ footer a:hover { text-decoration: underline; }
       case 'overhead': var o=iperfOH(g); return o!==null?o:999;
       case 'fpps': return forwardPPS(g);
       case 'ppsdollar': return ppsPerDollar(g);
+      case 'optgain': var gain=optimizationGain(g); return gain===null?-Infinity:gain;
       case 'relaypps': return relayPPS(g);
       case 'relayppsdollar': return relayPPSPerDollar(g);
       default: return 0;
@@ -427,6 +453,7 @@ footer a:hover { text-decoration: underline; }
   var hasL7Bytes = TAILBENCH_DATA.some(function(d){ return d.fortio_result && d.fortio_result.bytes_per_sec > 0; });
   // Only surface usable-pps / pps-$ columns once forwarding results exist.
   var hasForwardPPS = TAILBENCH_DATA.some(function(d){ return d.forward_pps; });
+  var hasForwardingOptimization = TAILBENCH_DATA.some(function(d){ return d.forwarding_optimization; });
   var hasRelay = TAILBENCH_DATA.some(function(d){ return d.relay; });
   function containsK8sForwardPPS(data) {
     return data.some(function(d){
@@ -561,9 +588,10 @@ footer a:hover { text-decoration: underline; }
       rows.push({
         label: g.type+' ('+g.provider.toUpperCase()+')',
         off: off, on: on,
-        offLim: offD ? offD.forward_pps.limiting_resource : null,
-        onLim: onD ? onD.forward_pps.limiting_resource : null,
-        delta: (off && on) ? (on-off)/off*100 : null
+        offLim: offD && offD.forward_pps ? offD.forward_pps.limiting_resource : null,
+        onLim: onD && onD.forward_pps ? onD.forward_pps.limiting_resource : null,
+        delta: onD && onD.forwarding_optimization && onD.forwarding_optimization.state==='on'
+          ? onD.forwarding_optimization.gain_pct : null
       });
     });
     rows.sort(function(a,b){ return (b.on-b.off)-(a.on-a.off); });
@@ -591,7 +619,7 @@ footer a:hover { text-decoration: underline; }
               },
               afterLabel:function(item){
                 var r=rows[item.dataIndex]; var out=[];
-                if(item.datasetIndex===1 && r.delta!==null) out.push('Delta vs off: '+(r.delta>=0?'+':'')+r.delta.toFixed(1)+'%');
+                if(item.datasetIndex===1 && r.delta!==null) out.push('Opt gain (off\u2192on): '+(r.delta>=0?'+':'')+r.delta.toFixed(1)+'%');
                 var lim=item.datasetIndex===0?r.offLim:r.onLim;
                 if(lim==='proxy-cpu') out.push('Limited by proxy pod CPU, not instance capacity');
                 return out;
@@ -955,7 +983,21 @@ footer a:hover { text-decoration: underline; }
     var groups=filtered(); var all=[]; groups.forEach(function(g){Object.values(g.modes).forEach(function(d){all.push(d);});});
     var ip=all.filter(function(d){return d.overhead;}); var fo=all.filter(function(d){return d.fortio_result;});
     var vmIP=ip.filter(function(d){return d.environment==='vm';}); var k8sIP=ip.filter(function(d){return d.environment==='container';});
+    var priced=groups.filter(function(g){return g.price;});
+    var pricedForwarding=groups.map(function(g){
+      var best=bestForwarding(g);
+      return best && g.price ? {value:best.pps/g.price,mode:best.mode} : null;
+    }).filter(function(v){return v!==null;});
     var h='<div class="stat"><div class="stat-label">Instances</div><div class="stat-val">'+groups.length+'</div><div class="stat-sub">'+all.length+' benchmarks</div></div>';
+    if(priced.length) {
+      var avgCost=priced.reduce(function(s,g){return s+g.price;},0)/priced.length;
+      var cheapest=Math.min.apply(null,priced.map(function(g){return g.price;}));
+      h+='<div class="stat"><div class="stat-label">Avg cost</div><div class="stat-val">'+usd(avgCost)+'<small>/hr</small></div><div class="stat-sub">cheapest '+usd(cheapest)+'/hr</div></div>';
+    }
+    if(pricedForwarding.length) {
+      var bestEfficiency=pricedForwarding.reduce(function(best,current){return current.value>best.value?current:best;});
+      h+='<div class="stat"><div class="stat-label">Best pps/$</div><div class="stat-val">'+ppsFmt(bestEfficiency.value)+'<small>pps/$</small></div><div class="stat-sub">best of '+pricedForwarding.length+' \u00b7 '+modeLabel(bestEfficiency.mode)+'</div></div>';
+    }
     if(vmIP.length) { var avg=vmIP.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/vmIP.length; h+='<div class="stat"><div class="stat-label">VM L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+vmIP.length+' iperf tests</div></div>'; }
     if(k8sIP.length) { var avg=k8sIP.reduce(function(s,d){return s+d.overhead.bandwidth_pct;},0)/k8sIP.length; h+='<div class="stat"><div class="stat-label">K8s L4 Overhead</div><div class="stat-val">'+avg.toFixed(1)+'<small>%</small></div><div class="stat-sub">vs bare metal, '+k8sIP.length+' iperf tests</div></div>'; }
     if(fo.length) {
@@ -977,6 +1019,7 @@ footer a:hover { text-decoration: underline; }
       {k:'qps',l:'Best QPS'},{k:'p99',l:'Best P99'}
     ];
     if (hasForwardPPS) cols.push({k:'fpps',l:'Usable pps'},{k:'ppsdollar',l:'pps/$'});
+    if (hasForwardingOptimization) cols.push({k:'optgain',l:'Opt gain'});
     if (hasRelay) cols.push({k:'relaypps',l:'Relay pps'},{k:'relayppsdollar',l:'Relay pps/$'});
     cols.push({k:'',l:'Mode Breakdown'},{k:'',l:''});
     return cols;
@@ -1028,6 +1071,15 @@ footer a:hover { text-decoration: underline; }
         h+='<td class="m">'+(fp?ppsFmt(fp)+'<small style="color:var(--text-3);margin-left:1px">pps</small>':'\u2014')+'</td>';
         h+='<td class="m">'+(ppd?ppsFmt(ppd)+'<small style="color:var(--text-3);margin-left:1px">/$</small>':'\u2014')+'</td>';
       }
+      if (hasForwardingOptimization) {
+        var optGain=optimizationGain(g);
+        if (optGain===null) {
+          h+='<td class="m">\u2014</td>';
+        } else {
+          var optGainClass=optGain>0?'oh-g':optGain<0?'oh-r':'oh-y';
+          h+='<td class="m"><span class="oh '+optGainClass+'">'+(optGain>=0?'+':'')+optGain.toFixed(1)+'%</span><small style="display:block;color:var(--text-3);margin-top:2px">off\u2192on</small></td>';
+        }
+      }
       if (hasRelay) {
         var rp=relayPPS(g); var rpd=relayPPSPerDollar(g);
         h+='<td class="m">'+(rp?ppsFmt(rp)+'<small style="color:var(--text-3);margin-left:1px">pps</small>':'\u2014')+'</td>';
@@ -1040,9 +1092,9 @@ footer a:hover { text-decoration: underline; }
       orderedModes.forEach(function(mode) {
         var d = g.modes[mode];
         var mCls = mode.startsWith('l7')?'l7':mode==='l4-lb'?'lb':'l4';
-        var mLabel = mode.replace('l4-','').replace('l7-','').replace('forward-pps-exit-k8s','fwd-pps').replace('relay-throughput','relay');
+        var mLabel = modeLabel(mode);
         mbHtml += '<div style="display:flex;align-items:center;gap:6px">';
-        mbHtml += '<span class="mode-pill mp-'+mCls+'" style="min-width:65px;text-align:center">'+mLabel+'</span>';
+        mbHtml += '<span class="mode-pill mp-'+mCls+'" style="min-width:90px;text-align:center">'+mLabel+'</span>';
         if (d.fortio_result) {
           var fr = d.fortio_result;
           var delta = d.l7_overhead ? Math.abs(d.l7_overhead.qps.delta_pct) : null;
@@ -1114,6 +1166,10 @@ footer a:hover { text-decoration: underline; }
           h+='<span class="oh oh-g">&le;'+d.forward_pps.loss_threshold_pct.toFixed(3)+'% loss</span>';
           if (d.forwarding_optimizations) {
             h+='<span class="oh oh-g" style="margin-left:4px">fwd-opt: '+d.forwarding_optimizations+'</span>';
+          }
+          if (d.forwarding_optimization && d.forwarding_optimization.state==='on') {
+            var detailGain=d.forwarding_optimization.gain_pct;
+            h+='<span class="oh '+(detailGain>0?'oh-g':detailGain<0?'oh-r':'oh-y')+'" style="margin-left:4px">off\u2192on '+(detailGain>=0?'+':'')+detailGain.toFixed(1)+'%</span>';
           }
           if (d.forward_pps.limiting_resource==='proxy-cpu') {
             h+='<span class="oh oh-y" style="margin-left:4px">proxy-cpu bound</span>';

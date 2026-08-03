@@ -1,6 +1,9 @@
 package benchmark
 
-import "strings"
+import (
+	"sort"
+	"strings"
+)
 
 var validModes = map[string]bool{
 	"tsnet-userspace":  true,
@@ -24,6 +27,17 @@ var validModes = map[string]bool{
 
 func IsValidMode(mode string) bool {
 	return validModes[mode]
+}
+
+// ValidModes returns every recognized mode name in sorted order, for use in
+// error messages that need to tell the user what they could have written.
+func ValidModes() []string {
+	modes := make([]string, 0, len(validModes))
+	for mode := range validModes {
+		modes = append(modes, mode)
+	}
+	sort.Strings(modes)
+	return modes
 }
 
 func ModeAppliesTo(mode, env string) bool {

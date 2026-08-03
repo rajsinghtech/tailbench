@@ -69,7 +69,7 @@ handling. Out of scope here.
 Add `forward-pps-exit` to the `modes` list in `config.yaml`, then:
 
 ```bash
-./tailbench --provider aws --filter '^c6in\.xlarge$'
+./dist/tailbench-aws --filter '^c6in\.xlarge$'
 ```
 
 Expected behavior:
@@ -127,6 +127,62 @@ the offered rate (`iperf3 -u -b <bits/s>`), with a short warmup omitted (`-O`)
 and a single stream (`-P 1`, because one tunnel is pinned to one core for the
 WireGuard crypto). Reported at 64 B (worst case), an IMIX-average size
 (headline), and ~MTU (best case).
+
+### Dashboard mapping and derived metrics
+
+Aggregation groups dashboard records by cloud provider, instance family,
+instance type, and environment. The dashboard surfaces map to the aggregated
+JSON as follows:
+
+| Dashboard surface | Calculation | Result field(s) |
+|---|---|---|
+| `$/hr` | Linux, shared-tenancy, on-demand hourly instance price. The cost headline is the average across priced instance groups and names the cheapest group. | `price_per_hour`, injected from `internal/pricing/data.json` |
+| `Usable pps` | IMIX-average forwarding `usable_pps` at or below the configured loss threshold. The grouped row uses the best measured `forward-pps-*` mode; legacy results without IMIX fall back to their highest usable measured size. | `forward_pps.sizes[label=imix-avg].usable_pps`, with `forward_pps.loss_threshold_pct` |
+| `pps/$` | Headline usable pps divided by `price_per_hour`. It expresses forwarding packet-rate capacity per hourly dollar, not total job cost. | `forward_pps.sizes[].usable_pps / price_per_hour` |
+| `Opt gain` | `(optimized usable pps - baseline usable pps) / baseline usable pps * 100`, using IMIX for the headline. | `forwarding_optimization.gain_pct`; `forwarding_optimization.sizes[].gain_pct` holds matched per-size deltas |
+| Limiting resource | The resource that stopped the sweep from finding a higher usable rate. | `forward_pps.limiting_resource` |
+
+`cmd/aggregate` computes an optimization comparison only when it finds exactly
+one `forward-pps-exit-k8s` record labeled
+`forwarding_optimizations: "off"` and one
+`forward-pps-exit-k8s-opton` record labeled
+`forwarding_optimizations: "on"` in the same
+`(cloud_provider, instance_family, instance_type, environment)` group. It
+stores the object only on the optimized record:
+
+```json
+"forwarding_optimization": {
+  "state": "on",
+  "baseline_mode": "forward-pps-exit-k8s",
+  "baseline_usable_pps": 812000,
+  "gain_pct": 34.2,
+  "sizes": [
+    {
+      "label": "imix-avg",
+      "datagram_bytes": 340,
+      "baseline_usable_pps": 812000,
+      "optimized_usable_pps": 1089704,
+      "gain_pct": 34.2
+    }
+  ]
+}
+```
+
+The join is intentionally coupled to those two mode names because they define
+this A/B experiment. A missing or duplicate arm, a missing state label, an
+absent IMIX measurement, or a zero IMIX baseline produces no comparison.
+
+Keep the interpretation conservative:
+
+- Forwarding pps is measured on `client -> router/proxy -> sink`; it is not
+  endpoint pps and must not be charted as one.
+- Show the VM exit-node or K8s ProxyGroup mode with every forwarding value. For
+  A/B data, show the `off`/`on` state and label gain as `off→on`; an optimized
+  pps value without its state is misleading.
+- `instance-pps-cap` means the cloud packet limit may have capped the result, so
+  the measurement is only a lower bound on node capacity. `node-cpu` and
+  `proxy-cpu` identify a node/pod-bound sweep. `unknown` supports no stronger
+  attribution.
 
 ---
 

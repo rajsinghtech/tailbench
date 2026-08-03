@@ -32,6 +32,8 @@ type BenchmarkResult struct {
 	ForwardRole          string        `json:"forward_role,omitempty"`             // e.g. "exit-node", "proxygroup", "peer-relay"
 	ForwardOptimizations string        `json:"forwarding_optimizations,omitempty"` // "off" or "on"
 	Relay                *RelayResult  `json:"relay,omitempty"`
+
+	ForwardingOptimization *ForwardingOptimization `json:"forwarding_optimization,omitempty"`
 }
 
 type SystemConfig struct {
@@ -79,6 +81,27 @@ type PPSSizeResult struct {
 	LossPct       float64 `json:"loss_pct"`
 	JitterMs      float64 `json:"jitter_ms"`
 	Mbps          float64 `json:"mbps"`
+}
+
+// ForwardingOptimization compares an optimized forwarding-pps result with its
+// matching unoptimized baseline. It is added during aggregation because the two
+// benchmark arms are written as independent result files.
+type ForwardingOptimization struct {
+	State             string                           `json:"state"` // copied from ForwardOptimizations on the optimized result
+	BaselineMode      string                           `json:"baseline_mode"`
+	BaselineUsablePPS float64                          `json:"baseline_usable_pps"`
+	GainPct           float64                          `json:"gain_pct"`
+	Sizes             []ForwardingOptimizationSizeGain `json:"sizes,omitempty"`
+}
+
+// ForwardingOptimizationSizeGain is the A/B comparison for one matched
+// datagram size. A size with an absent or zero baseline is omitted.
+type ForwardingOptimizationSizeGain struct {
+	Label              string  `json:"label"`
+	DatagramBytes      int     `json:"datagram_bytes"`
+	BaselineUsablePPS  float64 `json:"baseline_usable_pps"`
+	OptimizedUsablePPS float64 `json:"optimized_usable_pps"`
+	GainPct            float64 `json:"gain_pct"`
 }
 
 // RelayResult holds throughput, usable pps, and latency measured over three

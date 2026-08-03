@@ -10,5 +10,12 @@ import (
 const compiledProviderName = "aws"
 
 func newCompiledProvider(cfg *config.Config) provider.Provider {
-	return &provider.AWSProvider{Region: cfg.AWSRegion, AZ: cfg.AWSAZ, KeyName: cfg.AWSKeyName, StateDir: providerStateDir(cfg.StateDir, compiledProviderName)}
+	return &provider.AWSProvider{
+		Region:    cfg.AWSRegion,
+		AZ:        cfg.AWSAZ,
+		KeyName:   cfg.AWSKeyName,
+		StateDir:  provider.BackendURL(cfg.StateBackend, cfg.StateDir, compiledProviderName),
+		RunID:     cfg.RunID,
+		ExpiresAt: cfg.ResourceExpiresAt,
+	}
 }

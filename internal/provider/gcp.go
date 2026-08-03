@@ -5,6 +5,7 @@ package provider
 import (
 	"context"
 	"fmt"
+	"log"
 	"strings"
 
 	"github.com/pulumi/pulumi-gcp/sdk/v9/go/gcp/compute"
@@ -25,16 +26,78 @@ type GCPProvider struct {
 	SSHPubKey string
 	SSHUser   string
 	StateDir  string
+	RunID     string
+	ExpiresAt string
 }
 
-var _ Provider = (*GCPProvider)(nil)
+var _ RunScopedProvider = (*GCPProvider)(nil)
 
-func (p *GCPProvider) Name() string { return "gcp" }
+func (p *GCPProvider) Name() string             { return "gcp" }
+func (p *GCPProvider) RunScopedResources() bool { return p.RunID != "" }
+func (p *GCPProvider) ManagesNetworking() bool  { return false }
+
+func (p *GCPProvider) pairStackName(instanceType string) string {
+	safeType := strings.ReplaceAll(instanceType, ".", "-")
+	return scopedName("tailbench-gcp-"+safeType, p.RunID)
+}
+
+func (p *GCPProvider) resourceLabels() pulumi.StringMap {
+	labels := pulumi.StringMap{
+		"project":            pulumi.String("tailbench"),
+		"tailbench_provider": pulumi.String(p.Name()),
+	}
+	if suffix := runSuffix(p.RunID); suffix != "" {
+		labels["tailbench_run_id"] = pulumi.String(suffix)
+	}
+	if expiry := runSuffix(p.ExpiresAt); expiry != "" {
+		labels["tailbench_expires_at"] = pulumi.String(expiry)
+	}
+	return labels
+}
+
+// gcpDefaultSSHUser is the login GCP's guest agent provisions from "ssh-keys"
+// metadata. Ubuntu cloud images use "ubuntu". This must never be empty: an empty
+// user made the whole metadata value literally ":", which provisions no login at
+// all and leaves a node that fails cloud-init completely unreachable.
+const gcpDefaultSSHUser = "ubuntu"
+
+func (p *GCPProvider) sshUser() string {
+	if p.SSHUser != "" {
+		return p.SSHUser
+	}
+	return gcpDefaultSSHUser
+}
+
+// resolveSSHPubKey returns the authorized_keys line for this run's instances,
+// generating and persisting one when none is configured.
+//
+// Unlike AWS, GCP has no key-pair resource to create in SetupNetworking; the
+// public key rides along in each instance's metadata. So both SetupNetworking
+// (to surface a filesystem error before any cloud call) and CreatePair (which
+// needs the value, and runs without a preceding SetupNetworking in the same
+// process on a resume) resolve it. ResolveSSHPublicKey reuses the key already on
+// disk, so repeated calls return identical material and never force a replace.
+func (p *GCPProvider) resolveSSHPubKey() (authorizedKey, keyPath string, err error) {
+	authorizedKey, keyPath, err = ResolveSSHPublicKey(".", scopedName("tailbench", p.RunID), p.SSHPubKey)
+	if err != nil {
+		return "", "", fmt.Errorf("prepare SSH key: %w", err)
+	}
+	return authorizedKey, keyPath, nil
+}
 
 func (p *GCPProvider) SetupNetworking(_ context.Context) (*NetworkingOutput, error) {
+	authorizedKey, keyPath, err := p.resolveSSHPubKey()
+	if err != nil {
+		return nil, err
+	}
+	if keyPath != "" {
+		log.Printf("using generated SSH key for %s login %q (private key: %s)", p.Name(), p.sshUser(), keyPath)
+	}
 	return &NetworkingOutput{Values: map[string]string{
-		"network": p.Network,
-		"subnet":  p.Subnet,
+		"network":        p.Network,
+		"subnet":         p.Subnet,
+		"ssh_user":       p.sshUser(),
+		"ssh_public_key": authorizedKey,
 	}}, nil
 }
 
@@ -57,7 +120,7 @@ func (p *GCPProvider) projectOpts() []auto.LocalWorkspaceOption {
 			Runtime: workspace.NewProjectRuntimeInfo("go", nil),
 			Backend: &workspace.ProjectBackend{URL: p.StateDir},
 		}),
-		auto.WorkDir(strings.TrimPrefix(p.StateDir, "file://")),
+		auto.WorkDir(WorkDir(p.StateDir, p.Name())),
 		auto.EnvVars(map[string]string{
 			"PULUMI_CONFIG_PASSPHRASE": "",
 		}),
@@ -66,19 +129,32 @@ func (p *GCPProvider) projectOpts() []auto.LocalWorkspaceOption {
 
 func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOutput, error) {
 	safeType := strings.ReplaceAll(opts.InstanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-gcp-%s", safeType)
+	stackName := p.pairStackName(opts.InstanceType)
 
-	serverName := fmt.Sprintf("tb-%s-server", safeType)
-	clientName := fmt.Sprintf("tb-%s-client", safeType)
-	routerName := fmt.Sprintf("tb-%s-router", safeType)
+	serverName := scopedName(fmt.Sprintf("tb-%s-server", safeType), p.RunID)
+	clientName := scopedName(fmt.Sprintf("tb-%s-client", safeType), p.RunID)
+	routerName := scopedName(fmt.Sprintf("tb-%s-router", safeType), p.RunID)
 	diskType, imageFamily := p.gcpInstanceProps(opts.InstanceType)
+
+	authorizedKey := ""
+	if opts.Networking != nil {
+		authorizedKey = opts.Networking.Values["ssh_public_key"]
+	}
+	if authorizedKey == "" {
+		var err error
+		if authorizedKey, _, err = p.resolveSSHPubKey(); err != nil {
+			return nil, err
+		}
+	}
+	sshKeysMetadata := fmt.Sprintf("%s:%s", p.sshUser(), authorizedKey)
 
 	program := func(pCtx *pulumi.Context) error {
 		if opts.WantRouter {
 			// The GCP network is bring-your-own, so open the iperf3 port for the
 			// forwarding-pps sink (public IP, reached via the exit node), and the
 			// Tailscale peer-relay UDP port (relay-throughput benchmark), here.
-			if _, err := compute.NewFirewall(pCtx, fmt.Sprintf("tb-%s-pps", safeType), &compute.FirewallArgs{
+			firewallName := scopedName(fmt.Sprintf("tb-%s-pps", safeType), p.RunID)
+			if _, err := compute.NewFirewall(pCtx, firewallName, &compute.FirewallArgs{
 				Network:   pulumi.String(p.Network),
 				Direction: pulumi.String("INGRESS"),
 				Allows: compute.FirewallAllowArray{
@@ -125,11 +201,9 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 				},
 				MetadataStartupScript: pulumi.StringPtr(ud),
 				Metadata: pulumi.StringMap{
-					"ssh-keys": pulumi.Sprintf("%s:%s", p.SSHUser, p.SSHPubKey),
+					"ssh-keys": pulumi.String(sshKeysMetadata),
 				},
-				Labels: pulumi.StringMap{
-					"project": pulumi.String("tailbench"),
-				},
+				Labels: p.resourceLabels(),
 			})
 			if err != nil {
 				return err
@@ -165,10 +239,7 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 		return nil, fmt.Errorf("set gcp:region: %w", err)
 	}
 
-	// Cancel any incomplete operations from a previous crashed run.
-	_ = stack.Cancel(ctx)
-
-	result, err := stack.Up(ctx, optup.ProgressStreams(), optup.Refresh())
+	result, err := stack.Up(ctx, optup.ProgressStreams(log.Writer()), optup.Refresh())
 	if err != nil {
 		return nil, fmt.Errorf("stack up %s: %w", stackName, err)
 	}
@@ -200,16 +271,25 @@ func (p *GCPProvider) CreatePair(ctx context.Context, opts PairOptions) (*PairOu
 }
 
 func (p *GCPProvider) DestroyPair(ctx context.Context, instanceType string) error {
-	safeType := strings.ReplaceAll(instanceType, ".", "-")
-	stackName := fmt.Sprintf("tailbench-gcp-%s", safeType)
+	stackName := p.pairStackName(instanceType)
 
 	program := func(_ *pulumi.Context) error { return nil }
 
 	stack, err := auto.SelectStackInlineSource(ctx, stackName, "tailbench", program, p.projectOpts()...)
-	if err == nil {
-		_ = stack.Cancel(ctx)
-		_, _ = stack.Destroy(ctx, optdestroy.ProgressStreams(), optdestroy.ContinueOnError())
-		_ = stack.Workspace().RemoveStack(ctx, stackName)
+	if auto.IsSelectStack404Error(err) {
+		return nil
+	}
+	if err != nil {
+		return fmt.Errorf("select stack %s: %w", stackName, err)
+	}
+	if err := stack.Cancel(ctx); err != nil {
+		return fmt.Errorf("cancel stack %s: %w", stackName, err)
+	}
+	if _, err := stack.Destroy(ctx, optdestroy.ProgressStreams(log.Writer()), optdestroy.ContinueOnError()); err != nil {
+		return fmt.Errorf("destroy stack %s: %w", stackName, err)
+	}
+	if err := stack.Workspace().RemoveStack(ctx, stackName); err != nil {
+		return fmt.Errorf("remove stack %s: %w", stackName, err)
 	}
 	return nil
 }
