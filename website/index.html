@@ -93,8 +93,8 @@ header p { font-size: 0.8rem; color: var(--text-2); margin-top: 2px; }
 .theme-btn:hover { border-color: var(--accent); color: var(--accent); }
 
 /* Stats */
-.stats { display: flex; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--border); overflow-x: auto; }
-.stat-label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.stats { display: flex; gap: 20px; padding: 18px 0; border-bottom: 1px solid var(--border); flex-wrap: wrap; }
+.stat-label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); }
 .stat-val { font-family: var(--mono); font-size: 1.25rem; font-weight: 700; margin-top: 2px; }
 .stat-val small { font-size: 0.6rem; font-weight: 500; color: var(--text-3); margin-left: 2px; }
 .stat-sub { font-size: 0.7rem; color: var(--text-2); }
@@ -104,30 +104,34 @@ header p { font-size: 0.8rem; color: var(--text-2); margin-top: 2px; }
   background: var(--bg-2); border: 1px solid var(--border); border-radius: var(--radius);
   margin: 18px 0; overflow: hidden;
 }
-.chart-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-3); overflow-x: auto; }
+.chart-tabs { display: flex; border-bottom: 1px solid var(--border); background: var(--bg-3); overflow-x: auto; scrollbar-width: none; }
+.chart-tabs::-webkit-scrollbar { display: none; }
 .chart-tab {
   font-family: var(--mono); font-size: 0.68rem; font-weight: 500; padding: 10px 16px;
-  color: var(--text-3); cursor: pointer; border: none; background: none;
+  color: var(--text-2); cursor: pointer; border: none; background: none;
   border-bottom: 2px solid transparent; transition: all 150ms; white-space: nowrap;
 }
 .chart-tab:hover { color: var(--text); }
 .chart-tab.on { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .chart-sub { display: none; align-items: center; gap: 8px; padding: 10px 16px; border-bottom: 1px solid var(--border); background: var(--bg-3); }
 .chart-sub.on { display: flex; }
-.chart-sub label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.chart-sub label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); }
 .chart-sub select {
   font-family: var(--mono); font-size: 0.65rem; padding: 4px 8px;
   border-radius: 6px; border: 1px solid var(--border); background: var(--bg-2);
   color: var(--text); cursor: pointer;
 }
 .chart-sub select:hover { border-color: var(--accent); }
+.chart-tab:focus-visible, .chip:focus-visible, .btn-d:focus-visible, .theme-btn:focus-visible {
+  outline: 2px solid var(--accent); outline-offset: -2px;
+}
 .chart-body { position: relative; height: 360px; padding: 16px; }
 .chart-body canvas { width: 100% !important; height: 100% !important; }
 
 /* Filters */
 .filters { display: flex; gap: 14px; padding: 14px 0; flex-wrap: wrap; align-items: center; border-bottom: 1px solid var(--border); }
-.fg { display: flex; align-items: center; gap: 5px; }
-.fg label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); }
+.fg { display: flex; align-items: center; gap: 5px; flex-wrap: wrap; }
+.fg label { font-family: var(--mono); font-size: 0.58rem; font-weight: 600; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-2); }
 .chip {
   font-family: var(--mono); font-size: 0.65rem; font-weight: 500; padding: 4px 10px;
   border-radius: 6px; border: 1px solid var(--border); background: transparent;
@@ -146,7 +150,7 @@ header p { font-size: 0.8rem; color: var(--text-2); margin-top: 2px; }
 table { width: 100%; border-collapse: collapse; }
 thead th {
   font-family: var(--mono); font-size: 0.62rem; font-weight: 600; text-transform: uppercase;
-  letter-spacing: 0.05em; color: var(--text-3); background: var(--bg-3);
+  letter-spacing: 0.05em; color: var(--text-2); background: var(--bg-3);
   padding: 9px 12px; border-bottom: 1px solid var(--border); text-align: left;
   cursor: pointer; user-select: none; white-space: nowrap; transition: color 150ms;
 }
@@ -168,7 +172,7 @@ td.m { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabul
 .tp { background: var(--accent-dim); color: var(--accent); }
 .te { background: var(--green-dim); color: var(--green); }
 .tc { background: var(--purple-dim); color: var(--purple); }
-.tf { background: var(--bg-inset); color: var(--text-3); }
+.tf { background: var(--bg-inset); color: var(--text-2); }
 
 /* Mode pills in "modes" column */
 .modes-cell { display: flex; gap: 3px; flex-wrap: wrap; }
@@ -201,7 +205,7 @@ td.m { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabul
 .btn-d {
   font-family: var(--mono); font-size: 0.65rem; font-weight: 500; padding: 4px 10px;
   border-radius: 6px; border: 1px solid var(--border); background: transparent;
-  color: var(--text-3); cursor: pointer; transition: all 150ms;
+  color: var(--text-2); cursor: pointer; transition: all 150ms;
 }
 .btn-d:hover { border-color: var(--accent); color: var(--accent); }
 
@@ -211,25 +215,25 @@ td.m { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabul
   max-height: 0; overflow: hidden; transition: max-height 300ms ease, padding 200ms ease;
   background: var(--bg-inset); border-top: 1px solid var(--border);
 }
-.detail-row.open .detail-content { max-height: 900px; padding: 16px 20px; }
+.detail-row.open .detail-content { max-height: 1600px; padding: 16px 20px; }
 .detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
 .dsec h5 {
   font-family: var(--mono); font-size: 0.58rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-3); margin-bottom: 8px;
+  text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-2); margin-bottom: 8px;
 }
 .mt { width: 100%; border-collapse: collapse; font-family: var(--mono); font-size: 0.68rem; }
 .mt th {
   text-align: left; padding: 4px 6px; font-size: 0.55rem; font-weight: 600;
-  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-3);
+  text-transform: uppercase; letter-spacing: 0.04em; color: var(--text-2);
   border-bottom: 1px solid var(--border);
 }
 .mt td { padding: 4px 6px; color: var(--text-2); border-bottom: 1px solid var(--border); }
 .mt tr:last-child td { border-bottom: none; }
 .meta {
-  font-family: var(--mono); font-size: 0.65rem; color: var(--text-3);
+  font-family: var(--mono); font-size: 0.65rem; color: var(--text-2);
   display: flex; gap: 16px; flex-wrap: wrap; margin-top: 10px;
 }
-.meta strong { color: var(--text-2); }
+.meta strong { color: var(--text); }
 
 /* Mode sub-rows in detail */
 .mode-detail-row {
@@ -242,7 +246,7 @@ td.m { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabul
 .mdl.l7 { color: var(--purple); }
 .mdl.lb { color: var(--teal); }
 .mdl.h2 { color: var(--pink); }
-.md-metrics { display: flex; gap: 12px; align-items: center; }
+.md-metrics { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
 .md-m { font-family: var(--mono); font-size: 0.72rem; font-weight: 600; }
 .md-m small { font-size: 0.55rem; font-weight: 500; color: var(--text-3); margin-left: 2px; }
 /* bar inside detail for iperf */
@@ -257,13 +261,13 @@ td.m { font-family: var(--mono); font-size: 0.78rem; font-variant-numeric: tabul
 
 footer {
   border-top: 1px solid var(--border); padding: 20px 0; text-align: center;
-  font-size: 0.72rem; color: var(--text-3);
+  font-size: 0.72rem; color: var(--text-2);
 }
 footer a { color: var(--accent); text-decoration: none; }
 footer a:hover { text-decoration: underline; }
 
-@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .chart-body { height: 280px; } }
-@media (max-width: 600px) { html { font-size: 14px; } .wrap { padding: 0 16px; } table { min-width: 900px; } }
+@media (max-width: 900px) { .detail-grid { grid-template-columns: 1fr; } .chart-body { height: 280px; } .detail-row.open .detail-content { max-height: none; } table { min-width: 900px; } }
+@media (max-width: 600px) { html { font-size: 14px; } .wrap { padding: 0 16px; } .chart-tab { padding: 10px 12px; } .stats { gap: 16px; } }
 </style>
 </head>
 <body>
@@ -625,7 +629,7 @@ footer a:hover { text-decoration: underline; }
         },
         scales:{
           x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
-          y:{ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:yLabel,color:css('--text-2'),font:{size:11}}}
+          y:{ticks:{color:css('--text-2')},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:yLabel,color:css('--text-2'),font:{size:11}}}
         }
       }
     });
@@ -684,7 +688,7 @@ footer a:hover { text-decoration: underline; }
         },
         scales:{
           x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
-          y:{ticks:{color:css('--text-3'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec',color:css('--text-2'),font:{size:11}}}
+          y:{ticks:{color:css('--text-2'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec',color:css('--text-2'),font:{size:11}}}
         }
       }
     });
@@ -729,7 +733,7 @@ footer a:hover { text-decoration: underline; }
         },
         scales:{
           x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
-          y:{ticks:{color:css('--text-3'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec (IMIX)',color:css('--text-2'),font:{size:11}}}
+          y:{ticks:{color:css('--text-2'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'Usable packets/sec (IMIX)',color:css('--text-2'),font:{size:11}}}
         }
       }
     });
@@ -784,9 +788,9 @@ footer a:hover { text-decoration: underline; }
           }
         },
         scales:{
-          x:{type:'logarithmic',title:{display:true,text:'On-demand cost ($/hr, log scale)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3'),callback:function(v){return '$'+v;}},grid:{color:css('--border')}},
-          y:{display:hasBandwidth,position:'left',title:{display:true,text:'Tailscale throughput (Gbps)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true},
-          yLB:{display:hasLBQPS,position:hasBandwidth?'right':'left',title:{display:true,text:'Load-balancer throughput (kreq/s)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3')},grid:{color:css('--border'),drawOnChartArea:!hasBandwidth},beginAtZero:true}
+          x:{type:'logarithmic',title:{display:true,text:'On-demand cost ($/hr, log scale)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2'),callback:function(v){return '$'+v;}},grid:{color:css('--border')}},
+          y:{display:hasBandwidth,position:'left',title:{display:true,text:'Tailscale throughput (Gbps)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2')},grid:{color:css('--border')},beginAtZero:true},
+          yLB:{display:hasLBQPS,position:hasBandwidth?'right':'left',title:{display:true,text:'Load-balancer throughput (kreq/s)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2')},grid:{color:css('--border'),drawOnChartArea:!hasBandwidth},beginAtZero:true}
         }
       }
     });
@@ -821,7 +825,7 @@ footer a:hover { text-decoration: underline; }
           callbacks:{label:function(i){return i.raw>=1000?(i.raw/1000).toFixed(1)+'k QPS':i.raw.toFixed(0)+' QPS';},afterLabel:function(i){return 'Mode: '+data[i.dataIndex].mode;}}
         }},
         scales:{
-          x:{ticks:{color:css('--text-3'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},title:{display:true,text:'Requests/sec',color:css('--text-2'),font:{size:11,family:css('--mono')}}},
+          x:{ticks:{color:css('--text-2'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},title:{display:true,text:'Requests/sec',color:css('--text-2'),font:{size:11,family:css('--mono')}}},
           y:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:10}},grid:{display:false}}
         }
       }
@@ -851,7 +855,7 @@ footer a:hover { text-decoration: underline; }
         responsive:true,maintainAspectRatio:false,indexAxis:'y',
         plugins:{legend:{labels:{color:css('--text-2'),padding:12}},tooltip:{backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10}},
         scales:{
-          x:{ticks:{color:css('--text-3')},grid:{color:css('--border')},title:{display:true,text:'Latency (ms)',color:css('--text-2'),font:{size:11}},beginAtZero:true},
+          x:{ticks:{color:css('--text-2')},grid:{color:css('--border')},title:{display:true,text:'Latency (ms)',color:css('--text-2'),font:{size:11}},beginAtZero:true},
           y:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9}},grid:{display:false}}
         }
       }
@@ -888,8 +892,8 @@ footer a:hover { text-decoration: underline; }
           callbacks:{label:function(i){var d=data[i.dataIndex]; return d.mode+': '+d.mbps.toFixed(1)+' MB/s ('+Math.round(d.qps)+' QPS)';}}
         }},
         scales:{
-          x:{title:{display:true,text:'Throughput (MB/s)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true},
-          y:{ticks:{color:css('--text-3'),font:{size:10}},grid:{display:false}}
+          x:{title:{display:true,text:'Throughput (MB/s)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2')},grid:{color:css('--border')},beginAtZero:true},
+          y:{ticks:{color:css('--text-2'),font:{size:10}},grid:{display:false}}
         }
       }
     });
@@ -916,8 +920,8 @@ footer a:hover { text-decoration: underline; }
           callbacks:{title:function(i){return i[0].raw.label;},label:function(i){return i.dataset.label+': '+i.raw.y.toFixed(2)+' Gbps @ '+i.raw.x+' vCPU';}}
         }},
         scales:{
-          x:{type:'logarithmic',title:{display:true,text:'vCPUs',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3'),callback:function(v){return v;}},grid:{color:css('--border')}},
-          y:{title:{display:true,text:'Throughput (Gbps)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-3')},grid:{color:css('--border')},beginAtZero:true}
+          x:{type:'logarithmic',title:{display:true,text:'vCPUs',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2'),callback:function(v){return v;}},grid:{color:css('--border')}},
+          y:{title:{display:true,text:'Throughput (Gbps)',color:css('--text-2'),font:{size:11}},ticks:{color:css('--text-2')},grid:{color:css('--border')},beginAtZero:true}
         }
       }
     });
@@ -950,7 +954,7 @@ footer a:hover { text-decoration: underline; }
           callbacks:{label:function(i){return i.raw.toFixed(1)+'% overhead';}}
         }},
         scales:{
-          x:{ticks:{color:css('--text-3'),callback:function(v){return v+'%';}},grid:{color:css('--border')},title:{display:true,text:'Overhead %',color:css('--text-2'),font:{size:11}},beginAtZero:true},
+          x:{ticks:{color:css('--text-2'),callback:function(v){return v+'%';}},grid:{color:css('--border')},title:{display:true,text:'Overhead %',color:css('--text-2'),font:{size:11}},beginAtZero:true},
           y:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9}},grid:{display:false}}
         }
       }
