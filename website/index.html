@@ -289,7 +289,7 @@ footer a:hover { text-decoration: underline; }
 <script src="data.generated.js"></script>
 <script>
 (function() {
-  var state = { provider:'all', family:'all', env:'all', sort:'vcpus', dir:'asc', expanded:null, tab:'radar', costView:'scatter' };
+  var state = { provider:'all', family:'all', env:'all', sort:'vcpus', dir:'asc', expanded:null, tab:'radar', costView:'scatter', costMetric:'gbps' };
 
   // Theme
   var theme = localStorage.getItem('tb-theme') || 'dark';
@@ -460,28 +460,70 @@ footer a:hover { text-decoration: underline; }
   }
   function relayPPSPerDollar(g) { var p=relayPPS(g); return (p&&g.price)?p/g.price:0; }
 
+  // Performance-per-dollar for the cost leaderboard. Gbps/$, pps/$, and QPS/$
+  // differ by orders of magnitude, so they are separate metric selections with
+  // their own axis titles — never series on one axis.
+  var perDollarUnits = {gbps:'Gbps per $/hr', pps:'usable pps per $/hr', qps:'QPS per $/hr'};
+  // Names the missing measurement in the empty state. A metric stays selectable
+  // as long as any record in the whole dataset carries it, so a filter can leave
+  // priced instances on screen with nothing to plot for this metric.
+  var perDollarMeasure = {gbps:'throughput', pps:'forwarding-pps', qps:'load-test'};
+  function perDollarValue(g, metric) {
+    if (metric==='pps') return ppsPerDollar(g);
+    if (metric==='qps') { var q=bestQPS(g); return (q&&g.price)?q/g.price:0; }
+    var bw=bestBW(g); return (bw&&g.price)?bw/1000/g.price:0;
+  }
+  function hasPerDollarData(g, metric) {
+    if (metric==='pps') return hasForwardPPSData(g);
+    if (metric==='qps') return hasQPSData(g);
+    return hasBWData(g);
+  }
+
   // Sort
+  // A column counts as measured when its summary value is usable, which is a
+  // stronger property than the record being present. FortioResult.QPS and
+  // .P99LatencyMs are non-omitempty floats, so a run whose duration histogram
+  // came back empty still ships a fortio_result holding 0; RelayResult.PeerRelay
+  // is omitempty and only written once that path was confirmed active. These
+  // predicates therefore mirror what renderTable prints: a row showing "—" must
+  // never outrank a row showing a number.
+  // Overhead and opt gain are deliberately absent here — 0% overhead and 0%
+  // gain are real measurements, so their value functions return null instead.
+  function hasBWData(g) { return bestBW(g)>0; }
+  function hasQPSData(g) { return bestQPS(g)>0; }
+  function hasP99Data(g) { return bestP99(g)>0; }
+  function hasForwardPPSData(g) { return forwardPPS(g)>0; }
+  function hasRelayData(g) { return relayPPS(g)>0; }
+  // sortVal returns null when the group has no measurement for the sorted
+  // column; the comparator sorts null last regardless of direction.
   function sortVal(g) {
     switch(state.sort) {
       case 'type': return g.type;
       case 'provider': return g.provider;
       case 'vcpus': return vcpu(g);
-      case 'price': return g.price?g.price:999999;
-      case 'bw': return bestBW(g);
-      case 'qps': return bestQPS(g);
-      case 'p99': var p=bestP99(g); return p?p:999999;
-      case 'overhead': var o=iperfOH(g); return o!==null?o:999;
-      case 'fpps': return forwardPPS(g);
-      case 'ppsdollar': return ppsPerDollar(g);
-      case 'optgain': var gain=optimizationGain(g); return gain===null?-Infinity:gain;
-      case 'relaypps': return relayPPS(g);
-      case 'relayppsdollar': return relayPPSPerDollar(g);
+      case 'price': return g.price?g.price:null;
+      case 'bw': return hasBWData(g)?bestBW(g):null;
+      case 'qps': return hasQPSData(g)?bestQPS(g):null;
+      case 'p99': return hasP99Data(g)?bestP99(g):null;
+      case 'overhead': return iperfOH(g);
+      case 'fpps': return hasForwardPPSData(g)?forwardPPS(g):null;
+      case 'ppsdollar': return (hasForwardPPSData(g)&&g.price)?ppsPerDollar(g):null;
+      case 'optgain': return optimizationGain(g);
+      case 'relaypps': return hasRelayData(g)?relayPPS(g):null;
+      case 'relayppsdollar': return (hasRelayData(g)&&g.price)?relayPPSPerDollar(g):null;
       default: return 0;
     }
   }
   function doSort(arr) {
     var d = state.dir==='asc'?1:-1;
-    return arr.sort(function(a,b) { var va=sortVal(a),vb=sortVal(b); if(typeof va==='string') return d*va.localeCompare(vb); return d*(va-vb); });
+    return arr.sort(function(a,b) {
+      var va=sortVal(a),vb=sortVal(b);
+      if (va===null&&vb===null) return 0;
+      if (va===null) return 1;
+      if (vb===null) return -1;
+      if (typeof va==='string') return d*va.localeCompare(vb);
+      return d*(va-vb);
+    });
   }
 
   // ===== CHARTS =====
@@ -518,7 +560,27 @@ footer a:hover { text-decoration: underline; }
 
   // Cost sub-views. Adding an entry here and a branch in renderCostChart is all
   // a new cost view needs.
-  var costViews = [{id:'scatter',label:'Cost vs performance'}];
+  var costViews = [
+    {id:'scatter',label:'Cost vs performance'},
+    {id:'perdollar',label:'Performance per dollar'},
+    {id:'price',label:'Absolute $/hr'}
+  ];
+
+  // Per-dollar metric options are gated on their underlying data being present:
+  // Gbps/$ is nearly universal, pps/$ needs forwarding results, QPS/$ needs
+  // fortio results. Offering an option with no data would plot an empty chart.
+  function costPerDollarMetrics(data, hasFwdPPS) {
+    var metrics = [{id:'gbps',label:'Gbps/$'}];
+    if (hasFwdPPS) metrics.push({id:'pps',label:'pps/$'});
+    if (data.some(function(d){ return d.fortio_result; })) metrics.push({id:'qps',label:'QPS/$'});
+    return metrics;
+  }
+  var costMetrics = costPerDollarMetrics(TAILBENCH_DATA, hasForwardPPS);
+
+  // An unpriced instance has no cost position in either ranked view.
+  function pricedGroups(groups) {
+    return groups.filter(function(g){ return !!g.price; });
+  }
 
   function renderChartTabs() {
     var h=''; tabs.forEach(function(t){ h+='<button class="chart-tab'+(state.tab===t.id?' on':'')+'" data-t="'+t.id+'">'+t.label+'</button>'; });
@@ -532,9 +594,23 @@ footer a:hover { text-decoration: underline; }
     if (state.tab !== 'cost') { el.className='chart-sub'; el.innerHTML=''; return; }
     var h='<label for="costView">View</label><select id="costView">';
     costViews.forEach(function(v){ h+='<option value="'+v.id+'"'+(state.costView===v.id?' selected':'')+'>'+v.label+'</option>'; });
-    el.innerHTML = h+'</select>';
+    h+='</select>';
+    if (state.costView==='perdollar') {
+      // Unreachable today — the select can only ever set a gated-in id — but it
+      // keeps the fallback honest if chart state ever gets persisted the way the
+      // theme already is.
+      if (!costMetrics.some(function(m){ return m.id===state.costMetric; })) state.costMetric='gbps';
+      h+='<label for="costMetric">Metric</label><select id="costMetric">';
+      costMetrics.forEach(function(m){ h+='<option value="'+m.id+'"'+(state.costMetric===m.id?' selected':'')+'>'+m.label+'</option>'; });
+      h+='</select>';
+    }
+    el.innerHTML = h;
     el.className='chart-sub on';
-    document.getElementById('costView').addEventListener('change',function(){ state.costView=this.value; renderChart(); });
+    // The metric selector only exists for the per-dollar view, so switching
+    // views re-renders the sub-bar as well as the chart.
+    document.getElementById('costView').addEventListener('change',function(){ state.costView=this.value; renderChartSub(); renderChart(); });
+    var ms = document.getElementById('costMetric');
+    if (ms) ms.addEventListener('change',function(){ state.costMetric=this.value; renderChart(); });
   }
 
   function renderChart() {
@@ -740,7 +816,97 @@ footer a:hover { text-decoration: underline; }
   }
 
   function renderCostChart(ctx) {
-    if (state.costView==='scatter') renderCostScatterChart(ctx);
+    if (state.costView==='perdollar') renderCostPerDollarChart(ctx);
+    else if (state.costView==='price') renderCostPriceChart(ctx);
+    else renderCostScatterChart(ctx);
+  }
+
+  function renderCostPerDollarChart(ctx) {
+    var metric = state.costMetric;
+    var priced = pricedGroups(filtered());
+    var rows = [];
+    priced.forEach(function(g) {
+      // A priced group without this metric's measurement is skipped rather
+      // than plotted as a misleading 0.
+      if (!hasPerDollarData(g, metric)) return;
+      rows.push({label:g.type+' ('+g.provider.toUpperCase()+')', value:perDollarValue(g,metric), price:g.price, provider:g.provider});
+    });
+    rows.sort(function(a,b){ return b.value-a.value; });
+    // Two different reasons produce an empty chart, and blaming the filter for
+    // both sends the reader hunting for results that were never measured.
+    var emptyText = priced.length
+      ? 'No '+perDollarMeasure[metric]+' results among the priced instances in this filter'
+      : 'No priced results match the current filters';
+
+    chart = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels:rows.map(function(r){return r.label;}),
+        datasets:[{
+          data:rows.map(function(r){return r.value;}),
+          backgroundColor:rows.map(function(r){return providerColor(r.provider).border+'99';}),
+          borderColor:rows.map(function(r){return providerColor(r.provider).border;}),
+          borderWidth:1,borderRadius:3
+        }]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,indexAxis:'y',
+        plugins:{
+          legend:{display:false},
+          title:rows.length?{display:false}:{display:true,text:emptyText,color:css('--text-3'),font:{size:13,weight:500}},
+          tooltip:{
+            backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
+            callbacks:{
+              label:function(i){ var v=i.raw; return (v>=1000?(v/1000).toFixed(1)+'k':v.toFixed(2))+' '+perDollarUnits[metric]; },
+              afterLabel:function(i){ return usd(rows[i.dataIndex].price)+'/hr'; }
+            }
+          }
+        },
+        scales:{
+          x:{ticks:{color:css('--text-2'),callback:function(v){return v>=1000?(v/1000).toFixed(0)+'k':v;}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:perDollarUnits[metric],color:css('--text-2'),font:{size:11}}},
+          y:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9}},grid:{display:false}}
+        }
+      }
+    });
+  }
+
+  function renderCostPriceChart(ctx) {
+    var rows = [];
+    pricedGroups(filtered()).forEach(function(g) {
+      rows.push({label:g.type+' ('+g.provider.toUpperCase()+')', price:g.price, provider:g.provider});
+    });
+    rows.sort(function(a,b){ return a.price-b.price; });
+
+    chart = new Chart(ctx, {
+      type:'bar',
+      data:{
+        labels:rows.map(function(r){return r.label;}),
+        datasets:[{
+          data:rows.map(function(r){return r.price;}),
+          backgroundColor:rows.map(function(r){return providerColor(r.provider).border+'99';}),
+          borderColor:rows.map(function(r){return providerColor(r.provider).border;}),
+          borderWidth:1,borderRadius:3
+        }]
+      },
+      options:{
+        responsive:true,maintainAspectRatio:false,
+        plugins:{
+          legend:{display:false},
+          title:rows.length?{display:false}:{display:true,text:'No priced results match the current filters',color:css('--text-3'),font:{size:13,weight:500}},
+          tooltip:{
+            backgroundColor:css('--bg-2'),titleColor:css('--text'),bodyColor:css('--text-2'),borderColor:css('--border'),borderWidth:1,padding:10,
+            callbacks:{
+              label:function(i){ return usd(i.raw)+'/hr'; },
+              afterLabel:function(i){ return 'Provider: '+rows[i.dataIndex].provider.toUpperCase(); }
+            }
+          }
+        },
+        scales:{
+          x:{ticks:{color:css('--text-2'),font:{family:css('--mono'),size:9},maxRotation:45},grid:{display:false}},
+          y:{ticks:{color:css('--text-2'),callback:function(v){return usd(v);}},grid:{color:css('--border')},beginAtZero:true,title:{display:true,text:'On-demand cost ($/hr)',color:css('--text-2'),font:{size:11}}}
+        }
+      }
+    });
   }
 
   function renderCostScatterChart(ctx) {

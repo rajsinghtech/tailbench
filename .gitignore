@@ -38,3 +38,7 @@ config.local.yaml
 
 # Slop
 .superpowers/
+
+# Local agent/tooling config and artifacts
+.kimi-code/
+.playwright-mcp/

@@ -377,3 +377,253 @@ test('chart axis ticks stay on the readable text tier', () => {
   const offenders = [...dashboardScript().matchAll(/ticks:\s*\{[^}]*color:\s*css\('--text-3'\)/g)];
   assert.deepEqual(offenders.map((m) => m[0]), [], 'axis tick labels must use --text-2 or better');
 });
+
+// Extract the summary helpers plus sortVal/doSort as one block and bind them
+// to a caller-supplied state, so tests can drive every sort column and both
+// directions without a full dashboard render.
+function loadSort() {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const startMarker = '  function bestBW(g) {';
+  const endMarker = '  // ===== CHARTS =====';
+  const start = html.indexOf(startMarker);
+  const end = html.indexOf(endMarker, start);
+  assert.notEqual(start, -1, 'dashboard summary helpers are missing');
+  assert.notEqual(end, -1, 'dashboard sort block boundary is missing');
+
+  const functionSource = html.slice(start, end).trim();
+  return vm.runInNewContext(
+    `(function(state, vcpu) { ${functionSource}\nreturn { sortVal: sortVal, doSort: doSort, perDollarValue: perDollarValue, hasPerDollarData: hasPerDollarData }; })`,
+  );
+}
+
+const SORT_FULL_GROUP = {
+  type: 'full', provider: 'aws', vcpu: 4, price: 0.5,
+  modes: {
+    'l4-kernel': {
+      tailscale_tcp: { summary: { bandwidth_mbps_avg: 1000 } },
+      overhead: { bandwidth_pct: 5 },
+      fortio_result: { qps: 100, p99_latency_ms: 10 },
+    },
+    'forward-pps-exit-k8s-opton': {
+      forward_pps: { sizes: [{ label: 'imix-avg', usable_pps: 5000 }] },
+      forwarding_optimization: { state: 'on', gain_pct: 20 },
+    },
+    'relay-throughput': {
+      relay: { peer_relay: { pps: { sizes: [{ label: 'imix-avg', usable_pps: 3000 }] } } },
+    },
+  },
+};
+const SORT_EMPTY_GROUP = { type: 'empty', provider: 'gcp', vcpu: 2, modes: {} };
+
+const METRIC_SORT_COLUMNS = ['price', 'bw', 'qps', 'p99', 'overhead', 'fpps', 'ppsdollar', 'optgain', 'relaypps', 'relayppsdollar'];
+
+test('rows with no measurement sort last in both directions for every metric column', () => {
+  const makeSort = loadSort();
+  const vcpu = (g) => g.vcpu || 0;
+  for (const column of METRIC_SORT_COLUMNS) {
+    for (const dir of ['asc', 'desc']) {
+      const { doSort } = makeSort({ sort: column, dir }, vcpu);
+      const sorted = doSort([SORT_EMPTY_GROUP, SORT_FULL_GROUP]);
+      assert.equal(sorted[0].type, 'full', `${column} ${dir}: measured row first`);
+      assert.equal(sorted[1].type, 'empty', `${column} ${dir}: absent row last`);
+    }
+  }
+});
+
+test('a measured zero overhead sorts as a real value, not as absent', () => {
+  const makeSort = loadSort();
+  const zero = { type: 'zero', provider: 'aws', modes: { 'l4-kernel': { overhead: { bandwidth_pct: 0 } } } };
+  for (const [dir, expected] of [['asc', ['zero', 'full', 'empty']], ['desc', ['full', 'zero', 'empty']]]) {
+    const { doSort } = makeSort({ sort: 'overhead', dir }, (g) => g.vcpu || 0);
+    assert.deepEqual(doSort([SORT_EMPTY_GROUP, SORT_FULL_GROUP, zero]).map((g) => g.type), expected, dir);
+  }
+});
+
+test('a measured zero opt gain sorts as a real value, not as absent', () => {
+  const makeSort = loadSort();
+  const zero = { type: 'zero', provider: 'aws', modes: { 'forward-pps-exit-k8s-opton': { forwarding_optimization: { state: 'on', gain_pct: 0 } } } };
+  for (const [dir, expected] of [['asc', ['zero', 'full', 'empty']], ['desc', ['full', 'zero', 'empty']]]) {
+    const { doSort } = makeSort({ sort: 'optgain', dir }, (g) => g.vcpu || 0);
+    assert.deepEqual(doSort([SORT_EMPTY_GROUP, SORT_FULL_GROUP, zero]).map((g) => g.type), expected, dir);
+  }
+});
+
+// A present record holding a zero is the shape these guard against: fortio
+// leaves QPS/P99LatencyMs at 0 when the duration histogram came back empty
+// (both are non-omitempty floats), RelayResult.PeerRelay is omitempty and only
+// written once that path was confirmed active, and PPSSize.UsablePPS is 0 when
+// no offered rate stayed under the loss threshold. Each of these renders "—"
+// in the table, so none may outrank a row that shows a number.
+const PRESENT_BUT_UNMEASURED = [
+  ['p99', { 'l7-ingress-h1': { fortio_result: { qps: 0, p99_latency_ms: 0 } } }],
+  ['qps', { 'l7-ingress-h1': { fortio_result: { qps: 0, p99_latency_ms: 0 } } }],
+  ['fpps', { 'forward-pps-exit': { forward_pps: { sizes: [{ label: 'imix-avg', usable_pps: 0 }] } } }],
+  ['relaypps', { 'relay-throughput': { relay: { direct: { path: 'direct', pps: { sizes: [{ label: 'imix-avg', usable_pps: 900 }] } } } } }],
+];
+
+test('a present record with no usable measurement sorts last, not first', () => {
+  const makeSort = loadSort();
+  for (const [column, modes] of PRESENT_BUT_UNMEASURED) {
+    const unmeasured = { type: 'unmeasured', provider: 'aws', price: 0.5, modes };
+    for (const dir of ['asc', 'desc']) {
+      const { doSort } = makeSort({ sort: column, dir }, (g) => g.vcpu || 0);
+      const sorted = doSort([unmeasured, SORT_FULL_GROUP]).map((g) => g.type);
+      assert.deepEqual(sorted, ['full', 'unmeasured'], `${column} ${dir}`);
+    }
+  }
+});
+
+test('per-dollar rows reject a present record with no usable measurement', () => {
+  const makeSort = loadSort();
+  const { hasPerDollarData } = makeSort({ sort: 'vcpus', dir: 'asc' }, (g) => g.vcpu || 0);
+  const zeroQPS = { price: 0.5, modes: { 'l7-ingress-h1': { fortio_result: { qps: 0, p99_latency_ms: 0 } } } };
+  const zeroPPS = { price: 0.5, modes: { 'forward-pps-exit': { forward_pps: { sizes: [{ label: 'imix-avg', usable_pps: 0 }] } } } };
+  assert.equal(hasPerDollarData(zeroQPS, 'qps'), false);
+  assert.equal(hasPerDollarData(zeroPPS, 'pps'), false);
+});
+
+test('string columns are unaffected by the absent-row handling', () => {
+  const makeSort = loadSort();
+  for (const [dir, expected] of [['asc', ['aws', 'gcp']], ['desc', ['gcp', 'aws']]]) {
+    const { doSort } = makeSort({ sort: 'provider', dir }, (g) => g.vcpu || 0);
+    assert.deepEqual(doSort([SORT_EMPTY_GROUP, SORT_FULL_GROUP]).map((g) => g.provider), expected, dir);
+  }
+});
+
+test('sortVal carries no sentinel magic numbers', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const start = html.indexOf('  function sortVal(g) {');
+  const end = html.indexOf('  function doSort(arr) {', start);
+  assert.notEqual(start, -1, 'sortVal is missing');
+  assert.notEqual(end, -1, 'sortVal boundary is missing');
+  const sortValSource = html.slice(start, end);
+  for (const sentinel of ['999999', '999', 'Infinity']) {
+    assert.ok(!sortValSource.includes(sentinel), `sortVal still uses sentinel ${sentinel}`);
+  }
+});
+
+// Extract the cost-view gating helpers (metric options and the priced-groups
+// filter) as pure functions so tests can drive them with synthetic fixtures.
+function loadCostPerDollarMetrics() {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const startMarker = '  function costPerDollarMetrics(data, hasFwdPPS) {';
+  const endMarker = '  var costMetrics = costPerDollarMetrics(TAILBENCH_DATA, hasForwardPPS);';
+  const start = html.indexOf(startMarker);
+  const end = html.indexOf(endMarker, start);
+  assert.notEqual(start, -1, 'cost per-dollar metric gating is missing');
+  assert.notEqual(end, -1, 'cost per-dollar metric gating boundary is missing');
+
+  const functionSource = html.slice(start, end).trim();
+  return vm.runInNewContext(`(${functionSource})`);
+}
+
+function loadPricedGroups() {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const startMarker = '  function pricedGroups(groups) {';
+  const endMarker = '  function renderChartTabs() {';
+  const start = html.indexOf(startMarker);
+  const end = html.indexOf(endMarker, start);
+  assert.notEqual(start, -1, 'priced-groups filter is missing');
+  assert.notEqual(end, -1, 'priced-groups filter boundary is missing');
+
+  const functionSource = html.slice(start, end).trim();
+  return vm.runInNewContext(`(${functionSource})`);
+}
+
+test('cost view selector offers the ranked and absolute price views', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  assert.match(html, /\{id:'perdollar',label:'Performance per dollar'\}/);
+  assert.match(html, /\{id:'price',label:'Absolute \$\/hr'\}/);
+  assert.match(html, /if \(state\.costView==='perdollar'\) renderCostPerDollarChart\(ctx\);/);
+  assert.match(html, /else if \(state\.costView==='price'\) renderCostPriceChart\(ctx\);/);
+});
+
+test('per-dollar metric options are gated on their underlying data', () => {
+  const costPerDollarMetrics = loadCostPerDollarMetrics();
+  // vm-realm arrays fail deepStrictEqual on prototype, so copy them out.
+  const ids = (metrics) => Array.from(metrics.map((m) => m.id));
+
+  assert.deepEqual(ids(costPerDollarMetrics([{ transport_mode: 'l4-kernel' }], false)), ['gbps']);
+  assert.deepEqual(ids(costPerDollarMetrics([{ transport_mode: 'l4-kernel' }], true)), ['gbps', 'pps']);
+  assert.deepEqual(
+    ids(costPerDollarMetrics([{ fortio_result: { qps: 100 } }], false)),
+    ['gbps', 'qps'],
+  );
+  assert.deepEqual(
+    ids(costPerDollarMetrics([{ fortio_result: { qps: 100 } }], true)),
+    ['gbps', 'pps', 'qps'],
+  );
+});
+
+test('unpriced groups are excluded from the ranked cost views', () => {
+  const pricedGroups = loadPricedGroups();
+  const groups = [
+    { type: 'priced', price: 0.2088 },
+    { type: 'zero', price: 0 },
+    { type: 'missing' },
+    { type: 'null', price: null },
+  ];
+  assert.deepEqual(pricedGroups(groups).map((g) => g.type), ['priced']);
+});
+
+test('per-dollar values divide by price only when a price exists', () => {
+  const makeSort = loadSort();
+  const { perDollarValue } = makeSort({ sort: 'vcpus', dir: 'asc' }, (g) => g.vcpu || 0);
+
+  const priced = {
+    price: 0.5,
+    modes: {
+      'l4-kernel': {
+        tailscale_tcp: { summary: { bandwidth_mbps_avg: 1000 } },
+        fortio_result: { qps: 200 },
+      },
+      'forward-pps-exit': { forward_pps: { sizes: [{ label: 'imix-avg', usable_pps: 4000 }] } },
+    },
+  };
+  assert.equal(perDollarValue(priced, 'gbps'), 2, 'Gbps/$ is bandwidth/1000/price');
+  assert.equal(perDollarValue(priced, 'pps'), 8000);
+  assert.equal(perDollarValue(priced, 'qps'), 400);
+
+  const unpriced = { modes: priced.modes };
+  for (const metric of ['gbps', 'pps', 'qps']) {
+    assert.equal(perDollarValue(unpriced, metric), 0, `${metric} without a price is 0, not Infinity`);
+  }
+});
+
+test('per-dollar rows require the selected metric\'s measurement', () => {
+  const makeSort = loadSort();
+  const { hasPerDollarData } = makeSort({ sort: 'vcpus', dir: 'asc' }, (g) => g.vcpu || 0);
+
+  const bwOnly = { modes: { 'l4-kernel': { tailscale_tcp: { summary: { bandwidth_mbps_avg: 1000 } } } } };
+  assert.equal(hasPerDollarData(bwOnly, 'gbps'), true);
+  assert.equal(hasPerDollarData(bwOnly, 'pps'), false);
+  assert.equal(hasPerDollarData(bwOnly, 'qps'), false);
+});
+
+test('per-dollar axis states the exact charted unit', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  assert.match(html, /gbps:'Gbps per \$\/hr', pps:'usable pps per \$\/hr', qps:'QPS per \$\/hr'/);
+  assert.match(html, /title:\{display:true,text:perDollarUnits\[metric\]/);
+});
+
+// A metric stays selectable while any record in the whole dataset carries it,
+// so filtering to a provider that never ran that benchmark leaves priced rows
+// on screen and nothing to plot. Blaming the filter there is simply wrong.
+test('the per-dollar empty state separates an unmatched filter from an unmeasured metric', () => {
+  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const start = html.indexOf('  function renderCostPerDollarChart(ctx) {');
+  const end = html.indexOf('  function renderCostPriceChart(ctx) {', start);
+  assert.notEqual(start, -1, 'per-dollar chart is missing');
+  assert.notEqual(end, -1, 'per-dollar chart boundary is missing');
+  const source = html.slice(start, end);
+
+  assert.match(source, /priced\.length[\s\S]*?among the priced instances in this filter/);
+  assert.match(source, /'No priced results match the current filters'/);
+  assert.match(source, /title:rows\.length\?\{display:false\}:\{display:true,text:emptyText/);
+  assert.match(html, /perDollarMeasure = \{gbps:'throughput', pps:'forwarding-pps', qps:'load-test'\}/);
+
+  // The absolute-price view has only one way to come up empty, so it keeps the
+  // filter wording.
+  const priceChart = html.slice(end, html.indexOf('  function renderCostScatterChart(ctx) {', end));
+  assert.match(priceChart, /text:'No priced results match the current filters'/);
+});
