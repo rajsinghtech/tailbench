@@ -6,47 +6,56 @@ const path = require('node:path');
 const test = require('node:test');
 const vm = require('node:vm');
 
-function loadContainsK8sForwardPPS() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function containsK8sForwardPPS(data) {';
-  const endMarker = '  var hasK8sForwardPPS = containsK8sForwardPPS(TAILBENCH_DATA);';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'dashboard K8s forwarding predicate is missing');
-  assert.notEqual(end, -1, 'dashboard K8s forwarding predicate boundary is missing');
+// The dashboard is one self-contained HTML file, so these tests drive its
+// behaviour by slicing named blocks out of the source and evaluating them in a
+// bare realm. Read the file once: every extractor is a pure function of its
+// text, and the suite would otherwise re-read ~90KB dozens of times.
+const DASHBOARD_HTML = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+const dashboardHTML = () => DASHBOARD_HTML;
 
-  const functionSource = html.slice(start, end).trim();
-  return vm.runInNewContext(`(${functionSource})`);
+// Every extractor shares this shape: locate two markers, assert both were
+// found, return the source between them. Markers are exact source text, so a
+// rename that moves a block fails loudly here rather than silently testing an
+// empty string.
+function extractBlock(startMarker, endMarker, label) {
+  const start = DASHBOARD_HTML.indexOf(startMarker);
+  const end = DASHBOARD_HTML.indexOf(endMarker, start);
+  assert.notEqual(start, -1, `${label} block is missing`);
+  assert.notEqual(end, -1, `${label} block boundary is missing`);
+  return DASHBOARD_HTML.slice(start, end).trim();
+}
+
+// Extract a single standalone function and return it as a callable.
+function extractFunction(startMarker, endMarker, label) {
+  return vm.runInNewContext(`(${extractBlock(startMarker, endMarker, label)})`);
+}
+
+function loadContainsK8sForwardPPS() {
+  return extractFunction(
+    '  function containsK8sForwardPPS(data) {',
+    '  var hasK8sForwardPPS = containsK8sForwardPPS(TAILBENCH_DATA);',
+    'dashboard K8s forwarding predicate',
+  );
 }
 
 function loadContainsPricing() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function containsPricing(data) {';
-  const endMarker = '  var hasPricing = containsPricing(TAILBENCH_DATA);';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'dashboard pricing predicate is missing');
-  assert.notEqual(end, -1, 'dashboard pricing predicate boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
-  return vm.runInNewContext(`(${functionSource})`);
+  return extractFunction(
+    '  function containsPricing(data) {',
+    '  var hasPricing = containsPricing(TAILBENCH_DATA);',
+    'dashboard pricing predicate',
+  );
 }
 
 function loadCostPerformance() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function costPerformance(g) {';
-  const endMarker = '  function bestQPS(g) {';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'cost performance helper is missing');
-  assert.notEqual(end, -1, 'cost performance helper boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
-  return vm.runInNewContext(`(${functionSource})`);
+  return extractFunction(
+    '  function costPerformance(g) {',
+    '  function bestQPS(g) {',
+    'cost performance helper',
+  );
 }
 
 test('dashboard inline script parses', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const match = html.match(/<script>\n(\(function\(\) \{[\s\S]*?\n\}\)\(\);)\n<\/script>/);
   assert.ok(match, 'dashboard inline script is missing');
   assert.doesNotThrow(() => new vm.Script(match[1]));
@@ -77,7 +86,7 @@ test('K8s forwarding mode without results does not expose the chart', () => {
 });
 
 test('K8s A/B chart tab uses the K8s-specific result gate', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(
     html,
     /if \(hasK8sForwardPPS\) tabs\.push\(\{id:'forwardpps',label:'K8s Forward PPS \(A\/B\)'\}\);/,
@@ -89,7 +98,7 @@ test('K8s A/B chart tab uses the K8s-specific result gate', () => {
 });
 
 test('optimization gain surfaces use the persisted aggregate field', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(
     html,
     /var hasForwardingOptimization = TAILBENCH_DATA\.some\(function\(d\)\{ return d\.forwarding_optimization; \}\);/,
@@ -109,7 +118,7 @@ test('optimization gain surfaces use the persisted aggregate field', () => {
 });
 
 test('mode breakdown labels all forwarding topologies and states', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(
     html,
     /'forward-pps-exit','forward-pps-exit-k8s','forward-pps-exit-k8s-opton'/,
@@ -136,7 +145,7 @@ test('cost tab appears when any result carries a price', () => {
 });
 
 test('cost tab registration is gated on pricing data', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(
     html,
     /if \(hasPricing\) tabs\.push\(\{id:'cost',label:'Cost'\}\);/,
@@ -157,42 +166,40 @@ test('cost chart includes load-balancer-only throughput', () => {
   assert.equal(performance.metric, 'lbqps');
   assert.equal(performance.value, qps / 1000);
 
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(html, /function renderCostScatterChart\(ctx\) \{[\s\S]*?var performance = costPerformance\(g\);/);
   assert.match(html, /text:'Load-balancer throughput \(kreq\/s\)'/);
 });
 
 test('headline stats include cost and forwarding efficiency', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   assert.match(html, /<div class="stat-label">Avg cost<\/div>/);
   assert.match(html, /<div class="stat-label">Best pps\/\$<\/div>/);
 });
 
 // Extract tableCols() with its gating flags injected as parameters so tests
-// can drive the base/forwarding/relay/combined column combinations with
-// synthetic flags instead of a full dashboard dataset.
+// can drive the base/pricing/forwarding/relay/combined column combinations
+// with synthetic flags instead of a full dashboard dataset.
 function loadTableCols() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function tableCols() {';
-  const endMarker = '\n\n  function renderHead() {';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'dashboard tableCols definition is missing');
-  assert.notEqual(end, -1, 'dashboard tableCols boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
-  const factory = vm.runInNewContext(
-    `(function(hasForwardPPS, hasForwardingOptimization, hasRelay) { return (${functionSource}); })`,
+  const functionSource = extractBlock(
+    '  function tableCols() {',
+    '\n\n  function renderHead() {',
+    'dashboard tableCols definition',
   );
-  return (hasForwardPPS, hasForwardingOptimization, hasRelay) =>
-    JSON.parse(JSON.stringify(factory(hasForwardPPS, hasForwardingOptimization, hasRelay)()));
+  const factory = vm.runInNewContext(
+    `(function(hasUsableForwardPPS, hasForwardingOptimization, hasRelay, hasPricing, hasBWResults, hasQPSResults) { return (${functionSource}); })`,
+  );
+  return (hasUsableForwardPPS, hasForwardingOptimization, hasRelay, hasPricing, hasBWResults, hasQPSResults) =>
+    JSON.parse(JSON.stringify(
+      factory(hasUsableForwardPPS, hasForwardingOptimization, hasRelay, hasPricing, hasBWResults, hasQPSResults)(),
+    ));
 }
 
 // Extract the conditional chart-tab block (L7 bytes, K8s forwarding A/B,
 // peer relay) and evaluate it against a synthetic TAILBENCH_DATA fixture,
 // returning the tab ids the dashboard would expose.
 function loadTabGatingSource() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const startMarker = '  var hasL7Bytes = ';
   const endMarker = "  if (hasRelay) tabs.push({id:'relay',label:'Peer Relay'});";
   const start = html.indexOf(startMarker);
@@ -218,13 +225,43 @@ const L4_RECORD = {
 
 test('base fixture renders only the standard table columns', () => {
   const makeCols = loadTableCols();
-  const keys = makeCols(false, false, false).map((c) => c.k);
+  const keys = makeCols(false, false, false, false, false, false).map((c) => c.k);
   assert.deepEqual(keys, ['type', 'provider', 'vcpus', 'price', 'bw', 'overhead', 'qps', 'p99', '', '']);
+});
+
+test('pricing plus throughput fixture adds the Gbps/$ column only', () => {
+  const makeCols = loadTableCols();
+  const keys = makeCols(false, false, false, true, true, false).map((c) => c.k);
+  assert.deepEqual(keys.slice(8, 9), ['gbpsdollar']);
+  assert.ok(!keys.includes('qpsdollar'), 'QPS/$ stays gated on load-test data');
+});
+
+test('pricing plus load-test fixture adds both per-dollar columns', () => {
+  const makeCols = loadTableCols();
+  const keys = makeCols(false, false, false, true, true, true).map((c) => c.k);
+  assert.deepEqual(keys.slice(8, 10), ['gbpsdollar', 'qpsdollar']);
+});
+
+// Pricing alone says nothing about throughput existing. A priced dataset of
+// only l4-lb / l7-* modes has no bestBW anywhere, so an ungated Gbps/$ column
+// would render "—" on every single row.
+test('priced dataset with no L4 throughput omits the Gbps/$ column', () => {
+  const makeCols = loadTableCols();
+  const keys = makeCols(false, false, false, true, false, true).map((c) => c.k);
+  assert.ok(!keys.includes('gbpsdollar'), 'Gbps/$ is gated on throughput, not just pricing');
+  assert.deepEqual(keys.slice(8, 9), ['qpsdollar'], 'QPS/$ still stands on its own');
+});
+
+test('unpriced dataset never carries a per-dollar column', () => {
+  const makeCols = loadTableCols();
+  const keys = makeCols(true, true, true, false, true, true).map((c) => c.k);
+  assert.ok(!keys.includes('gbpsdollar'));
+  assert.ok(!keys.includes('qpsdollar'));
 });
 
 test('forwarding fixture adds usable-pps and pps-per-dollar columns', () => {
   const makeCols = loadTableCols();
-  const keys = makeCols(true, false, false).map((c) => c.k);
+  const keys = makeCols(true, false, false, false, false, false).map((c) => c.k);
   assert.deepEqual(keys.slice(8, 10), ['fpps', 'ppsdollar']);
   assert.ok(!keys.includes('optgain'), 'opt gain stays gated on comparison data');
   assert.ok(!keys.includes('relaypps'), 'relay columns stay gated on relay data');
@@ -232,16 +269,16 @@ test('forwarding fixture adds usable-pps and pps-per-dollar columns', () => {
 
 test('relay fixture adds relay columns without requiring forwarding data', () => {
   const makeCols = loadTableCols();
-  const keys = makeCols(false, false, true).map((c) => c.k);
+  const keys = makeCols(false, false, true, false, false, false).map((c) => c.k);
   assert.deepEqual(keys.slice(8, 10), ['relaypps', 'relayppsdollar']);
   assert.ok(!keys.includes('fpps'), 'forwarding columns stay gated on forwarding data');
 });
 
 test('combined fixture stacks every gated column in order', () => {
   const makeCols = loadTableCols();
-  const keys = makeCols(true, true, true).map((c) => c.k);
-  assert.deepEqual(keys.slice(8, 13), ['fpps', 'ppsdollar', 'optgain', 'relaypps', 'relayppsdollar']);
-  assert.equal(keys.length, 15, 'detail-row colspan covers every gated column');
+  const keys = makeCols(true, true, true, true, true, true).map((c) => c.k);
+  assert.deepEqual(keys.slice(8, 15), ['gbpsdollar', 'qpsdollar', 'fpps', 'ppsdollar', 'optgain', 'relaypps', 'relayppsdollar']);
+  assert.equal(keys.length, 17, 'detail-row colspan covers every gated column');
 });
 
 test('base fixture exposes only the default chart tabs', () => {
@@ -278,7 +315,7 @@ test('combined fixture stacks every conditional tab in order', () => {
 });
 
 function dashboardCss() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const match = html.match(/<style>([\s\S]*?)<\/style>/);
   assert.ok(match, 'dashboard style block is missing');
   return match[1];
@@ -289,7 +326,7 @@ function escapeRegExp(s) {
 }
 
 function dashboardScript() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const match = html.match(/<script>\n(\(function\(\) \{[\s\S]*?\n\}\)\(\);)\n<\/script>/);
   assert.ok(match, 'dashboard inline script is missing');
   return match[1];
@@ -382,17 +419,13 @@ test('chart axis ticks stay on the readable text tier', () => {
 // to a caller-supplied state, so tests can drive every sort column and both
 // directions without a full dashboard render.
 function loadSort() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function bestBW(g) {';
-  const endMarker = '  // ===== CHARTS =====';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'dashboard summary helpers are missing');
-  assert.notEqual(end, -1, 'dashboard sort block boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
+  const functionSource = extractBlock(
+    '  function bestBW(g) {',
+    '  // ===== CHARTS =====',
+    'dashboard summary helpers',
+  );
   return vm.runInNewContext(
-    `(function(state, vcpu) { ${functionSource}\nreturn { sortVal: sortVal, doSort: doSort, perDollarValue: perDollarValue, hasPerDollarData: hasPerDollarData }; })`,
+    `(function(state, vcpu) { ${functionSource}\nreturn { sortVal: sortVal, doSort: doSort, perDollarValue: perDollarValue, hasPerDollarData: hasPerDollarData, perDollarMetrics: perDollarMetrics }; })`,
   );
 }
 
@@ -415,7 +448,7 @@ const SORT_FULL_GROUP = {
 };
 const SORT_EMPTY_GROUP = { type: 'empty', provider: 'gcp', vcpu: 2, modes: {} };
 
-const METRIC_SORT_COLUMNS = ['price', 'bw', 'qps', 'p99', 'overhead', 'fpps', 'ppsdollar', 'optgain', 'relaypps', 'relayppsdollar'];
+const METRIC_SORT_COLUMNS = ['price', 'bw', 'gbpsdollar', 'qps', 'qpsdollar', 'p99', 'overhead', 'fpps', 'ppsdollar', 'optgain', 'relaypps', 'relayppsdollar'];
 
 test('rows with no measurement sort last in both directions for every metric column', () => {
   const makeSort = loadSort();
@@ -491,7 +524,7 @@ test('string columns are unaffected by the absent-row handling', () => {
 });
 
 test('sortVal carries no sentinel magic numbers', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const start = html.indexOf('  function sortVal(g) {');
   const end = html.indexOf('  function doSort(arr) {', start);
   assert.notEqual(start, -1, 'sortVal is missing');
@@ -504,55 +537,120 @@ test('sortVal carries no sentinel magic numbers', () => {
 
 // Extract the cost-view gating helpers (metric options and the priced-groups
 // filter) as pure functions so tests can drive them with synthetic fixtures.
+// Bound to a caller-supplied metric table so the gating can be driven with
+// synthetic predicates rather than the real dataset.
 function loadCostPerDollarMetrics() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function costPerDollarMetrics(data, hasFwdPPS) {';
-  const endMarker = '  var costMetrics = costPerDollarMetrics(TAILBENCH_DATA, hasForwardPPS);';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'cost per-dollar metric gating is missing');
-  assert.notEqual(end, -1, 'cost per-dollar metric gating boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
-  return vm.runInNewContext(`(${functionSource})`);
+  const source = extractBlock(
+    '  function costPerDollarMetrics(groups) {',
+    '  var costMetrics = costPerDollarMetrics(allGroups);',
+    'cost per-dollar metric gating',
+  );
+  return vm.runInNewContext(
+    `(function(perDollarMetrics) { ${source}\nreturn costPerDollarMetrics; })`,
+  );
 }
 
 function loadPricedGroups() {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  const startMarker = '  function pricedGroups(groups) {';
-  const endMarker = '  function renderChartTabs() {';
-  const start = html.indexOf(startMarker);
-  const end = html.indexOf(endMarker, start);
-  assert.notEqual(start, -1, 'priced-groups filter is missing');
-  assert.notEqual(end, -1, 'priced-groups filter boundary is missing');
-
-  const functionSource = html.slice(start, end).trim();
-  return vm.runInNewContext(`(${functionSource})`);
+  return extractFunction(
+    '  function pricedGroups(groups) {',
+    '  function renderChartTabs() {',
+    'priced-groups filter',
+  );
 }
 
 test('cost view selector offers the ranked and absolute price views', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  assert.match(html, /\{id:'perdollar',label:'Performance per dollar'\}/);
-  assert.match(html, /\{id:'price',label:'Absolute \$\/hr'\}/);
-  assert.match(html, /if \(state\.costView==='perdollar'\) renderCostPerDollarChart\(ctx\);/);
-  assert.match(html, /else if \(state\.costView==='price'\) renderCostPriceChart\(ctx\);/);
+  const html = dashboardHTML();
+  assert.match(html, /\{id:'perdollar',label:'Performance per dollar',render:renderCostPerDollarChart\}/);
+  assert.match(html, /\{id:'price',label:'Absolute \$\/hr',render:renderCostPriceChart\}/);
+});
+
+// Each view carries its own renderer, so a view cannot be registered without
+// one. The previous if/else chain fell through to the scatter chart, which
+// rendered the wrong chart under the selected view's label.
+test('every cost view carries a renderer and dispatch goes through the list', () => {
+  const html = dashboardHTML();
+  const source = extractBlock(
+    '  function renderCostChart(ctx) {',
+    '\n\n  // Shared shape for the provider-coloured ranked bars',
+    'cost chart dispatch',
+  );
+  assert.match(source, /costViews\.filter\(function\(v\)\{ return v\.id===state\.costView; \}\)\[0\]/);
+  assert.ok(!/state\.costView==='/.test(source), 'no per-view if/else chain remains');
+
+  const registrations = [...html.matchAll(/costViews(?:\.push\(|\s*=\s*\[)\{id:'[a-z]+'[^}]*\}/g)].map((m) => m[0]);
+  assert.equal(registrations.length, 4, 'four cost views are registered');
+  for (const r of registrations) {
+    assert.match(r, /render:render\w+Chart/, `view registration carries a renderer: ${r}`);
+  }
 });
 
 test('per-dollar metric options are gated on their underlying data', () => {
-  const costPerDollarMetrics = loadCostPerDollarMetrics();
+  const bind = loadCostPerDollarMetrics();
+  const metrics = [
+    { id: 'gbps', has: (g) => !!g.bw },
+    { id: 'pps', has: (g) => !!g.pps },
+    { id: 'qps', has: (g) => !!g.qps },
+  ];
   // vm-realm arrays fail deepStrictEqual on prototype, so copy them out.
-  const ids = (metrics) => Array.from(metrics.map((m) => m.id));
+  const ids = (groups) => Array.from(bind(metrics)(groups).map((m) => m.id));
 
-  assert.deepEqual(ids(costPerDollarMetrics([{ transport_mode: 'l4-kernel' }], false)), ['gbps']);
-  assert.deepEqual(ids(costPerDollarMetrics([{ transport_mode: 'l4-kernel' }], true)), ['gbps', 'pps']);
-  assert.deepEqual(
-    ids(costPerDollarMetrics([{ fortio_result: { qps: 100 } }], false)),
-    ['gbps', 'qps'],
-  );
-  assert.deepEqual(
-    ids(costPerDollarMetrics([{ fortio_result: { qps: 100 } }], true)),
-    ['gbps', 'pps', 'qps'],
-  );
+  assert.deepEqual(ids([{ bw: 1 }]), ['gbps']);
+  assert.deepEqual(ids([{ bw: 1 }, { pps: 1 }]), ['gbps', 'pps']);
+  assert.deepEqual(ids([{ bw: 1 }, { qps: 1 }]), ['gbps', 'qps']);
+  assert.deepEqual(ids([{ bw: 1, pps: 1, qps: 1 }]), ['gbps', 'pps', 'qps']);
+  // Gbps/$ is not exempt: a priced dataset of only l4-lb / l7-* modes carries no
+  // L4 throughput, and an ungated Gbps/$ would open the view empty on its own
+  // default metric.
+  assert.deepEqual(ids([{ qps: 1 }]), ['qps']);
+  assert.deepEqual(ids([{}]), [], 'no metric is plottable');
+});
+
+// One descriptor per metric is what stops the column header, the metric
+// selector, the sort key and the per-row skip from disagreeing about whether
+// data exists — the failure this table replaced.
+test('each metric owns its id, sort key, unit, and measurement predicate', () => {
+  const { perDollarMetrics } = loadSort()({ sort: 'vcpus', dir: 'asc' }, () => 0);
+  const table = Array.from(perDollarMetrics.map((m) => [m.id, m.sortKey, m.unit, m.measure]));
+  assert.deepEqual(table, [
+    ['gbps', 'gbpsdollar', 'Gbps per $/hr', 'throughput'],
+    ['pps', 'ppsdollar', 'usable pps per $/hr', 'forwarding-pps'],
+    ['qps', 'qpsdollar', 'QPS per $/hr', 'load-test'],
+  ]);
+  // Every metric's `has` must be exactly `raw > 0` — perDollarValue relies on
+  // that equivalence to evaluate raw once instead of calling both.
+  const measured = { price: 1, modes: {
+    'l4-kernel': { tailscale_tcp: { summary: { bandwidth_mbps_avg: 1000 } }, fortio_result: { qps: 5 } },
+    'forward-pps-exit': { forward_pps: { sizes: [{ label: 'imix-avg', usable_pps: 7 }] } },
+  } };
+  const empty = { price: 1, modes: {} };
+  for (const m of perDollarMetrics) {
+    assert.equal(m.has(measured), m.raw(measured) > 0, `${m.id}: has matches raw>0 when measured`);
+    assert.equal(m.has(empty), m.raw(empty) > 0, `${m.id}: has matches raw>0 when absent`);
+  }
+});
+
+test('the dataset gates reuse the per-row predicates rather than re-deriving them', () => {
+  const html = dashboardHTML();
+  // One predicate per metric, shared by the column header, the metric selector,
+  // and hasPerDollarData. Two answers to "is there data" is how they drift.
+  assert.match(html, /var hasBWResults = allGroups\.some\(hasBWData\);/);
+  assert.match(html, /var hasQPSResults = allGroups\.some\(hasQPSData\);/);
+  assert.match(html, /var hasUsableForwardPPS = allGroups\.some\(hasForwardPPSData\);/);
+  assert.match(html, /if \(hasPricing && hasBWResults\) cols\.push\(\{k:'gbpsdollar'/);
+  assert.match(html, /if \(hasPricing && hasQPSResults\) cols\.push\(\{k:'qpsdollar'/);
+  // The pps columns use the usable-rate predicate too, not record presence.
+  assert.match(html, /if \(hasUsableForwardPPS\) cols\.push\(\{k:'fpps'/);
+  assert.match(html, /costPerDollarMetrics\(allGroups\)/);
+});
+
+test('the per-dollar view is only offered when a metric can plot in it', () => {
+  const html = dashboardHTML();
+  assert.match(html, /if \(costMetrics\.length\) costViews\.push\(\{id:'perdollar'/);
+  // The default metric is 'gbps', which a throughput-free dataset does not
+  // offer, so the fallback has to land on the first available id, not a
+  // hardcoded one.
+  assert.match(html, /state\.costMetric=costMetrics\[0\]\.id;/);
+  assert.ok(!/state\.costMetric='gbps';/.test(html), 'fallback must not hardcode a metric id');
 });
 
 test('unpriced groups are excluded from the ranked cost views', () => {
@@ -601,16 +699,16 @@ test('per-dollar rows require the selected metric\'s measurement', () => {
 });
 
 test('per-dollar axis states the exact charted unit', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
-  assert.match(html, /gbps:'Gbps per \$\/hr', pps:'usable pps per \$\/hr', qps:'QPS per \$\/hr'/);
-  assert.match(html, /title:\{display:true,text:perDollarUnits\[metric\]/);
+  // The unit string comes off the selected metric's descriptor, so the axis
+  // title and the tooltip suffix cannot name different units.
+  assert.match(dashboardHTML(), /title:\{display:true,text:m\.unit/);
 });
 
 // A metric stays selectable while any record in the whole dataset carries it,
 // so filtering to a provider that never ran that benchmark leaves priced rows
 // on screen and nothing to plot. Blaming the filter there is simply wrong.
 test('the per-dollar empty state separates an unmatched filter from an unmeasured metric', () => {
-  const html = fs.readFileSync(path.join(__dirname, 'index.html'), 'utf8');
+  const html = dashboardHTML();
   const start = html.indexOf('  function renderCostPerDollarChart(ctx) {');
   const end = html.indexOf('  function renderCostPriceChart(ctx) {', start);
   assert.notEqual(start, -1, 'per-dollar chart is missing');
@@ -619,11 +717,378 @@ test('the per-dollar empty state separates an unmatched filter from an unmeasure
 
   assert.match(source, /priced\.length[\s\S]*?among the priced instances in this filter/);
   assert.match(source, /'No priced results match the current filters'/);
-  assert.match(source, /title:rows\.length\?\{display:false\}:\{display:true,text:emptyText/);
-  assert.match(html, /perDollarMeasure = \{gbps:'throughput', pps:'forwarding-pps', qps:'load-test'\}/);
+  assert.match(source, /title:emptyTitle\(rows\.length,emptyText\)/);
+  // The missing benchmark is named from the metric's own descriptor.
+  assert.match(source, /'No '\+m\.measure\+' results among the priced instances in this filter'/);
 
   // The absolute-price view has only one way to come up empty, so it keeps the
   // filter wording.
   const priceChart = html.slice(end, html.indexOf('  function renderCostScatterChart(ctx) {', end));
-  assert.match(priceChart, /text:'No priced results match the current filters'/);
+  assert.match(priceChart, /emptyTitle\(rows\.length,'No priced results match the current filters'\)/);
+});
+
+// Extract the cost-of-overhead helpers as pure functions so tests can drive
+// the triple precondition (price + baseline + Tailscale throughput) with
+// synthetic groups instead of a full dashboard dataset.
+function loadOverheadCost() {
+  const html = dashboardHTML();
+  const startMarker = '  function overheadCostInputs(g) {';
+  const endMarker = '\n\n  // Sort';
+  const start = html.indexOf(startMarker);
+  const end = html.indexOf(endMarker, start);
+  assert.notEqual(start, -1, 'overhead-cost helpers are missing');
+  assert.notEqual(end, -1, 'overhead-cost helpers boundary is missing');
+
+  const functionSource = html.slice(start, end).trim();
+  return vm.runInNewContext(
+    `(function() { ${functionSource}\nreturn { overheadCostInputs: overheadCostInputs, overheadCost: overheadCost }; })()`,
+  );
+}
+
+const OVERHEAD_GROUP = {
+  type: 'full', provider: 'aws', price: 1,
+  modes: {
+    'l4-kernel': {
+      baseline_tcp: { summary: { bandwidth_mbps_avg: 1000 } },
+      tailscale_tcp: { summary: { bandwidth_mbps_avg: 800 } },
+    },
+  },
+};
+
+test('overhead-cost predicate requires price plus both sides of the L4 pair', () => {
+  const { overheadCostInputs } = loadOverheadCost();
+  assert.ok(overheadCostInputs(OVERHEAD_GROUP), 'all three inputs present');
+
+  const noPrice = { ...OVERHEAD_GROUP, price: 0 };
+  assert.equal(overheadCostInputs(noPrice), null, 'no price');
+
+  const noBaseline = {
+    price: 1,
+    modes: { 'l4-kernel': { tailscale_tcp: { summary: { bandwidth_mbps_avg: 800 } } } },
+  };
+  assert.equal(overheadCostInputs(noBaseline), null, 'price without baseline');
+
+  const noTailscale = {
+    price: 1,
+    modes: { 'l4-kernel': { baseline_tcp: { summary: { bandwidth_mbps_avg: 1000 } } } },
+  };
+  assert.equal(overheadCostInputs(noTailscale), null, 'price without Tailscale');
+});
+
+test('overhead-cost predicate falls back to the userspace L4 entry', () => {
+  const { overheadCostInputs } = loadOverheadCost();
+  const userspace = {
+    price: 1,
+    modes: {
+      'l4-userspace': {
+        baseline_tcp: { summary: { bandwidth_mbps_avg: 500 } },
+        tailscale_tcp: { summary: { bandwidth_mbps_avg: 400 } },
+      },
+    },
+  };
+  // vm-realm objects fail deepStrictEqual on prototype, so compare field values.
+  const inputs = overheadCostInputs(userspace);
+  assert.equal(inputs.price, 1);
+  assert.equal(inputs.baseline, 500);
+  assert.equal(inputs.tailscale, 400);
+});
+
+test('zero bandwidth on either side yields no overhead cost, not Infinity or NaN', () => {
+  const { overheadCost } = loadOverheadCost();
+  for (const side of ['baseline_tcp', 'tailscale_tcp']) {
+    const group = {
+      price: 1,
+      modes: {
+        'l4-kernel': {
+          baseline_tcp: { summary: { bandwidth_mbps_avg: 1000 } },
+          tailscale_tcp: { summary: { bandwidth_mbps_avg: 800 } },
+          [side]: { summary: { bandwidth_mbps_avg: 0 } },
+        },
+      },
+    };
+    const cost = overheadCost(group);
+    assert.equal(cost, null, `${side} at zero`);
+    if (cost) {
+      assert.ok(Number.isFinite(cost.baseline) && Number.isFinite(cost.tailscale));
+    }
+  }
+});
+
+test('overhead cost derives $/Gbps, the gap, and wasted spend from raw bandwidths', () => {
+  const { overheadCost } = loadOverheadCost();
+  const cost = overheadCost(OVERHEAD_GROUP);
+  assert.equal(cost.baseline, 1, '$1/hr at 1 Gbps baseline');
+  assert.equal(cost.tailscale, 1.25, '$1/hr at 0.8 Gbps through Tailscale');
+  assert.equal(cost.gap, 0.25);
+  assert.ok(Math.abs(cost.wasted - 0.2) < 1e-12, 'the 20% baseline-relative overhead as spend');
+});
+
+test('cost-of-overhead view is gated on the triple and carries its renderer', () => {
+  const html = dashboardHTML();
+  assert.match(
+    html,
+    /if \(allGroups\.some\(function\(g\)\{ return !!overheadCostInputs\(g\); \}\)\) \{\s*costViews\.push\(\{id:'overhead',label:'Cost of overhead',render:renderCostOverheadChart\}\);/,
+  );
+});
+
+// The tooltip is a pure function of one row, so assert on what it produces
+// rather than on the presence of phrases in its source — a swapped sign that
+// left the surrounding wording intact would pass a regex check.
+function loadOverheadTooltipLines() {
+  // Bound to the dashboard's own usd(), so the asserted strings are the exact
+  // currency formatting a reader sees.
+  const usdSource = extractBlock('  function usd(p) {', '\n  // usd() is tuned', 'usd formatter');
+  const source = extractBlock(
+    '  function overheadTooltipLines(r) {',
+    '\n\n  function renderCostOverheadChart(ctx) {',
+    'overhead tooltip lines',
+  );
+  return vm.runInNewContext(`(function(){ ${usdSource}\n${source}\nreturn overheadTooltipLines; })()`);
+}
+
+test('overhead-cost tooltip labels both percentage denominators', () => {
+  const overheadTooltipLines = loadOverheadTooltipLines();
+  // $1/hr, 1 Gbps baseline vs 0.8 Gbps Tailscale: +$0.25 per delivered Gbps,
+  // $0.20/hr wasted (20% baseline-relative), cost/Gbps up 25% (Tailscale-relative).
+  const lines = Array.from(overheadTooltipLines({ baseline: 1, tailscale: 1.25, gap: 0.25, wasted: 0.2, price: 1 }));
+  assert.equal(lines.length, 3);
+  assert.match(lines[0], /^Delta: \+\$0\.2500 per delivered Gbps with Tailscale$/);
+  assert.match(lines[1], /^Wasted spend: \$0\.2000\/hr — 20\.0% of the hourly price/);
+  assert.match(lines[1], /baseline-relative, same denominator as the Overhead column/);
+  assert.match(lines[2], /^Cost per delivered Gbps rises 25\.0%/);
+  assert.match(lines[2], /relative to Tailscale throughput/);
+});
+
+test('overhead-cost rows are sorted by the cost gap, widest first', () => {
+  const source = extractBlock(
+    '  function renderCostOverheadChart(ctx) {',
+    '\n\n  function renderCostScatterChart(ctx) {',
+    'overhead-cost chart',
+  );
+  assert.match(source, /rows\.sort\(function\(a,b\)\{ return b\.gap-a\.gap; \}\)/, 'sorted by cost gap descending');
+});
+
+// Extract the price-filter pieces (bucket definitions, bucket test, filtered,
+// and availableFilters) as pure functions bound to caller-supplied groups and
+// state, so bucket boundaries and filter composition are drivable without a
+// full dashboard dataset.
+function loadPriceFilter() {
+  const html = dashboardHTML();
+  const spans = [
+    ['price buckets', '  var priceBuckets = [', '\n\n  // Context-aware filter availability'],
+    ['availableFilters', '  function availableFilters() {', '\n\n  var modeOrder='],
+    ['filtered', '  function filtered() {', '\n\n  // Helpers'],
+  ];
+  let source = '';
+  for (const [name, startMarker, endMarker] of spans) {
+    const start = html.indexOf(startMarker);
+    const end = html.indexOf(endMarker, start);
+    assert.notEqual(start, -1, `${name} block is missing`);
+    assert.notEqual(end, -1, `${name} block boundary is missing`);
+    source += html.slice(start, end) + '\n';
+  }
+  return vm.runInNewContext(
+    `(function(allGroups, state) { ${source}\nreturn { priceBuckets: priceBuckets, priceBucket: priceBucket, filtered: filtered, availableFilters: availableFilters }; })`,
+  );
+}
+
+const PRICE_GROUPS = [
+  { type: 'cheap', provider: 'aws', family: 'c', env: 'vm', price: 0.05 },
+  { type: 'mid', provider: 'gcp', family: 'n', env: 'vm', price: 0.50 },
+  { type: 'unpriced', provider: 'azure', family: 'd', env: 'container', price: 0 },
+];
+const ALL_FILTER_STATE = { provider: 'all', family: 'all', env: 'all', price: 'all' };
+
+test('every priced instance lands in exactly one bucket, boundaries included', () => {
+  const { priceBuckets, priceBucket } = loadPriceFilter()(PRICE_GROUPS, ALL_FILTER_STATE);
+  const cases = [
+    [0.0428, 'lt010'], [0.0999, 'lt010'],
+    [0.10, '010to050'], [0.4999, '010to050'],
+    [0.50, '050to100'], [0.9999, '050to100'],
+    [1.00, 'gte100'], [11.376, 'gte100'],
+  ];
+  for (const [price, expected] of cases) {
+    assert.equal(priceBucket({ price }), expected, `$${price}/hr`);
+    // Structural check: the bucket definitions themselves must not overlap or
+    // gap — exactly one [min, max) interval contains the price.
+    const matches = priceBuckets.filter(
+      (b) => (b.min === undefined || price >= b.min) && (b.max === undefined || price < b.max),
+    );
+    assert.equal(matches.length, 1, `$${price}/hr matches ${matches.length} buckets`);
+  }
+});
+
+test('unpriced instances belong to no bucket', () => {
+  const { priceBucket } = loadPriceFilter()(PRICE_GROUPS, ALL_FILTER_STATE);
+  assert.equal(priceBucket({ price: 0 }), null);
+  assert.equal(priceBucket({}), null);
+});
+
+test('All keeps unpriced instances; specific buckets exclude them', () => {
+  const makeFilter = loadPriceFilter();
+  const types = (state) => makeFilter(PRICE_GROUPS, state).filtered().map((g) => g.type);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE }), ['cheap', 'mid', 'unpriced']);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: 'lt010' }), ['cheap']);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: '050to100' }), ['mid']);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: 'gte100' }), []);
+});
+
+test('price filter composes with provider, family, and env filters', () => {
+  const makeFilter = loadPriceFilter();
+  const types = (state) => makeFilter(PRICE_GROUPS, state).filtered().map((g) => g.type);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: 'lt010', provider: 'aws' }), ['cheap']);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: 'lt010', provider: 'gcp' }), []);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: '050to100', env: 'container' }), []);
+  assert.deepEqual(types({ ...ALL_FILTER_STATE, price: '050to100', family: 'n' }), ['mid']);
+});
+
+test('buckets with no matching instances are reported unavailable for dimming', () => {
+  const makeFilter = loadPriceFilter();
+  const avail = makeFilter(PRICE_GROUPS, ALL_FILTER_STATE).availableFilters();
+  assert.equal(avail.prices.lt010, 1);
+  assert.equal(avail.prices['050to100'], 1);
+  assert.equal(avail.prices['010to050'], undefined, 'empty bucket dims');
+  assert.equal(avail.prices.gte100, undefined, 'empty bucket dims');
+});
+
+test('bucket availability follows the other three filters, and vice versa', () => {
+  const makeFilter = loadPriceFilter();
+  // Narrowing to AWS leaves only the cheap bucket available.
+  const awsOnly = makeFilter(PRICE_GROUPS, { ...ALL_FILTER_STATE, provider: 'aws' }).availableFilters();
+  assert.equal(awsOnly.prices.lt010, 1);
+  assert.equal(awsOnly.prices['050to100'], undefined);
+  // Narrowing to the cheap bucket leaves only AWS available as a provider.
+  const cheapOnly = makeFilter(PRICE_GROUPS, { ...ALL_FILTER_STATE, price: 'lt010' }).availableFilters();
+  assert.equal(cheapOnly.provs.AWS, 1);
+  assert.equal(cheapOnly.provs.GCP, undefined);
+  assert.equal(cheapOnly.provs.AZURE, undefined);
+});
+
+test('price filter group renders as chips and is gated on priced data', () => {
+  const html = dashboardHTML();
+  // groupData gives a group a price when any of its records has one, so
+  // hasPricing is the same fact for groups — no second scan is needed.
+  assert.match(html, /if\(hasPricing\) \{\s*h\+='<div class="fg"><label>Price<\/label>';/);
+  assert.ok(!/hasPricedGroups/.test(html), 'no duplicate priced-groups scan');
+  assert.match(html, /data-f="price" data-v="all"/);
+  assert.match(html, /data-f="price" data-v="'\+b\.id\+'"/);
+});
+
+test('per-dollar sort cases follow the absent-value convention', () => {
+  const makeSort = loadSort();
+  for (const column of ['gbpsdollar', 'qpsdollar']) {
+    for (const dir of ['asc', 'desc']) {
+      const { sortVal, doSort } = makeSort({ sort: column, dir }, (g) => g.vcpu || 0);
+      // Unpriced but measured, and priced but unmeasured, both read as absent.
+      const unpriced = { type: 'unpriced', provider: 'aws', modes: SORT_FULL_GROUP.modes };
+      assert.equal(sortVal(unpriced), null, `${column}: unpriced is absent`);
+      assert.equal(sortVal(SORT_EMPTY_GROUP), null, `${column}: unmeasured is absent`);
+      const sorted = doSort([SORT_EMPTY_GROUP, SORT_FULL_GROUP, unpriced]).map((g) => g.type);
+      assert.deepEqual(sorted.slice(0, 1), ['full'], `${column} ${dir}: measured row first`);
+      assert.deepEqual(sorted.slice(1).sort(), ['empty', 'unpriced'], `${column} ${dir}: absent rows last`);
+    }
+  }
+});
+
+test('per-dollar sort values match the per-dollar chart metric', () => {
+  const makeSort = loadSort();
+  const vcpu = (g) => g.vcpu || 0;
+  const gbpsSort = makeSort({ sort: 'gbpsdollar', dir: 'asc' }, vcpu);
+  const qpsSort = makeSort({ sort: 'qpsdollar', dir: 'asc' }, vcpu);
+  // SORT_FULL_GROUP: 1000 Mbps and 100 qps at $0.50/hr.
+  assert.equal(gbpsSort.sortVal(SORT_FULL_GROUP), 2, 'Gbps/$ = Gbps ÷ $/hr');
+  assert.equal(qpsSort.sortVal(SORT_FULL_GROUP), 200, 'QPS/$ = qps ÷ $/hr');
+  const { perDollarValue } = makeSort({ sort: 'vcpus', dir: 'asc' }, vcpu);
+  assert.equal(gbpsSort.sortVal(SORT_FULL_GROUP), perDollarValue(SORT_FULL_GROUP, 'gbps'));
+  assert.equal(qpsSort.sortVal(SORT_FULL_GROUP), perDollarValue(SORT_FULL_GROUP, 'qps'));
+});
+
+test('$/month projection uses the 730-hour basis and states it in the UI', () => {
+  const html = dashboardHTML();
+  // Table-cell tooltip and detail-row meta line, both on the 730 h basis.
+  assert.match(html, /title="\\u2248'\+usd\(g\.price\*730\)\+'\/month \(730 h\/month basis\)"/);
+  assert.match(html, /<strong>Cost:<\/strong> '\+usd\(g\.price\)\+'\/hr \\u00b7 \\u2248'\+usd\(g\.price\*730\)\+'\/month \(730 h\/month basis\)/);
+});
+
+// Extract usdAxis as a pure function. usd() is tuned for a price cell (four
+// decimals); axis ticks span three orders of magnitude here, so the two cannot
+// share a formatter without either rounding the cheap end to $0.00 or padding
+// the expensive end with trailing zeros.
+function loadUsdAxis() {
+  const html = dashboardHTML();
+  const startMarker = '  function usdAxis(v) {';
+  const endMarker = '  function ppsFmt(';
+  const start = html.indexOf(startMarker);
+  const end = html.indexOf(endMarker, start);
+  assert.notEqual(start, -1, 'usdAxis is missing');
+  assert.notEqual(end, -1, 'usdAxis boundary is missing');
+
+  return vm.runInNewContext(`(${html.slice(start, end).trim()})`);
+}
+
+test('currency axis ticks scale precision to the tick magnitude', () => {
+  const usdAxis = loadUsdAxis();
+  assert.equal(usdAxis(0), '$0');
+  // The checked-in dataset spans $0.0024/Gbps to $11.376/hr; every band below
+  // has real ticks in it.
+  assert.equal(usdAxis(0.0024), '$0.0024');
+  assert.equal(usdAxis(0.072), '$0.072');
+  assert.equal(usdAxis(1.25), '$1.25');
+  assert.equal(usdAxis(5.63), '$5.63');
+  assert.equal(usdAxis(12), '$12');
+});
+
+test('currency axes use usdAxis, not the price-cell formatter', () => {
+  const html = dashboardHTML();
+  const ticks = [...html.matchAll(/callback:function\(v\)\{return usd\w*\(v\);\}/g)].map((m) => m[0]);
+  assert.deepEqual(
+    ticks,
+    ['callback:function(v){return usdAxis(v);}', 'callback:function(v){return usdAxis(v);}'],
+    'the $/hr and $/Gbps axes both format with usdAxis',
+  );
+});
+
+test('a negative cost gap is reported as negative overhead, not as wasted spend', () => {
+  const overheadTooltipLines = loadOverheadTooltipLines();
+  // ComputeOverhead does not clamp, so tailscale > baseline is representable.
+  // $0.50/hr at 8 Gbps baseline vs 8.5 Gbps Tailscale: the gap goes negative.
+  const lines = Array.from(overheadTooltipLines({
+    baseline: 0.0625, tailscale: 0.0588, gap: -0.0037, wasted: -0.0313, price: 0.5,
+  }));
+
+  assert.equal(lines.length, 2, 'no wasted-spend line when there is no waste');
+  // The magnitude is printed, never a "$-0.0037" or a "+" in front of a negative.
+  assert.ok(!lines.some((l) => /\$-/.test(l)), 'no negative currency literal');
+  assert.ok(!lines.some((l) => /\+\$/.test(l)), 'no plus sign on a negative delta');
+  assert.match(lines[0], /^Delta: −\$0\.0037 per delivered Gbps/);
+  assert.match(lines[0], /Tailscale measured faster than the baseline on this run/);
+  assert.match(lines[1], /^No wasted spend/);
+  assert.match(lines[1], /cost per delivered Gbps falls 5\.9%/);
+  assert.match(lines[1], /measurement noise, not a speed-up/);
+});
+
+test('overhead cost keeps the sign when Tailscale outruns the baseline', () => {
+  const { overheadCost } = loadOverheadCost();
+  const faster = {
+    price: 0.5,
+    modes: {
+      'l4-kernel': {
+        baseline_tcp: { summary: { bandwidth_mbps_avg: 8000 } },
+        tailscale_tcp: { summary: { bandwidth_mbps_avg: 8500 } },
+      },
+    },
+  };
+  const cost = overheadCost(faster);
+  assert.ok(cost.gap < 0, 'a faster Tailscale run yields a negative gap');
+  assert.ok(cost.wasted < 0, 'and negative wasted spend, which the tooltip must not print as positive');
+  assert.ok(Number.isFinite(cost.gap) && Number.isFinite(cost.wasted));
+});
+
+test('switching cost view restores focus to the view select it replaces', () => {
+  const html = dashboardHTML();
+  // renderChartSub() replaces the bar's innerHTML, destroying the <select>
+  // mid-dispatch; arrow-key navigation fires change per keypress, so focus has
+  // to be put back or the next keypress scrolls the page.
+  assert.match(html, /var refocus = document\.activeElement===this;/);
+  assert.match(html, /if \(refocus\) document\.getElementById\('costView'\)\.focus\(\);/);
 });
