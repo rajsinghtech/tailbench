@@ -380,11 +380,19 @@ they appear only when a record has `forward_pps`.
 
 | Dashboard surface | Definition | Aggregated result field(s) |
 |---|---|---|
-| `$/hr` and Avg cost | Curated Linux, shared-tenancy, on-demand hourly price. The headline tile averages priced instances and also reports the cheapest. | `price_per_hour`, injected by `cmd/aggregate` |
+| `$/hr` and Avg cost | Curated Linux, shared-tenancy, on-demand hourly price. The headline tile averages priced instances and also reports the cheapest. Hovering the cell and the expanded row both project a monthly figure on a 730 h/month basis. | `price_per_hour`, injected by `cmd/aggregate` |
+| `Gbps/$` | Tailscale L4 throughput per hourly dollar, from the same `l4-kernel`/`l4-userspace` entry the `L4 Throughput` column uses. | `tailscale_tcp.summary.bandwidth_mbps_avg / 1000 / price_per_hour` |
+| `QPS/$` | Best measured load-test QPS per hourly dollar. | `fortio_result.qps / price_per_hour` |
 | `Usable pps` | Highest achieved forwarding rate at or below `loss_threshold_pct`. The headline uses the `imix-avg` size (or the highest usable measured size only for legacy results without IMIX) and the best measured `forward-pps-*` mode in the grouped row. | `forward_pps.sizes[].usable_pps` |
 | `pps/$` and Best pps/$ | Headline usable pps divided by on-demand `price_per_hour`; this is packet-rate capacity per hourly dollar, not a workload bill estimate. | `forward_pps.sizes[].usable_pps / price_per_hour` |
 | `Opt gain` | IMIX usable-pps change from K8s ProxyGroup optimizations off to on: `(on - off) / off * 100`. It is computed during aggregation and stored only on the matched optimized record. | `forwarding_optimization.gain_pct`, with `state`, `baseline_mode`, and `baseline_usable_pps`; per-size comparisons are in `forwarding_optimization.sizes[]` |
 | Limiting resource | What capped a forwarding sweep. `instance-pps-cap` means the result may be cloud-limit-bound; `node-cpu` or `proxy-cpu` identifies the measured forwarding node/pod as the bound; `unknown` makes no stronger claim. | `forward_pps.limiting_resource` |
+
+Every per-dollar column is gated on both pricing **and** its own measurement, so
+a dataset that never ran a benchmark does not carry an all-dash column for it.
+Sorting follows the same rule: a row with no measurement for the sorted column
+sorts last in *both* directions, so ascending order never leads with rows that
+have nothing to show.
 
 Forwarding pps sizes a router or exit path (`client -> router/proxy -> sink`);
 it is not endpoint-to-endpoint pps. The mode breakdown always identifies VM
@@ -392,6 +400,44 @@ exit-node versus K8s ProxyGroup topology. For the K8s A/B pair, the
 `forwarding_optimizations` state is shown with the measurement, and `Opt gain`
 is labeled `off→on`. Treat a cloud packet-limit-capped result as a lower bound
 on node capacity, not proof that the node itself saturated.
+
+### Filters
+
+Provider, family, and environment chips are joined by a **Price** chip group
+that buckets instances by on-demand hourly price: `<$0.10`, `$0.10–0.50`,
+`$0.50–1.00`, and `≥$1.00`. Bounds are lower-inclusive and upper-exclusive, so
+every priced instance lands in exactly one bucket. An unpriced instance belongs
+to no bucket: it stays visible under **All** and is excluded from every specific
+bucket, rather than silently disappearing behind a gap in the pricing data. All
+four groups are context-aware — a chip dims when the current selection in the
+other three leaves it empty. The Price group only appears when at least one
+instance is priced.
+
+### Cost tab views
+
+The Cost tab appears once any result carries a price, and offers these views:
+
+| View | What it plots |
+|---|---|
+| Cost vs performance | Scatter of `$/hr` against measured throughput (or load-balancer kreq/s). |
+| Performance per dollar | Ranked bars of `Gbps/$`, `pps/$`, or `QPS/$` — selected per metric, never combined on one axis, because the three differ by orders of magnitude. |
+| Absolute $/hr | Instances ranked by on-demand price alone. |
+| Cost of overhead | Baseline vs Tailscale **effective cost per delivered Gbps** (`$/hr ÷ measured Gbps`), sorted by the gap between them. |
+
+Each view is offered only when something can actually plot in it: the per-dollar
+metric list drops any metric nothing measured, and Cost of overhead requires
+price plus *both* sides of the L4 baseline/Tailscale pair, which is a stronger
+condition than the tab's own pricing gate.
+
+Cost of overhead is derived from the raw bandwidths rather than back-computed
+from `overhead.bandwidth_pct`, so it cannot drift from the `Overhead` column.
+Its tooltip carries two percentages against two different denominators and
+labels both: wasted spend is baseline-relative (the same denominator as the
+`Overhead` column), while the rise in cost per delivered Gbps is relative to
+Tailscale throughput and is therefore the larger number. `ComputeOverhead` does
+not clamp, so a run where Tailscale measured faster than the baseline reports
+negative overhead rather than inverting the sign into a bogus "wasted spend"
+figure — read that as measurement noise, not a speed-up.
 
 ### Reading the overhead number
 
