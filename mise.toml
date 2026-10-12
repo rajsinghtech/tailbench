@@ -14,7 +14,7 @@
 # Keep in sync with the `go` directive in go.mod — CI resolves its toolchain from
 # that file via actions/setup-go `go-version-file`, so a drift here is a drift
 # from CI.
-go = "1.26.5"
+go = "1.26.9"
 
 # `make test-website` runs `node --test website/index.test.js`. CI pins Node 22.
 node = "22"
