@@ -23,7 +23,7 @@ node = "22"
 # Note `make lint-*` invokes .tools/bin/golangci-lint by absolute path and
 # installs it itself, so this entry serves editor integration and ad-hoc runs
 # rather than the lint targets.
-golangci-lint = "2.11.4"
+golangci-lint = "2.15.0"
 
 # ------------------------------------------------------- runtime: all variants
 
