@@ -36,7 +36,7 @@ pulumi = "3"
 
 # internal/k8s shells out to both: kubectl for `apply -k` and pod exec
 # (internal/k8s/kubeexec.go), helm for the Tailscale operator chart.
-kubectl = "1.36"
+kubectl = "1.37.3"
 
 # Pinned to 3.x: internal/k8s/operator.go installs the operator with classic
 # `helm repo add` + `helm upgrade --install`, which Helm 4 deprecates in favor of
